@@ -1,0 +1,14 @@
+# Hosts/IPs the container is allowed to reach outbound, one per line.
+# Blank lines and lines starting with '#' are ignored.
+#
+# Accepted forms of each entry:
+#   example.com              Hostname (resolved via dnsmasq, both A/AAAA)
+#   203.0.113.10              IPv4 address or CIDR (e.g. 203.0.113.0/24)
+#   2001:db8::1               IPv6 address or CIDR
+#
+# Mount this file to /etc/claude/egress-allowlist.txt in the container.
+# A file mount here takes precedence over $CLAUDE_ALLOWED_EGRESS.
+# If neither is set, all outbound traffic is denied by default.
+#
+# Example:
+api.anthropic.com
