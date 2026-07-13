@@ -1,0 +1,101 @@
+#!/bin/bash
+set -euo pipefail
+
+ALLOWLIST_FILE="/etc/claude/egress-allowlist.txt"
+IPSET_NAME="claude_allowed"
+IPSET6_NAME="claude_allowed6"
+
+# --- Determine the effective allowlist -------------------------------------
+# File mount takes precedence over the env var; neither set means deny-all.
+if [ -f "$ALLOWLIST_FILE" ]; then
+    mapfile -t ALLOWLIST < <(grep -v '^\s*#' "$ALLOWLIST_FILE" | grep -v '^\s*$')
+elif [ -n "${CLAUDE_ALLOWED_EGRESS:-}" ]; then
+    IFS=',' read -ra ALLOWLIST <<< "$CLAUDE_ALLOWED_EGRESS"
+else
+    ALLOWLIST=()
+fi
+
+is_ipv4() {
+    [[ "$1" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}(/[0-9]{1,2})?$ ]]
+}
+
+is_ipv6() {
+    [[ "$1" == *:* ]]
+}
+
+if [ "${#ALLOWLIST[@]}" -eq 1 ] && [ "${ALLOWLIST[0]}" = "*" ]; then
+    echo "[entrypoint] CLAUDE_ALLOWED_EGRESS=* — no egress restrictions applied (IPv4 and IPv6)." >&2
+
+elif [ "${#ALLOWLIST[@]}" -eq 0 ]; then
+    echo "[entrypoint] No egress allowlist configured (\$CLAUDE_ALLOWED_EGRESS unset, no $ALLOWLIST_FILE mount)." >&2
+    echo "[entrypoint] Defaulting to deny-all outbound traffic (IPv4 and IPv6). Set CLAUDE_ALLOWED_EGRESS=host1,host2 (or '*' for unrestricted) to change this." >&2
+    iptables -P OUTPUT DROP
+    iptables -A OUTPUT -o lo -j ACCEPT
+    iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+    ip6tables -P OUTPUT DROP
+    ip6tables -A OUTPUT -o lo -j ACCEPT
+    ip6tables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+else
+    echo "[entrypoint] Restricting egress to: ${ALLOWLIST[*]}" >&2
+
+    # Preserve whatever resolvers were in place before we take over DNS.
+    UPSTREAM_DNS=$(grep '^nameserver' /etc/resolv.conf | awk '{print $2}')
+
+    ipset create "$IPSET_NAME" hash:ip family inet -exist
+    ipset create "$IPSET6_NAME" hash:ip family inet6 -exist
+
+    DNSMASQ_CONF=/etc/dnsmasq.claude.conf
+    {
+        echo "no-resolv"
+        echo "listen-address=127.0.0.1"
+        echo "bind-interfaces"
+        for ns in $UPSTREAM_DNS; do
+            echo "server=$ns"
+        done
+    } > "$DNSMASQ_CONF"
+
+    for entry in "${ALLOWLIST[@]}"; do
+        entry="$(echo "$entry" | xargs)" # trim whitespace
+        if is_ipv6 "$entry"; then
+            ipset add "$IPSET6_NAME" "$entry" -exist
+        elif is_ipv4 "$entry"; then
+            ipset add "$IPSET_NAME" "$entry" -exist
+        else
+            # dnsmasq routes A records into the first set and AAAA records
+            # into the second, based on each set's own address family.
+            echo "ipset=/$entry/$IPSET_NAME,$IPSET6_NAME" >> "$DNSMASQ_CONF"
+        fi
+    done
+
+    dnsmasq --conf-file="$DNSMASQ_CONF"
+    echo "nameserver 127.0.0.1" > /etc/resolv.conf
+
+    iptables -P OUTPUT DROP
+    iptables -A OUTPUT -o lo -j ACCEPT
+    iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+    ip6tables -P OUTPUT DROP
+    ip6tables -A OUTPUT -o lo -j ACCEPT
+    ip6tables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+    for ns in $UPSTREAM_DNS; do
+        if is_ipv6 "$ns"; then
+            ip6tables -A OUTPUT -p udp -d "$ns" --dport 53 -j ACCEPT
+            ip6tables -A OUTPUT -p tcp -d "$ns" --dport 53 -j ACCEPT
+        else
+            iptables -A OUTPUT -p udp -d "$ns" --dport 53 -j ACCEPT
+            iptables -A OUTPUT -p tcp -d "$ns" --dport 53 -j ACCEPT
+        fi
+    done
+    iptables -A OUTPUT -m set --match-set "$IPSET_NAME" dst -j ACCEPT
+    ip6tables -A OUTPUT -m set --match-set "$IPSET6_NAME" dst -j ACCEPT
+fi
+
+# `docker run <image> <args>` replaces CMD entirely rather than appending to
+# it, so flag-only invocations (e.g. `--agents`) would otherwise try to exec
+# a binary literally named after the flag. Prepend `claude` when that happens.
+case "${1:-}" in
+    -*) set -- claude "$@" ;;
+    "") set -- claude ;;
+esac
+
+exec gosu claude "$@"

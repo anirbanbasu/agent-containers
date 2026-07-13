@@ -1,0 +1,7 @@
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://your-local-model.example.com",
+    "ANTHROPIC_AUTH_TOKEN": "replace-with-your-token",
+    "ANTHROPIC_MODEL": "your-local-model-name"
+  }
+}

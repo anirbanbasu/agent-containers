@@ -1,0 +1,13 @@
+clangd-lsp
+claude-md-management
+code-review
+gopls-lsp
+playground
+playwright
+pydantic-ai
+remember
+rust-analyzer-lsp
+security-guidance
+skill-creator
+superpowers
+typescript-lsp
