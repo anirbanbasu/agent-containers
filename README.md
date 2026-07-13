@@ -1,3 +1,3 @@
-# claude-container
+# agent-containers
 
-TBA
+Restricted Docker images for running command line interface (coding) agents.
