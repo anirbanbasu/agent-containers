@@ -33,13 +33,22 @@ RUN groupadd -g "$GID" claude \
 # both try to use root's $HOME instead of /home/claude.
 ENV HOME=/home/claude
 
+COPY plugin-marketplaces.txt /tmp/plugin-marketplaces.txt
 COPY plugins.txt /tmp/plugins.txt
-RUN gosu claude claude plugin marketplace add anthropics/claude-plugins-official
-RUN while IFS= read -r plugin; do \
-        [ -z "$plugin" ] && continue; \
-        gosu claude claude plugin install "${plugin}@claude-plugins-official" --scope user; \
+
+# The official marketplace is always available; plugin-marketplaces.txt lists
+# any additional (non-official) marketplaces to add before installing plugins,
+# since plugins.txt entries may reference any of them via "<plugin>@<marketplace>".
+RUN gosu claude claude plugin marketplace add anthropics/claude-plugins-official \
+    && while IFS= read -r marketplace; do \
+        case "$marketplace" in ''|'#'*) continue ;; esac; \
+        gosu claude claude plugin marketplace add "${marketplace}"; \
+    done < /tmp/plugin-marketplaces.txt \
+    && while IFS= read -r plugin; do \
+        case "$plugin" in ''|'#'*) continue ;; esac; \
+        gosu claude claude plugin install "${plugin}" --scope user; \
     done < /tmp/plugins.txt \
-    && rm /tmp/plugins.txt
+    && rm /tmp/plugin-marketplaces.txt /tmp/plugins.txt
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh

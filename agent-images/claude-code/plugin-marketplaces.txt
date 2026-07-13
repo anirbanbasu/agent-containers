@@ -1,0 +1,23 @@
+# Additional plugin marketplaces to add at build time, one per line.
+# Blank lines and lines starting with '#' are ignored.
+#
+# Each line is passed as-is to `claude plugin marketplace add <source>`.
+# Accepted forms of <source>:
+#   owner/repo                              GitHub shorthand
+#   owner/repo@branch-or-tag                GitHub shorthand, pinned to a ref
+#   https://git-host/team/plugins.git       Any git URL
+#   https://git-host/team/plugins.git#ref   Git URL, pinned to a ref
+#   https://example.com/marketplace.json    Raw marketplace.json URL
+#   /absolute/or/./relative/path            Local filesystem path
+#
+# The official Anthropic marketplace (claude-plugins-official) is added
+# automatically and must not be listed here.
+#
+# NOTE: the name used in plugins.txt as "<plugin>@<marketplace-name>" is
+# whatever that marketplace's own .claude-plugin/marketplace.json declares as
+# its "name" field -- it is NOT necessarily derived from the owner/repo slug
+# or URL above. Check the marketplace's manifest (or its docs) to find the
+# right suffix to use in plugins.txt.
+#
+# Example:
+# my-org/my-claude-marketplace
