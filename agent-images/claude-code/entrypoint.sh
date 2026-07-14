@@ -45,7 +45,9 @@ else
     ipset create "$IPSET_NAME" hash:ip family inet -exist
     ipset create "$IPSET6_NAME" hash:ip family inet6 -exist
 
-    DNSMASQ_CONF=/etc/dnsmasq.claude.conf
+    # /tmp rather than /etc: entrypoint runs before rootfs is guaranteed
+    # writable (a --read-only container only gets /tmp and /run as tmpfs).
+    DNSMASQ_CONF=/tmp/dnsmasq.claude.conf
     {
         echo "no-resolv"
         echo "listen-address=127.0.0.1"
@@ -69,7 +71,6 @@ else
     done
 
     dnsmasq --conf-file="$DNSMASQ_CONF"
-    echo "nameserver 127.0.0.1" > /etc/resolv.conf
 
     iptables -P OUTPUT DROP
     iptables -A OUTPUT -o lo -j ACCEPT
@@ -88,6 +89,24 @@ else
     done
     iptables -A OUTPUT -m set --match-set "$IPSET_NAME" dst -j ACCEPT
     ip6tables -A OUTPUT -m set --match-set "$IPSET6_NAME" dst -j ACCEPT
+
+    # Force every process's DNS traffic to the local filtering dnsmasq
+    # instance via NAT instead of rewriting /etc/resolv.conf, which isn't
+    # writable under --read-only. Queries bound for the real upstream
+    # resolvers (dnsmasq's own lookups) are excluded so they still egress.
+    for ns in $UPSTREAM_DNS; do
+        if is_ipv6 "$ns"; then
+            ip6tables -t nat -A OUTPUT -p udp -d "$ns" --dport 53 -j RETURN
+            ip6tables -t nat -A OUTPUT -p tcp -d "$ns" --dport 53 -j RETURN
+        else
+            iptables -t nat -A OUTPUT -p udp -d "$ns" --dport 53 -j RETURN
+            iptables -t nat -A OUTPUT -p tcp -d "$ns" --dport 53 -j RETURN
+        fi
+    done
+    iptables -t nat -A OUTPUT -p udp --dport 53 -j REDIRECT --to-ports 53
+    iptables -t nat -A OUTPUT -p tcp --dport 53 -j REDIRECT --to-ports 53
+    ip6tables -t nat -A OUTPUT -p udp --dport 53 -j REDIRECT --to-ports 53
+    ip6tables -t nat -A OUTPUT -p tcp --dport 53 -j REDIRECT --to-ports 53
 fi
 
 # `docker run <image> <args>` replaces CMD entirely rather than appending to

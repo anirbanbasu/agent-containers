@@ -8,8 +8,21 @@ Build and run the Claude Code image from `agent-images/claude-code/Dockerfile`:
 
 ```sh
 docker build -t claude-code agent-images/claude-code
-docker run -it --rm -v "$PWD":/workspace claude-code
+docker run -it --rm \
+  --security-opt=no-new-privileges \
+  --read-only \
+  --tmpfs /tmp \
+  --tmpfs /run \
+  --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
+  -v claude-home:/home/claude/.claude \
+  -v "$PWD":"/workspace/$(basename "$PWD")" \
+  -w "/workspace/$(basename "$PWD")" \
+  claude-code
 ```
+
+`/home/claude/.claude` is mounted from a named volume (`claude-home`) so plugins, settings, and Claude's own project memory persist across container runs instead of being lost when the container is removed. That volume is shared by every invocation of this image, and Claude Code keys its per-project memory/session data off the working directory's path — so if every project were mounted at the same `/workspace` path, unrelated projects would collide inside that shared volume. Mounting each project under its own `/workspace/<project_name>` subdirectory (and setting `-w` to match) keeps them distinct.
+
+The rest of the flags harden the container beyond Docker's defaults: `--security-opt=no-new-privileges` blocks privilege escalation via setuid binaries; `--read-only` makes the root filesystem immutable, with `--tmpfs /tmp --tmpfs /run` providing the only writable scratch space the entrypoint needs (dnsmasq's runtime config/pid files, iptables' lock file — `/workspace` and `/home/claude/.claude` stay writable regardless, since mounts are independent of the root filesystem's read-only flag); and `--cap-drop=ALL` strips Docker's full default capability set down to just what's actually used — `NET_ADMIN`/`NET_RAW` for the `iptables`/`ipset`/`dnsmasq` egress enforcement, and `SETUID`/`SETGID` for `gosu` to drop from root to the `claude` user.
 
 ### Optional configuration
 
@@ -24,30 +37,50 @@ Both of the above can be supplied either by mounting the file into the container
 
 ```sh
 docker run -it --rm \
-  -v "$PWD":/workspace \
-  -v "$PWD/agent-images/claude-code/examples/settings.local-model.json":/home/claude/.claude/settings.json \
+  --security-opt=no-new-privileges \
+  --read-only \
+  --tmpfs /tmp \
+  --tmpfs /run \
+  --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
+  -v claude-home:/home/claude/.claude \
+  -v "$PWD":"/workspace/$(basename "$PWD")" \
+  -w "/workspace/$(basename "$PWD")" \
+  -v "$PWD/agent-images/claude-code/examples/settings.local-model.json":/home/claude/.claude/settings.json:ro \
   claude-code
 ```
+
+Mounted `:ro` since this file is bind-mounted directly over whatever `settings.json` already exists in the `claude-home` volume — it shadows that file for the run rather than merging with it, and mounting read-write would mean any settings Claude Code writes back land on your host's checked-in `settings.local-model.json` instead of in the volume. If you want local-model settings to coexist with whatever else lives in the volume's `settings.json`, prefer the environment-variable form below instead.
 
 **Model settings — environment variables:**
 
 ```sh
 docker run -it --rm \
-  -v "$PWD":/workspace \
+  --security-opt=no-new-privileges \
+  --read-only \
+  --tmpfs /tmp \
+  --tmpfs /run \
+  --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
+  -v claude-home:/home/claude/.claude \
+  -v "$PWD":"/workspace/$(basename "$PWD")" \
+  -w "/workspace/$(basename "$PWD")" \
   -e ANTHROPIC_BASE_URL=https://your-local-model.example.com \
   -e ANTHROPIC_AUTH_TOKEN=replace-with-your-token \
   -e ANTHROPIC_MODEL=your-local-model-name \
   claude-code
 ```
 
-Enforcing the allowlist requires the `NET_ADMIN` capability (`--cap-add=NET_ADMIN`), since the entrypoint sets up `iptables`/`dnsmasq` rules inside the container.
-
 **Egress allowlist — mount the file:**
 
 ```sh
 docker run -it --rm \
-  --cap-add=NET_ADMIN \
-  -v "$PWD":/workspace \
+  --security-opt=no-new-privileges \
+  --read-only \
+  --tmpfs /tmp \
+  --tmpfs /run \
+  --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
+  -v claude-home:/home/claude/.claude \
+  -v "$PWD":"/workspace/$(basename "$PWD")" \
+  -w "/workspace/$(basename "$PWD")" \
   -v "$PWD/agent-images/claude-code/examples/egress-allowlist.txt":/etc/claude/egress-allowlist.txt \
   claude-code
 ```
@@ -56,11 +89,19 @@ docker run -it --rm \
 
 ```sh
 docker run -it --rm \
-  --cap-add=NET_ADMIN \
-  -v "$PWD":/workspace \
+  --security-opt=no-new-privileges \
+  --read-only \
+  --tmpfs /tmp \
+  --tmpfs /run \
+  --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
+  -v claude-home:/home/claude/.claude \
+  -v "$PWD":"/workspace/$(basename "$PWD")" \
+  -w "/workspace/$(basename "$PWD")" \
   -e CLAUDE_ALLOWED_EGRESS=api.anthropic.com,your-local-model.example.com \
   claude-code
 ```
+
+`NET_ADMIN` is required in every case above (even with no allowlist configured) since the entrypoint always sets a default-deny `iptables`/`ip6tables` policy; `NET_RAW` is additionally needed once a domain-based allowlist is in play, since matching `iptables` rules against the resolved-IP `ipset` needs it.
 
 A mounted `egress-allowlist.txt` takes precedence over `CLAUDE_ALLOWED_EGRESS` if both are supplied.
 
