@@ -5,12 +5,16 @@ set -euo pipefail
 # it's now mounted at /home/claude so uv/npm state under $HOME persists too.
 # A volume from before this change has its old .claude contents sitting at
 # its own root, so /home/claude/.claude won't exist yet — nest them one
-# level down to match where Claude Code still expects them.
+# level down to match where Claude Code still expects them. Runs as the
+# claude user (not root): a real legacy volume is already owned by
+# claude:claude (from the image's build-time chown, preserved by Docker's
+# volume copy-up), so no extra capabilities beyond the documented set are
+# needed — root alone would lack CAP_DAC_OVERRIDE/CAP_CHOWN under
+# --cap-drop=ALL and fail to write into or re-own claude's directory.
 if [ ! -d /home/claude/.claude ]; then
     echo "[entrypoint] Migrating legacy claude-home volume layout into ~/.claude ..." >&2
-    mkdir -p /home/claude/.claude
-    find /home/claude -mindepth 1 -maxdepth 1 ! -name .claude -exec mv -t /home/claude/.claude -- {} +
-    chown -R claude:claude /home/claude
+    gosu claude mkdir -p /home/claude/.claude
+    gosu claude find /home/claude -mindepth 1 -maxdepth 1 ! -name .claude -exec mv -t /home/claude/.claude -- {} +
 fi
 
 ALLOWLIST_FILE="/etc/claude/egress-allowlist.txt"
