@@ -1,6 +1,18 @@
 #!/bin/bash
 set -euo pipefail
 
+# Older images mounted the persistent volume directly at /home/claude/.claude;
+# it's now mounted at /home/claude so uv/npm state under $HOME persists too.
+# A volume from before this change has its old .claude contents sitting at
+# its own root, so /home/claude/.claude won't exist yet — nest them one
+# level down to match where Claude Code still expects them.
+if [ ! -d /home/claude/.claude ]; then
+    echo "[entrypoint] Migrating legacy claude-home volume layout into ~/.claude ..." >&2
+    mkdir -p /home/claude/.claude
+    find /home/claude -mindepth 1 -maxdepth 1 ! -name .claude -exec mv -t /home/claude/.claude -- {} +
+    chown -R claude:claude /home/claude
+fi
+
 ALLOWLIST_FILE="/etc/claude/egress-allowlist.txt"
 IPSET_NAME="claude_allowed"
 IPSET6_NAME="claude_allowed6"
