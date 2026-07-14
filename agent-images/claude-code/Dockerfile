@@ -22,6 +22,12 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
+# uv/uvx (Python package & venv manager), copied in rather than switching
+# the base image — uv manages venvs against this image's existing system
+# Python just as well as against a uv-provisioned one, without disturbing
+# the apt/Node.js setup above.
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+
 RUN npm install -g @anthropic-ai/claude-code
 
 RUN groupadd -g "$GID" claude \
