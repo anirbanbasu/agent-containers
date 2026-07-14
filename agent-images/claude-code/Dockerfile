@@ -7,6 +7,7 @@ ARG GID=1000
 # used by entrypoint.sh to enforce the egress allowlist, plus gosu for
 # dropping from root (needed to set up iptables/dnsmasq) to the claude user.
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         curl \
