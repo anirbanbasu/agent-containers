@@ -44,8 +44,12 @@ ENV HOME=/home/claude
 # rootfs at runtime; repoint it to a location under the claude user's home
 # so `npm install -g` works there instead. This doesn't affect the
 # `npm install -g @anthropic-ai/claude-code` above, which already ran as
-# root before this user/prefix existed.
-RUN gosu claude npm config set prefix '/home/claude/.npm-global'
+# root before this user/prefix existed. Set via ENV (not `npm config set`,
+# which would only write ~/.npmrc into the image — that file wouldn't reach
+# a volume that already has content the first time it's mounted here, since
+# Docker's volume copy-up only seeds genuinely empty volumes) so the prefix
+# applies regardless of what's already in the mounted $HOME volume.
+ENV npm_config_prefix=/home/claude/.npm-global
 ENV PATH="/home/claude/.npm-global/bin:${PATH}"
 
 COPY plugin-marketplaces.txt /tmp/plugin-marketplaces.txt

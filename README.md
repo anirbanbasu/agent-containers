@@ -24,6 +24,8 @@ docker run -it --rm \
 
 Volumes created before this mount point widened from `/home/claude/.claude` to `/home/claude` are migrated automatically on first run — see `entrypoint.sh`.
 
+**Known limitation:** if you have such a pre-existing volume, do one plain run (no extra `-v`/`-e` overrides) first to let migration complete before combining it with the `settings.local-model.json` mount example below — mounting that file on the very first run against an unmigrated volume forces its parent directory to be created before migration can run, which skips migration and leaves the volume's old contents at the top level instead of nested under `.claude/`. This does not affect brand-new volumes or volumes already migrated under this version.
+
 The rest of the flags harden the container beyond Docker's defaults: `--security-opt=no-new-privileges` blocks privilege escalation via setuid binaries; `--read-only` makes the root filesystem immutable, with `--tmpfs /tmp --tmpfs /run` providing the only writable scratch space the entrypoint needs (dnsmasq's runtime config/pid files, iptables' lock file — `/workspace` and `/home/claude` stay writable regardless, since mounts are independent of the root filesystem's read-only flag); and `--cap-drop=ALL` strips Docker's full default capability set down to just what's actually used — `NET_ADMIN`/`NET_RAW` for the `iptables`/`ipset`/`dnsmasq` egress enforcement, and `SETUID`/`SETGID` for `gosu` to drop from root to the `claude` user.
 
 ### Installing Python and Node packages at runtime
