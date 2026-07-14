@@ -40,6 +40,14 @@ RUN groupadd -g "$GID" claude \
 # both try to use root's $HOME instead of /home/claude.
 ENV HOME=/home/claude
 
+# npm's default global-install prefix (/usr/local) sits on the read-only
+# rootfs at runtime; repoint it to a location under the claude user's home
+# so `npm install -g` works there instead. This doesn't affect the
+# `npm install -g @anthropic-ai/claude-code` above, which already ran as
+# root before this user/prefix existed.
+RUN gosu claude npm config set prefix '/home/claude/.npm-global'
+ENV PATH="/home/claude/.npm-global/bin:${PATH}"
+
 COPY plugin-marketplaces.txt /tmp/plugin-marketplaces.txt
 COPY plugins.txt /tmp/plugins.txt
 
