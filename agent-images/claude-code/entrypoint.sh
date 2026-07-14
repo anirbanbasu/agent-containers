@@ -52,6 +52,10 @@ else
         echo "no-resolv"
         echo "listen-address=127.0.0.1"
         echo "bind-interfaces"
+        # Pin dnsmasq to a known, unprivileged UID so the NAT rules below can
+        # tell its own upstream forwarding apart from every other process's
+        # DNS traffic (both otherwise share the same destination: $UPSTREAM_DNS).
+        echo "user=dnsmasq"
         for ns in $UPSTREAM_DNS; do
             echo "server=$ns"
         done
@@ -73,9 +77,11 @@ else
     dnsmasq --conf-file="$DNSMASQ_CONF"
 
     iptables -P OUTPUT DROP
+    iptables -A OUTPUT -d 127.0.0.0/8 -j ACCEPT
     iptables -A OUTPUT -o lo -j ACCEPT
     iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
     ip6tables -P OUTPUT DROP
+    ip6tables -A OUTPUT -d ::1/128 -j ACCEPT
     ip6tables -A OUTPUT -o lo -j ACCEPT
     ip6tables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
     for ns in $UPSTREAM_DNS; do
@@ -92,15 +98,19 @@ else
 
     # Force every process's DNS traffic to the local filtering dnsmasq
     # instance via NAT instead of rewriting /etc/resolv.conf, which isn't
-    # writable under --read-only. Queries bound for the real upstream
-    # resolvers (dnsmasq's own lookups) are excluded so they still egress.
+    # writable under --read-only. dnsmasq's own upstream forwarding (to the
+    # same $UPSTREAM_DNS) must not be redirected back to itself, so it's
+    # excluded by UID rather than by destination — a destination-only
+    # exclusion would also match every other process's DNS queries, since
+    # they're sent to that same resolver address, letting them bypass the
+    # filtering dnsmasq (and its ipset population) entirely.
     for ns in $UPSTREAM_DNS; do
         if is_ipv6 "$ns"; then
-            ip6tables -t nat -A OUTPUT -p udp -d "$ns" --dport 53 -j RETURN
-            ip6tables -t nat -A OUTPUT -p tcp -d "$ns" --dport 53 -j RETURN
+            ip6tables -t nat -A OUTPUT -p udp -d "$ns" --dport 53 -m owner --uid-owner dnsmasq -j RETURN
+            ip6tables -t nat -A OUTPUT -p tcp -d "$ns" --dport 53 -m owner --uid-owner dnsmasq -j RETURN
         else
-            iptables -t nat -A OUTPUT -p udp -d "$ns" --dport 53 -j RETURN
-            iptables -t nat -A OUTPUT -p tcp -d "$ns" --dport 53 -j RETURN
+            iptables -t nat -A OUTPUT -p udp -d "$ns" --dport 53 -m owner --uid-owner dnsmasq -j RETURN
+            iptables -t nat -A OUTPUT -p tcp -d "$ns" --dport 53 -m owner --uid-owner dnsmasq -j RETURN
         fi
     done
     iptables -t nat -A OUTPUT -p udp --dport 53 -j REDIRECT --to-ports 53
