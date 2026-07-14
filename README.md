@@ -1,6 +1,6 @@
 # agent-containers
 
-Restricted Docker images for running command line interface (coding) agents.
+Restricted Docker images for running command line interface (coding) agents in hardened containerised environments.
 
 ## Claude Code
 
