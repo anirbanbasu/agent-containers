@@ -14,15 +14,28 @@ docker run -it --rm \
   --tmpfs /tmp \
   --tmpfs /run \
   --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
-  -v claude-home:/home/claude/.claude \
+  -v claude-home:/home/claude \
   -v "$PWD":"/workspace/$(basename "$PWD")" \
   -w "/workspace/$(basename "$PWD")" \
   claude-code
 ```
 
-`/home/claude/.claude` is mounted from a named volume (`claude-home`) so plugins, settings, and Claude's own project memory persist across container runs instead of being lost when the container is removed. That volume is shared by every invocation of this image, and Claude Code keys its per-project memory/session data off the working directory's path — so if every project were mounted at the same `/workspace` path, unrelated projects would collide inside that shared volume. Mounting each project under its own `/workspace/<project_name>` subdirectory (and setting `-w` to match) keeps them distinct.
+`/home/claude` is mounted from a named volume (`claude-home`) so plugins, settings, Claude's own project memory, and any Python/Node package state persist across container runs instead of being lost when the container is removed. That volume is shared by every invocation of this image, and Claude Code keys its per-project memory/session data off the working directory's path — so if every project were mounted at the same `/workspace` path, unrelated projects would collide inside that shared volume. Mounting each project under its own `/workspace/<project_name>` subdirectory (and setting `-w` to match) keeps them distinct.
 
-The rest of the flags harden the container beyond Docker's defaults: `--security-opt=no-new-privileges` blocks privilege escalation via setuid binaries; `--read-only` makes the root filesystem immutable, with `--tmpfs /tmp --tmpfs /run` providing the only writable scratch space the entrypoint needs (dnsmasq's runtime config/pid files, iptables' lock file — `/workspace` and `/home/claude/.claude` stay writable regardless, since mounts are independent of the root filesystem's read-only flag); and `--cap-drop=ALL` strips Docker's full default capability set down to just what's actually used — `NET_ADMIN`/`NET_RAW` for the `iptables`/`ipset`/`dnsmasq` egress enforcement, and `SETUID`/`SETGID` for `gosu` to drop from root to the `claude` user.
+Volumes created before this mount point widened from `/home/claude/.claude` to `/home/claude` are migrated automatically on first run — see `entrypoint.sh`.
+
+The rest of the flags harden the container beyond Docker's defaults: `--security-opt=no-new-privileges` blocks privilege escalation via setuid binaries; `--read-only` makes the root filesystem immutable, with `--tmpfs /tmp --tmpfs /run` providing the only writable scratch space the entrypoint needs (dnsmasq's runtime config/pid files, iptables' lock file — `/workspace` and `/home/claude` stay writable regardless, since mounts are independent of the root filesystem's read-only flag); and `--cap-drop=ALL` strips Docker's full default capability set down to just what's actually used — `NET_ADMIN`/`NET_RAW` for the `iptables`/`ipset`/`dnsmasq` egress enforcement, and `SETUID`/`SETGID` for `gosu` to drop from root to the `claude` user.
+
+### Installing Python and Node packages at runtime
+
+Claude can install packages at runtime without the rootfs needing to be writable:
+
+- **Python, project-scoped** — `uv venv .venv && uv pip install <package>` inside `/workspace/<project>` (or `uv add <package>` in a `uv`-managed project). Lives in the project's own directory, persists via the project bind mount, isolated per project.
+- **Python, ad hoc** — `uv venv /tmp/<name>` (or `uv run --with <package> ...`). Lives on the `/tmp` tmpfs, isolated per task, wiped when the container exits.
+- **Node, project-scoped** — `npm install <package>` inside `/workspace/<project>`, writing to that project's own `node_modules` — works the same way it always has.
+- **Node, global** — `npm install -g <package>` installs under `/home/claude/.npm-global`, which is on `PATH` and persists via the `claude-home` volume.
+
+`uv`'s own package cache and any Python interpreters it downloads to satisfy a project's `requires-python` also live under `/home/claude` and persist via the same volume — repeated installs of a previously-seen package/interpreter version are instant, and different projects/tasks can depend on conflicting versions of the same package without interfering with each other, since environments (venvs, `node_modules`) are never shared — only the cache is.
 
 ### Optional configuration
 
@@ -42,7 +55,7 @@ docker run -it --rm \
   --tmpfs /tmp \
   --tmpfs /run \
   --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
-  -v claude-home:/home/claude/.claude \
+  -v claude-home:/home/claude \
   -v "$PWD":"/workspace/$(basename "$PWD")" \
   -w "/workspace/$(basename "$PWD")" \
   -v "$PWD/agent-images/claude-code/examples/settings.local-model.json":/home/claude/.claude/settings.json:ro \
@@ -60,7 +73,7 @@ docker run -it --rm \
   --tmpfs /tmp \
   --tmpfs /run \
   --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
-  -v claude-home:/home/claude/.claude \
+  -v claude-home:/home/claude \
   -v "$PWD":"/workspace/$(basename "$PWD")" \
   -w "/workspace/$(basename "$PWD")" \
   -e ANTHROPIC_BASE_URL=https://your-local-model.example.com \
@@ -78,7 +91,7 @@ docker run -it --rm \
   --tmpfs /tmp \
   --tmpfs /run \
   --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
-  -v claude-home:/home/claude/.claude \
+  -v claude-home:/home/claude \
   -v "$PWD":"/workspace/$(basename "$PWD")" \
   -w "/workspace/$(basename "$PWD")" \
   -v "$PWD/agent-images/claude-code/examples/egress-allowlist.txt":/etc/claude/egress-allowlist.txt \
@@ -94,7 +107,7 @@ docker run -it --rm \
   --tmpfs /tmp \
   --tmpfs /run \
   --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
-  -v claude-home:/home/claude/.claude \
+  -v claude-home:/home/claude \
   -v "$PWD":"/workspace/$(basename "$PWD")" \
   -w "/workspace/$(basename "$PWD")" \
   -e CLAUDE_ALLOWED_EGRESS=api.anthropic.com,your-local-model.example.com \
