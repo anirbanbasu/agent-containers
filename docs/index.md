@@ -4,66 +4,37 @@ icon: lucide/shield-check
 
 # Why hardened containers for coding agents?
 
-A command-line coding agent is valuable precisely because it can read
-files, run a build, install packages, and shell out to fix what is broken,
-all without a human typing the commands directly. That same list of
-capabilities is also the entire problem. Each capability is a door, and the
-agent does not always know which door it has just opened. A prompt buried
-in a scraped web page, a typosquatted package pulled in during a routine
-install, or simply an ordinary bad decision by the model — any of these can
-turn helpful automation into full run of a home directory, stored
-credentials, and the open internet, because on a bare host that is
-precisely the access an agent already has to work with.
+Here's a scenario. You've hired someone brilliant to help around the house. Genuinely brilliant — they can fix the boiler, reorganise the shed, even nip out to the shops when you're low on milk. There's just one small catch: to do any of that, you've had to give them a key to every room in the house, including the one with your passport, your bank statements, and your grandmother's jewellery. Oh, and they've also got your car keys, so they can pop out whenever they like, to wherever they like, without _necessarily_ telling you first.
 
-## The bargain nobody explicitly agreed to
+That, it turns out, is roughly the deal we've been striking with **coding agents**.
 
-Running an agent directly on a machine implicitly accepts the following:
+A (command-line) coding agent — the kind that can, backed by generative artificial intelligence (AI) models, read your files, run a build, install packages, and shell out to fix whatever's broken, all without you typing a single command yourself — is brilliant precisely *because* of that access. But here's the catch: that list of superpowers is also the entire problem. Every capability is a door, and the agent doesn't always know which door it's just walked through. A stray instruction hidden in a scraped web page, a typosquatted package that slipped in during a routine install, or simply the model having what we might charitably call an off day — any one of these can turn a helpful assistant into something with the run of your home directory, your stored credentials, and the open Internet. Not because it's gone rogue. Just because, on a bare host, that access was sitting there all along, waiting to be used.
 
-- it can read anything the user account can read: SSH keys, cloud
-  credentials, browser profiles, and every other project on the machine
-- it can write and delete just as freely, at whatever speed it happens to
-  be operating
-- it can talk to any host on the internet, so a bad instruction does not
-  stay local: data can be exfiltrated, malicious payloads fetched, or a
-  compromised process can report back to its controller
-- a single permission prompt, approved on the fifth "yes" of a long
-  session, is the entire boundary between a contained mistake and an
-  uncontained one
+## The bargain nobody actually agreed to
 
-None of this reflects a flaw in any particular agent. It is the shape of
-the capability itself: a language model directing a real shell, on a real
-filesystem, with real network access. As these agents become more
-autonomous and longer-running, a human has fewer opportunities to catch a
-bad step before it executes.
+Here's the bit that should give you pause. Run an agent directly on your machine, and — whether you meant to or not — you've quietly signed up to the following:
 
-## Containment is the answer
+- it can read anything your user account can read: SSH keys, cloud credentials, browser profiles, every other project sitting on that machine;
+- it can write and delete just as freely, at whatever pace it happens to be working;
+- it can talk to any host on the Internet, which means a bad instruction doesn't stay politely local — data can slip out, malicious payloads can be pulled in, a compromised process can quietly phone home;
+- and the entire boundary between "a contained mistake" and "an uncontained one" is a single permission prompt — one you approved somewhere around the fifth "yes" of a long, tired session!
 
-This project's answer is not to ask for more careful prompting. It is to
-make the blast radius a property of the environment rather than of the
-model's judgement. Each image runs as a non-root user, on a read-only root
-filesystem, with Linux capabilities dropped to only what the entrypoint
-actually needs, and outbound network access **denied by default** and
-opened only against an explicit allowlist. None of this asks the agent to
-behave well; it limits what misbehaviour can reach in the first place. A
-sandbox that depends on the thing inside it choosing to respect its own
-walls is not a sandbox.
+None of this is a flaw in any particular agent. It's just what happens when you hand a generative AI model access to a real shell, a real filesystem, and real network, and ask it to get on with things. And as these agents get more autonomous and run for longer stretches unsupervised, there are fewer and fewer moments where a human even *could* step in and catch the bad step before it happens.
 
-The diagram below shows where each of those constraints sits relative to
-the host machine, the container, and the network beyond it.
+## So here's the satisfying bit
 
-The coding agent runs inside the container as an unprivileged process.
-Only the project directory chosen for the current task crosses into the
-container, by way of an explicit bind mount; the rest of the host
-filesystem, including credentials and other projects, has no path in.
-Outbound traffic follows the same principle: every connection is checked
-against the allowlist before it reaches the internet, and anything not
-explicitly permitted is dropped.
+The instinct might be to solve this with better prompting — to simply ask the agent, nicely, to be careful. That's not the answer. You can't negotiate your way out of a design flaw.
 
-## Not just Claude Code
+The actual fix is almost embarrassingly mechanical: stop relying on the model's judgement, and make the size of the mess a property of the *environment* instead.
 
-The risk profile described above is not specific to any one agent. It is
-simply what a command-line, tool-calling language model looks like once it
-is given a terminal. Claude Code is where this project started, but the
-pattern — restricted by default, hardened at the container boundary,
-configurable rather than permissive — is meant to generalise to whatever
-other coding agents end up living in this repository next.
+Here's a useful bit of throat-clearing: think of the image as the blueprint, not the house — a frozen, read-only template sitting quietly on disk, waiting to be switched on into a running container.
+
+Every image runs as a non-root user, on a read-only root filesystem, with Linux capabilities stripped down to only what the coding agent genuinely needs. Outbound network access is **denied by default**, and opened only against an explicit allowlist or through a dedicated _gateway_. Nothing here depends on the agent choosing to behave. It simply limits what bad behaviour could ever reach in the first place — because a sandbox that relies on the thing inside it respecting its own walls was never really a sandbox at all.
+
+Picture it laid out: the host machine on one side, the container sitting inside it, and the network stretching out beyond both.
+
+The coding agent lives inside that container as an unprivileged process. Only the one project directory chosen for the task at hand is allowed to cross the boundary, via an explicit bind mount — the rest of the host filesystem, credentials and other projects included, simply has no path in. It doesn't exist, as far as the agent is concerned. Outbound traffic gets the same treatment: every connection is checked before it's allowed anywhere near the Internet, and anything not explicitly permitted is quietly dropped.
+
+## And it's not just about one agent
+
+None of this risk is unique to any single tool. Claude Code is where this particular project began, but the underlying pattern — restricted by default, hardened at the container's edge, configurable rather than permissive — is built to generalise. All coding agents inherit the same walls.
