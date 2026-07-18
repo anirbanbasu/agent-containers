@@ -2,7 +2,7 @@
 icon: lucide/shield-check
 ---
 
-# Why hardened containers for coding agents?
+# Containing coding agents
 
 Here's a scenario. You've hired someone brilliant to help around the house. Genuinely brilliant — they can fix the boiler, reorganise the shed, even nip out to the shops when you're low on milk. There's just one small catch: to do any of that, you've had to give them a key to every room in the house, including the one with your passport, your bank statements, and your grandmother's jewellery. Oh, and they've also got your car keys, so they can pop out whenever they like, to wherever they like, without _necessarily_ telling you first.
 
