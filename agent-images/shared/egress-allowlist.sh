@@ -107,21 +107,21 @@ configure_egress_allowlist() {
     # instance via NAT instead of rewriting /etc/resolv.conf, which isn't
     # writable under --read-only. dnsmasq's own upstream forwarding (to the
     # same $upstream_dns) must not be redirected back to itself, so it's
-    # excluded by UID rather than by destination — a destination-only
-    # exclusion would also match every other process's DNS queries, since
-    # they're sent to that same resolver address, letting them bypass the
-    # filtering dnsmasq (and its ipset population) entirely.
-    for ns in $upstream_dns; do
-        if _egress_is_ipv6 "$ns"; then
-            ip6tables -t nat -A OUTPUT -p udp -d "$ns" --dport 53 -m owner --uid-owner dnsmasq -j RETURN
-            ip6tables -t nat -A OUTPUT -p tcp -d "$ns" --dport 53 -m owner --uid-owner dnsmasq -j RETURN
-        else
-            iptables -t nat -A OUTPUT -p udp -d "$ns" --dport 53 -m owner --uid-owner dnsmasq -j RETURN
-            iptables -t nat -A OUTPUT -p tcp -d "$ns" --dport 53 -m owner --uid-owner dnsmasq -j RETURN
-        fi
-    done
-    iptables -t nat -A OUTPUT -p udp --dport 53 -j REDIRECT --to-ports 53
-    iptables -t nat -A OUTPUT -p tcp --dport 53 -j REDIRECT --to-ports 53
-    ip6tables -t nat -A OUTPUT -p udp --dport 53 -j REDIRECT --to-ports 53
-    ip6tables -t nat -A OUTPUT -p tcp --dport 53 -j REDIRECT --to-ports 53
+    # excluded by UID via a negated owner match on the same rule, rather than
+    # a separate RETURN rule ahead of a blanket REDIRECT — a plain append
+    # (-A) here loses a race on Docker user-defined networks: Docker inserts
+    # its own embedded-DNS NAT rule (destination 127.0.0.11) ahead of
+    # whatever this script appends, and that rule is a terminating DNAT, so
+    # a RETURN-then-REDIRECT pair appended afterward never even runs for
+    # traffic to 127.0.0.11 — dnsmasq is silently bypassed, its ipset never
+    # gets populated, and domain-based allowlist entries stay permanently
+    # (and confusingly) blocked. Inserting (-I ... 1) a single rule with a
+    # negated owner match wins that race: dnsmasq's own query still falls
+    # through untouched to Docker's rule below it, while every other
+    # process's query is redirected to the local dnsmasq before Docker's
+    # rule ever sees it.
+    iptables -t nat -I OUTPUT 1 -p tcp --dport 53 -m owner ! --uid-owner dnsmasq -j REDIRECT --to-ports 53
+    iptables -t nat -I OUTPUT 1 -p udp --dport 53 -m owner ! --uid-owner dnsmasq -j REDIRECT --to-ports 53
+    ip6tables -t nat -I OUTPUT 1 -p tcp --dport 53 -m owner ! --uid-owner dnsmasq -j REDIRECT --to-ports 53
+    ip6tables -t nat -I OUTPUT 1 -p udp --dport 53 -m owner ! --uid-owner dnsmasq -j REDIRECT --to-ports 53
 }

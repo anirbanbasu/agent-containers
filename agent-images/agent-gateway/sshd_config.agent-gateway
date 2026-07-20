@@ -1,0 +1,9 @@
+Port 2222
+PermitRootLogin no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+AllowUsers tunnel
+AllowTcpForwarding yes
+X11Forwarding no
+AllowAgentForwarding no
+PrintMotd no
