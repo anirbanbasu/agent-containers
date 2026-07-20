@@ -2,7 +2,7 @@
 icon: lucide/earth-lock
 ---
 
-# The `agent-gateway` container image
+# The `agent-gateway` container
 
 `agent-gateway` is a small, disposable sibling container that owns egress
 enforcement on behalf of a workload container such as

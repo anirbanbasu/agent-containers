@@ -2,7 +2,7 @@
 icon: lucide/bot
 ---
 
-# The `claude-code` container image
+# The `claude-code` container
 
 `claude-code` packages [Claude Code](https://claude.com/product/claude-code)
 — the command-line coding agent — inside a hardened container: non-root
