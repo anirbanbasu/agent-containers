@@ -14,5 +14,10 @@ echo "HostKey $HOST_KEY_DIR/ssh_host_ed25519_key" > /etc/ssh/sshd_config.d/hostk
 source /usr/local/lib/claude/egress-allowlist.sh
 configure_egress_allowlist
 
+if [ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; then
+    echo "[entrypoint] Starting cloudflared tunnel (no inbound port needed)." >&2
+    cloudflared tunnel run --token "$CLOUDFLARE_TUNNEL_TOKEN" &
+fi
+
 mkdir -p /run/sshd
 exec /usr/sbin/sshd -D -e

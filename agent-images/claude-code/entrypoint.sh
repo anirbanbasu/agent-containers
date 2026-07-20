@@ -49,9 +49,14 @@ if [ -n "${CLAUDE_GATEWAY_HOST:-}" ]; then
         done
     fi
     install -m 600 /etc/claude/gateway-key /tmp/gateway-key
+    SSH_CMD="ssh -i /tmp/gateway-key -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/etc/claude/gateway-known-hosts"
+    if [ -n "${CLAUDE_GATEWAY_ACCESS_HOSTNAME:-}" ]; then
+        echo "[entrypoint] Reaching the gateway via Cloudflare Access hostname ${CLAUDE_GATEWAY_ACCESS_HOSTNAME}." >&2
+        SSH_CMD="$SSH_CMD -o ProxyCommand='cloudflared access ssh --hostname ${CLAUDE_GATEWAY_ACCESS_HOSTNAME}'"
+    fi
     sshuttle -r "${CLAUDE_GATEWAY_USER:-tunnel}@${CLAUDE_GATEWAY_HOST}:${CLAUDE_GATEWAY_PORT:-2222}" \
         0.0.0.0/0 ::/0 --dns --daemon --pidfile=/tmp/sshuttle.pid \
-        -e "ssh -i /tmp/gateway-key -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/etc/claude/gateway-known-hosts"
+        -e "$SSH_CMD"
 else
     source /usr/local/lib/claude/egress-allowlist.sh
     configure_egress_allowlist
