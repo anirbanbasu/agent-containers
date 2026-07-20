@@ -24,11 +24,20 @@ if [ -n "${CLAUDE_GATEWAY_HOST:-}" ]; then
     fi
     if [ -n "${CLAUDE_GATEWAY_BOOTSTRAP_ALLOW:-}" ]; then
         echo "[entrypoint] Seeding a bootstrap allow rule for ${CLAUDE_GATEWAY_BOOTSTRAP_ALLOW} until the tunnel is up." >&2
+        # -m addrtype --dst-type LOCAL, not -o lo: sshuttle's own REDIRECT
+        # rules retarget outbound connections to 127.0.0.1:<its local proxy
+        # port> before this chain runs, but that retargeted packet's
+        # out-interface isn't reliably "lo" by the time OUTPUT filtering
+        # sees it (observed on Docker Desktop's linuxkit VM; matches
+        # sshuttle's own choice of --dst-type LOCAL for the equivalent
+        # exclusion in its nat rules) -- addrtype matches on the resolved
+        # destination address instead of the interface, and reliably covers
+        # both loopback and this redirect-to-local-port case.
         iptables -P OUTPUT DROP
-        iptables -A OUTPUT -o lo -j ACCEPT
+        iptables -A OUTPUT -m addrtype --dst-type LOCAL -j ACCEPT
         iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
         ip6tables -P OUTPUT DROP
-        ip6tables -A OUTPUT -o lo -j ACCEPT
+        ip6tables -A OUTPUT -m addrtype --dst-type LOCAL -j ACCEPT
         ip6tables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
         IFS=',' read -ra BOOTSTRAP_ALLOW <<< "$CLAUDE_GATEWAY_BOOTSTRAP_ALLOW"
         for addr in "${BOOTSTRAP_ALLOW[@]}"; do
