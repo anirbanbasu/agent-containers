@@ -260,6 +260,7 @@ itself.
 | `CLAUDE_GATEWAY_PORT` | Gateway's SSH port. Defaults to `2222`. |
 | `CLAUDE_GATEWAY_USER` | SSH user on the gateway. Defaults to `tunnel`. |
 | `CLAUDE_GATEWAY_BOOTSTRAP_ALLOW` | Comma-separated bare IPs/CIDRs (never a hostname) the entrypoint allows *before* the tunnel comes up — narrowly scoped to the gateway's own address, so egress isn't wide open during the brief window before `sshuttle` takes over. |
+| `CLAUDE_GATEWAY_ACCESS_HOSTNAME` | Optional. Reach the gateway via Cloudflare Tunnel instead of direct TCP — see [Cloudflare Tunnel](#cloudflare-tunnel) below. |
 | `-v ./gateway-key:/etc/claude/gateway-key:ro` | SSH private key for the tunnel. |
 | `-v ./gateway-known-hosts:/etc/claude/gateway-known-hosts:ro` | Pinned gateway host key, so `StrictHostKeyChecking=yes` works non-interactively on the first connection. |
 
@@ -325,3 +326,36 @@ docker run -it --rm \
 
 See [`agent-gateway`](agent-gateway.md) for how to run the gateway side of
 either example.
+
+#### Cloudflare Tunnel
+
+Both examples above reach the gateway by direct TCP. To reach it with no
+inbound port open at all instead, set `CLAUDE_GATEWAY_ACCESS_HOSTNAME`
+(the Cloudflare Access hostname) instead of relying on `CLAUDE_GATEWAY_HOST`
+being directly reachable — `CLAUDE_GATEWAY_HOST` still needs to be set
+(sshuttle's `-r` target), but reachability now goes through Cloudflare's
+edge rather than straight to that address:
+
+```sh
+docker run -it --rm \
+  --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
+  --security-opt=no-new-privileges --read-only --tmpfs /tmp --tmpfs /run \
+  -e CLAUDE_GATEWAY_HOST=localhost \
+  -e CLAUDE_GATEWAY_ACCESS_HOSTNAME=gateway.example.com \
+  -v ./gateway-key:/etc/claude/gateway-key:ro \
+  -v ./gateway-known-hosts:/etc/claude/gateway-known-hosts:ro \
+  -v claude-home:/home/claude \
+  -v "$PWD":"/workspace/$(basename "$PWD")" \
+  -w "/workspace/$(basename "$PWD")" \
+  claude-code
+```
+
+This needs the one-time Cloudflare account/tunnel/Access setup described in
+[`agent-gateway`'s Cloudflare Tunnel section](agent-gateway.md#cloudflare-tunnel)
+first. `CLAUDE_GATEWAY_BOOTSTRAP_ALLOW` still applies (the entrypoint
+doesn't know which reachability option you're using), but its target
+changes: since the workload never contacts the gateway's own address
+directly in this mode, set it to
+[Cloudflare's published edge IP ranges](https://www.cloudflare.com/ips/)
+instead of a gateway IP — that's what `cloudflared` itself needs to reach
+before the tunnel is up.

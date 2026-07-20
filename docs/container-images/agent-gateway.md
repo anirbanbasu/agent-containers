@@ -188,8 +188,78 @@ the *login* surface non-root regardless.
 
 ## Reachability
 
-Only direct TCP reachability — a Docker bridge address for a same-host
-sibling, or a published port/public address for a remote host — is
-currently implemented, as shown above. A Cloudflare Tunnel option (running
-the gateway with no inbound port open at all) is designed but not yet
-implemented.
+### Direct TCP
+
+The default, shown in [Run the gateway](#2-run-the-gateway) above — a
+Docker bridge address for a same-host sibling, or a published port/public
+address for a remote host.
+
+### Cloudflare Tunnel
+
+An alternative for reaching the gateway with **no inbound port open at
+all**: `cloudflared` runs as a sidecar inside `agent-gateway`, making an
+outbound-only connection to Cloudflare's edge, and a Cloudflare Access "SSH"
+application routes connections to the gateway's private origin
+(`localhost:2222`) over that tunnel.
+
+`cloudflared` is always present in both images but never invoked unless
+these variables are set — the direct-TCP path above is completely
+unaffected if you don't use this option.
+
+!!! warning "One-time external setup required (not part of this repo)"
+    This needs a Cloudflare account with a tunnel and an Access application
+    already configured, done once via the Cloudflare dashboard or the
+    `cloudflared` CLI:
+
+    1. `cloudflared tunnel login`
+    2. `cloudflared tunnel create agent-gateway` — note the generated tunnel token.
+    3. In Zero Trust → Access → Tunnels, add a public hostname (e.g.
+       `gateway.example.com`) with service type `SSH` pointing at
+       `localhost:2222`.
+    4. In Zero Trust → Access → Applications, create an application for that
+       hostname with a policy permitting whatever identity will run
+       `claude-code` (e.g. a service token for non-interactive use).
+    5. Record the tunnel token (for the gateway) and the Access hostname
+       (for the workload).
+
+Run the gateway with the tunnel token instead of (or alongside) a published
+port:
+
+```sh
+docker run -d --name agent-gateway \
+  --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW \
+  --cap-add=SETUID --cap-add=SETGID --cap-add=SYS_CHROOT \
+  -e CLAUDE_ALLOWED_EGRESS=github.com,pypi.org \
+  -e CLOUDFLARE_TUNNEL_TOKEN=<token-from-setup-above> \
+  -v ./gateway-key.pub:/etc/claude/gateway-key.pub:ro \
+  -v agent-gateway-hostkey:/etc/ssh/keys \
+  agent-gateway
+```
+
+Then, on the [`claude-code`](claude-code.md#gateway-client-mode) side, set
+`CLAUDE_GATEWAY_ACCESS_HOSTNAME` to the Access hostname instead of relying
+on `CLAUDE_GATEWAY_HOST` being directly reachable — see that page's
+gateway-client mode section for the full workload-side example.
+
+**Trade-offs:** no inbound port anywhere, and traffic to the edge is
+genuine HTTPS/WebSocket rather than raw SSH-on-a-port, so it blends in with
+ordinary web traffic and works even where the workload's own network only
+permits HTTPS egress. In exchange, it adds a Cloudflare account/tunnel/Access
+application as external infrastructure, and `cloudflared`'s own binary and
+update cadence become part of the trust chain in both images. Prefer direct
+TCP for simplicity when both sides can already open or reach a port; reach
+for this specifically when the goal is "no inbound port at all" or "must
+look like ordinary HTTPS."
+
+### Bring your own tunnel or VPN
+
+`sshuttle` and Cloudflare Tunnel are this project's *reference*
+implementations of "get the workload's traffic to the gateway," not the
+only correct way to satisfy the underlying contract — which is just: *the
+workload has no route out except through a process it does not itself
+control the firewall rules of.* An operator with an existing trusted network
+boundary (a corporate VPN, a WireGuard mesh, a Cisco AnyConnect/OpenConnect
+endpoint) can substitute that client for `sshuttle` inside `claude-code` and
+point it at their own infrastructure instead of `agent-gateway`. Nothing
+about filesystem or process containment changes; only the "how does egress
+leave this container" mechanism does.
