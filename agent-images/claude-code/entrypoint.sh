@@ -17,8 +17,36 @@ if ! gosu claude test -d /home/claude/.claude; then
     gosu claude find /home/claude -mindepth 1 -maxdepth 1 ! -name .claude -exec mv -t /home/claude/.claude -- {} +
 fi
 
-source /usr/local/lib/claude/egress-allowlist.sh
-configure_egress_allowlist
+if [ -n "${CLAUDE_GATEWAY_HOST:-}" ]; then
+    echo "[entrypoint] CLAUDE_GATEWAY_HOST=$CLAUDE_GATEWAY_HOST — tunneling all egress through the gateway." >&2
+    if [ -n "${CLAUDE_ALLOWED_EGRESS:-}" ] || [ -f /etc/claude/egress-allowlist.txt ]; then
+        echo "[entrypoint] CLAUDE_ALLOWED_EGRESS/egress-allowlist.txt are ignored in gateway mode — set the allowlist on the gateway container instead." >&2
+    fi
+    if [ -n "${CLAUDE_GATEWAY_BOOTSTRAP_ALLOW:-}" ]; then
+        echo "[entrypoint] Seeding a bootstrap allow rule for ${CLAUDE_GATEWAY_BOOTSTRAP_ALLOW} until the tunnel is up." >&2
+        iptables -P OUTPUT DROP
+        iptables -A OUTPUT -o lo -j ACCEPT
+        iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+        ip6tables -P OUTPUT DROP
+        ip6tables -A OUTPUT -o lo -j ACCEPT
+        ip6tables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+        IFS=',' read -ra BOOTSTRAP_ALLOW <<< "$CLAUDE_GATEWAY_BOOTSTRAP_ALLOW"
+        for addr in "${BOOTSTRAP_ALLOW[@]}"; do
+            if [[ "$addr" == *:* ]]; then
+                ip6tables -A OUTPUT -d "$addr" -j ACCEPT
+            else
+                iptables -A OUTPUT -d "$addr" -j ACCEPT
+            fi
+        done
+    fi
+    install -m 600 /etc/claude/gateway-key /tmp/gateway-key
+    sshuttle -r "${CLAUDE_GATEWAY_USER:-tunnel}@${CLAUDE_GATEWAY_HOST}:${CLAUDE_GATEWAY_PORT:-2222}" \
+        0.0.0.0/0 ::/0 --dns --daemon --pidfile=/tmp/sshuttle.pid \
+        -e "ssh -i /tmp/gateway-key -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/etc/claude/gateway-known-hosts"
+else
+    source /usr/local/lib/claude/egress-allowlist.sh
+    configure_egress_allowlist
+fi
 
 # `docker run <image> <args>` replaces CMD entirely rather than appending to
 # it, so flag-only invocations (e.g. `--agents`) would otherwise try to exec

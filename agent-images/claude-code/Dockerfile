@@ -18,6 +18,8 @@ RUN apt-get update \
         dnsmasq \
         dnsutils \
         gosu \
+        openssh-client \
+        sshuttle \
     && curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
