@@ -192,7 +192,4 @@ Only direct TCP reachability — a Docker bridge address for a same-host
 sibling, or a published port/public address for a remote host — is
 currently implemented, as shown above. A Cloudflare Tunnel option (running
 the gateway with no inbound port open at all) is designed but not yet
-implemented; see
-`docs/superpowers/specs/2026-07-17-remote-gateway-container-design.md` in
-the repository for that design and other extensibility options (swapping
-in a different VPN/tunnel client entirely).
+implemented.

@@ -324,7 +324,4 @@ docker run -it --rm \
 ```
 
 See [`agent-gateway`](agent-gateway.md) for how to run the gateway side of
-either example, and
-`docs/superpowers/specs/2026-07-17-remote-gateway-container-design.md` in
-the repository for the full rationale, trade-offs, and reachability
-options.
+either example.
