@@ -52,6 +52,8 @@ ENV HOME=/home/claude
 ENV npm_config_prefix=/home/claude/.npm-global
 ENV PATH="/home/claude/.npm-global/bin:${PATH}"
 
+COPY --from=shared egress-allowlist.sh /usr/local/lib/claude/egress-allowlist.sh
+
 COPY plugin-marketplaces.txt /tmp/plugin-marketplaces.txt
 COPY plugins.txt /tmp/plugins.txt
 
