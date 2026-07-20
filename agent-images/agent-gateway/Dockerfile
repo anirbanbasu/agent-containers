@@ -10,9 +10,15 @@ RUN apt-get update \
         dnsutils \
         openssh-server \
         python3 \
+        gosu \
     && rm -rf /var/lib/apt/lists/*
 # python3 isn't used by anything in this image — it's what sshuttle execs
-# remotely over the SSH session from the claude-code side.
+# remotely over the SSH session from the claude-code side. gosu lets the
+# entrypoint (root) install authorized_keys as the tunnel user itself (see
+# entrypoint.sh) rather than chowning it there as root — sshd's pubkey check
+# reads authorized_keys back as the login user, so the file has to be
+# genuinely tunnel-owned, and chowning it as root at runtime would need
+# CAP_CHOWN, which --cap-drop=ALL doesn't grant back.
 
 RUN useradd -m -s /bin/bash -d /home/tunnel tunnel \
     && passwd -l tunnel \

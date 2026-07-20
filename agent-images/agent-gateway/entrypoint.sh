@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-install -o tunnel -g tunnel -m 600 /etc/claude/gateway-key.pub /home/tunnel/.ssh/authorized_keys
+gosu tunnel install -m 600 /etc/claude/gateway-key.pub /home/tunnel/.ssh/authorized_keys
 
 HOST_KEY_DIR=/etc/ssh/keys
 mkdir -p "$HOST_KEY_DIR"
