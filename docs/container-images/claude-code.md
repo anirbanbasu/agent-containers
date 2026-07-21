@@ -133,7 +133,7 @@ only the cache is.
   (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`).
 - **`examples/egress-allowlist.txt`** — sample allowlist of hosts/IPs the
   container is allowed to reach outbound; defaults to deny-all if neither
-  this file nor `CLAUDE_ALLOWED_EGRESS` is set, or set to `*` for
+  this file nor `AGENT_ALLOWED_EGRESS` is set, or set to `*` for
   unrestricted egress.
 
 Model settings and the egress allowlist can each be supplied either by
@@ -194,8 +194,8 @@ allowed too).
 
 ### In-container allowlist
 
-The default mode. `entrypoint.sh` enforces `CLAUDE_ALLOWED_EGRESS` (or a
-mounted `/etc/claude/egress-allowlist.txt`, which takes precedence if both
+The default mode. `entrypoint.sh` enforces `AGENT_ALLOWED_EGRESS` (or a
+mounted `/etc/agent/egress-allowlist.txt`, which takes precedence if both
 are supplied) against the container's own `OUTPUT` chain, defaulting to
 deny-all if neither is set.
 
@@ -211,7 +211,7 @@ deny-all if neither is set.
       -v claude-home:/home/claude \
       -v "$PWD":"/workspace/$(basename "$PWD")" \
       -w "/workspace/$(basename "$PWD")" \
-      -v "$PWD/agent-images/claude-code/examples/egress-allowlist.txt":/etc/claude/egress-allowlist.txt \
+      -v "$PWD/agent-images/claude-code/examples/egress-allowlist.txt":/etc/agent/egress-allowlist.txt \
       claude-code
     ```
 
@@ -227,21 +227,21 @@ deny-all if neither is set.
       -v claude-home:/home/claude \
       -v "$PWD":"/workspace/$(basename "$PWD")" \
       -w "/workspace/$(basename "$PWD")" \
-      -e CLAUDE_ALLOWED_EGRESS=api.anthropic.com,your-local-model.example.com \
+      -e AGENT_ALLOWED_EGRESS=api.anthropic.com,your-local-model.example.com \
       claude-code
     ```
 
-Set `CLAUDE_ALLOWED_EGRESS=*` for unrestricted egress.
+Set `AGENT_ALLOWED_EGRESS=*` for unrestricted egress.
 
 ### Gateway-client mode
 
-Setting `CLAUDE_GATEWAY_HOST` switches `claude-code` from the in-container
+Setting `AGENT_GATEWAY_HOST` switches `claude-code` from the in-container
 allowlist to gateway-client mode: instead of filtering its own traffic,
 `claude-code` runs [`sshuttle`](https://github.com/sshuttle/sshuttle) to
 tunnel **all** outbound traffic (including DNS) to an
 [`agent-gateway`](agent-gateway.md) container, which enforces the allowlist
-on the workload's behalf. `CLAUDE_ALLOWED_EGRESS`/`egress-allowlist.txt` are
-ignored (with a logged warning) when `CLAUDE_GATEWAY_HOST` is set — the
+on the workload's behalf. `AGENT_ALLOWED_EGRESS`/`egress-allowlist.txt` are
+ignored (with a logged warning) when `AGENT_GATEWAY_HOST` is set — the
 allowlist that matters in this mode is the one configured on the gateway
 itself.
 
@@ -256,13 +256,13 @@ itself.
 
 | Variable / mount | Purpose |
 |---|---|
-| `CLAUDE_GATEWAY_HOST` | Gateway's address (Docker network address, public IP/hostname). Enables gateway-client mode when set; unset falls back to the in-container allowlist. |
-| `CLAUDE_GATEWAY_PORT` | Gateway's SSH port. Defaults to `2222`. |
-| `CLAUDE_GATEWAY_USER` | SSH user on the gateway. Defaults to `tunnel`. |
-| `CLAUDE_GATEWAY_BOOTSTRAP_ALLOW` | Comma-separated bare IPs/CIDRs (never a hostname) the entrypoint allows *before* the tunnel comes up — narrowly scoped to the gateway's own address, so egress isn't wide open during the brief window before `sshuttle` takes over. |
-| `CLAUDE_GATEWAY_ACCESS_HOSTNAME` | Optional. Reach the gateway via Cloudflare Tunnel instead of direct TCP — see [Cloudflare Tunnel](#cloudflare-tunnel) below. |
-| `-v ./gateway-key:/etc/claude/gateway-key:ro` | SSH private key for the tunnel. |
-| `-v ./gateway-known-hosts:/etc/claude/gateway-known-hosts:ro` | Pinned gateway host key, so `StrictHostKeyChecking=yes` works non-interactively on the first connection. |
+| `AGENT_GATEWAY_HOST` | Gateway's address (Docker network address, public IP/hostname). Enables gateway-client mode when set; unset falls back to the in-container allowlist. |
+| `AGENT_GATEWAY_PORT` | Gateway's SSH port. Defaults to `2222`. |
+| `AGENT_GATEWAY_USER` | SSH user on the gateway. Defaults to `tunnel`. |
+| `AGENT_GATEWAY_BOOTSTRAP_ALLOW` | Comma-separated bare IPs/CIDRs (never a hostname) the entrypoint allows *before* the tunnel comes up — narrowly scoped to the gateway's own address, so egress isn't wide open during the brief window before `sshuttle` takes over. |
+| `AGENT_GATEWAY_ACCESS_HOSTNAME` | Optional. Reach the gateway via Cloudflare Tunnel instead of direct TCP — see [Cloudflare Tunnel](#cloudflare-tunnel) below. |
+| `-v ./gateway-key:/etc/agent/gateway-key:ro` | SSH private key for the tunnel. |
+| `-v ./gateway-known-hosts:/etc/agent/gateway-known-hosts:ro` | Pinned gateway host key, so `StrictHostKeyChecking=yes` works non-interactively on the first connection. |
 
 No additional capabilities are required beyond the defaults above —
 `sshuttle` uses the same `NET_ADMIN`/`NET_RAW` grant that the in-container
@@ -271,32 +271,32 @@ allowlist uses, just to install redirect rules instead of filter rules.
 #### Example: same-host sibling gateway
 
 ```sh
-docker network create claude-net
+docker network create agent-net
 ssh-keygen -t ed25519 -f gateway-key -N "" -C "agent-gateway"
 
 # Start the gateway first — see agent-gateway.md for the full walkthrough.
-docker run -d --name agent-gateway --network claude-net \
+docker run -d --name agent-gateway --network agent-net \
   --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW \
   --cap-add=SETUID --cap-add=SETGID --cap-add=SYS_CHROOT \
-  -e CLAUDE_ALLOWED_EGRESS=github.com,pypi.org \
-  -v ./gateway-key.pub:/etc/claude/gateway-key.pub:ro \
+  -e AGENT_ALLOWED_EGRESS=github.com,pypi.org \
+  -v ./gateway-key.pub:/etc/agent/gateway-key.pub:ro \
   -v agent-gateway-hostkey:/etc/ssh/keys \
   agent-gateway
 
-# Scan from another container on claude-net, not from the Docker host — see
+# Scan from another container on agent-net, not from the Docker host — see
 # agent-gateway.md's "Pin the gateway's host key" note for why.
-docker run --rm --network claude-net alpine:3 sh -c \
+docker run --rm --network agent-net alpine:3 sh -c \
   "apk add --no-cache openssh-client >/dev/null && ssh-keyscan -p 2222 agent-gateway" \
   > gateway-known-hosts
-GW_IP=$(docker inspect agent-gateway --format '{{ (index .NetworkSettings.Networks "claude-net").IPAddress }}')
+GW_IP=$(docker inspect agent-gateway --format '{{ (index .NetworkSettings.Networks "agent-net").IPAddress }}')
 
-docker run -it --rm --network claude-net \
+docker run -it --rm --network agent-net \
   --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
   --security-opt=no-new-privileges --read-only --tmpfs /tmp --tmpfs /run \
-  -e CLAUDE_GATEWAY_HOST=agent-gateway \
-  -e CLAUDE_GATEWAY_BOOTSTRAP_ALLOW="$GW_IP" \
-  -v ./gateway-key:/etc/claude/gateway-key:ro \
-  -v ./gateway-known-hosts:/etc/claude/gateway-known-hosts:ro \
+  -e AGENT_GATEWAY_HOST=agent-gateway \
+  -e AGENT_GATEWAY_BOOTSTRAP_ALLOW="$GW_IP" \
+  -v ./gateway-key:/etc/agent/gateway-key:ro \
+  -v ./gateway-known-hosts:/etc/agent/gateway-known-hosts:ro \
   -v claude-home:/home/claude \
   -v "$PWD":"/workspace/$(basename "$PWD")" \
   -w "/workspace/$(basename "$PWD")" \
@@ -314,10 +314,10 @@ infrastructure you control:
 docker run -it --rm \
   --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
   --security-opt=no-new-privileges --read-only --tmpfs /tmp --tmpfs /run \
-  -e CLAUDE_GATEWAY_HOST=<gateway-public-ip-or-hostname> \
-  -e CLAUDE_GATEWAY_BOOTSTRAP_ALLOW=<gateway-public-ip> \
-  -v ./gateway-key:/etc/claude/gateway-key:ro \
-  -v ./gateway-known-hosts:/etc/claude/gateway-known-hosts:ro \
+  -e AGENT_GATEWAY_HOST=<gateway-public-ip-or-hostname> \
+  -e AGENT_GATEWAY_BOOTSTRAP_ALLOW=<gateway-public-ip> \
+  -v ./gateway-key:/etc/agent/gateway-key:ro \
+  -v ./gateway-known-hosts:/etc/agent/gateway-known-hosts:ro \
   -v claude-home:/home/claude \
   -v "$PWD":"/workspace/$(basename "$PWD")" \
   -w "/workspace/$(basename "$PWD")" \
@@ -330,9 +330,9 @@ either example.
 #### Cloudflare Tunnel
 
 Both examples above reach the gateway by direct TCP. To reach it with no
-inbound port open at all instead, set `CLAUDE_GATEWAY_ACCESS_HOSTNAME`
-(the Cloudflare Access hostname) instead of relying on `CLAUDE_GATEWAY_HOST`
-being directly reachable — `CLAUDE_GATEWAY_HOST` still needs to be set
+inbound port open at all instead, set `AGENT_GATEWAY_ACCESS_HOSTNAME`
+(the Cloudflare Access hostname) instead of relying on `AGENT_GATEWAY_HOST`
+being directly reachable — `AGENT_GATEWAY_HOST` still needs to be set
 (sshuttle's `-r` target), but reachability now goes through Cloudflare's
 edge rather than straight to that address:
 
@@ -340,10 +340,10 @@ edge rather than straight to that address:
 docker run -it --rm \
   --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
   --security-opt=no-new-privileges --read-only --tmpfs /tmp --tmpfs /run \
-  -e CLAUDE_GATEWAY_HOST=localhost \
-  -e CLAUDE_GATEWAY_ACCESS_HOSTNAME=gateway.example.com \
-  -v ./gateway-key:/etc/claude/gateway-key:ro \
-  -v ./gateway-known-hosts:/etc/claude/gateway-known-hosts:ro \
+  -e AGENT_GATEWAY_HOST=localhost \
+  -e AGENT_GATEWAY_ACCESS_HOSTNAME=gateway.example.com \
+  -v ./gateway-key:/etc/agent/gateway-key:ro \
+  -v ./gateway-known-hosts:/etc/agent/gateway-known-hosts:ro \
   -v claude-home:/home/claude \
   -v "$PWD":"/workspace/$(basename "$PWD")" \
   -w "/workspace/$(basename "$PWD")" \
@@ -352,7 +352,7 @@ docker run -it --rm \
 
 This needs the one-time Cloudflare account/tunnel/Access setup described in
 [`agent-gateway`'s Cloudflare Tunnel section](agent-gateway.md#cloudflare-tunnel)
-first. `CLAUDE_GATEWAY_BOOTSTRAP_ALLOW` still applies (the entrypoint
+first. `AGENT_GATEWAY_BOOTSTRAP_ALLOW` still applies (the entrypoint
 doesn't know which reachability option you're using), but its target
 changes: since the workload never contacts the gateway's own address
 directly in this mode, set it to

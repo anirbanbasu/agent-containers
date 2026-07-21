@@ -16,7 +16,7 @@ because those rules live in a different container entirely.
 
 `agent-gateway` reuses the exact `iptables`/`ipset`/`dnsmasq` allowlist
 mechanism `claude-code` uses for its own (optional) in-container allowlist —
-same `CLAUDE_ALLOWED_EGRESS`/`egress-allowlist.txt` inputs, same deny-all
+same `AGENT_ALLOWED_EGRESS`/`egress-allowlist.txt` inputs, same deny-all
 default — just applied to itself instead.
 
 Use `agent-gateway` when you want a stronger isolation guarantee than the
@@ -65,12 +65,12 @@ and `gateway-key.pub` (public, mounted into the gateway container).
     (non-`internal`) bridge network — no published port needed:
 
     ```sh
-    docker network create claude-net
-    docker run -d --name agent-gateway --network claude-net \
+    docker network create agent-net
+    docker run -d --name agent-gateway --network agent-net \
       --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW \
       --cap-add=SETUID --cap-add=SETGID --cap-add=SYS_CHROOT \
-      -e CLAUDE_ALLOWED_EGRESS=github.com,pypi.org \
-      -v ./gateway-key.pub:/etc/claude/gateway-key.pub:ro \
+      -e AGENT_ALLOWED_EGRESS=github.com,pypi.org \
+      -v ./gateway-key.pub:/etc/agent/gateway-key.pub:ro \
       -v agent-gateway-hostkey:/etc/ssh/keys \
       agent-gateway
     ```
@@ -86,13 +86,13 @@ and `gateway-key.pub` (public, mounted into the gateway container).
       --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW \
       --cap-add=SETUID --cap-add=SETGID --cap-add=SYS_CHROOT \
       -p 2222:2222 \
-      -e CLAUDE_ALLOWED_EGRESS=github.com,pypi.org \
-      -v ./gateway-key.pub:/etc/claude/gateway-key.pub:ro \
+      -e AGENT_ALLOWED_EGRESS=github.com,pypi.org \
+      -v ./gateway-key.pub:/etc/agent/gateway-key.pub:ro \
       -v agent-gateway-hostkey:/etc/ssh/keys \
       agent-gateway
     ```
 
-`CLAUDE_ALLOWED_EGRESS` (or a mounted `/etc/claude/egress-allowlist.txt`,
+`AGENT_ALLOWED_EGRESS` (or a mounted `/etc/agent/egress-allowlist.txt`,
 which takes precedence if both are supplied) is the allowlist that actually
 matters once a workload is tunnelling through this gateway — set it to the
 real policy this gateway exists to enforce. Omitting both defaults to
@@ -112,8 +112,8 @@ trust-on-first-use prompt is possible from a container entrypoint):
 ```sh
 # same-host sibling: scan by the container's Docker network alias, not by
 # querying the host — the workload will connect using this same name
-# (CLAUDE_GATEWAY_HOST=agent-gateway), so the pinned key must be keyed to it:
-docker run --rm --network claude-net alpine:3 sh -c \
+# (AGENT_GATEWAY_HOST=agent-gateway), so the pinned key must be keyed to it:
+docker run --rm --network agent-net alpine:3 sh -c \
   "apk add --no-cache openssh-client >/dev/null && ssh-keyscan -p 2222 agent-gateway" \
   > gateway-known-hosts
 
@@ -124,7 +124,7 @@ ssh-keyscan -p 2222 <gateway-public-ip-or-hostname> > gateway-known-hosts
 !!! note "Scan from a container on the same network, not from the Docker host"
     On Docker Desktop (macOS/Windows), the host cannot route directly to a
     container's bridge-network IP — only to published ports — so
-    `ssh-keyscan` has to run from another container on `claude-net`, as
+    `ssh-keyscan` has to run from another container on `agent-net`, as
     shown above. On native Linux this would also work by running
     `ssh-keyscan` directly against the bridge IP from the host, but scanning
     by the same hostname the workload will use is what actually matters:
@@ -136,7 +136,7 @@ ssh-keyscan -p 2222 <gateway-public-ip-or-hostname> > gateway-known-hosts
 
 See [`claude-code`'s gateway-client mode](claude-code.md#gateway-client-mode)
 for the full workload-side configuration
-(`CLAUDE_GATEWAY_HOST`/`CLAUDE_GATEWAY_BOOTSTRAP_ALLOW`, the `gateway-key`
+(`AGENT_GATEWAY_HOST`/`AGENT_GATEWAY_BOOTSTRAP_ALLOW`, the `gateway-key`
 and `gateway-known-hosts` mounts) and worked examples for both topologies
 above.
 
@@ -229,16 +229,16 @@ port:
 docker run -d --name agent-gateway \
   --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW \
   --cap-add=SETUID --cap-add=SETGID --cap-add=SYS_CHROOT \
-  -e CLAUDE_ALLOWED_EGRESS=github.com,pypi.org \
+  -e AGENT_ALLOWED_EGRESS=github.com,pypi.org \
   -e CLOUDFLARE_TUNNEL_TOKEN=<token-from-setup-above> \
-  -v ./gateway-key.pub:/etc/claude/gateway-key.pub:ro \
+  -v ./gateway-key.pub:/etc/agent/gateway-key.pub:ro \
   -v agent-gateway-hostkey:/etc/ssh/keys \
   agent-gateway
 ```
 
 Then, on the [`claude-code`](claude-code.md#gateway-client-mode) side, set
-`CLAUDE_GATEWAY_ACCESS_HOSTNAME` to the Access hostname instead of relying
-on `CLAUDE_GATEWAY_HOST` being directly reachable — see that page's
+`AGENT_GATEWAY_ACCESS_HOSTNAME` to the Access hostname instead of relying
+on `AGENT_GATEWAY_HOST` being directly reachable — see that page's
 gateway-client mode section for the full workload-side example.
 
 **Trade-offs:** no inbound port anywhere, and traffic to the edge is
