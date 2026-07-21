@@ -1,23 +1,23 @@
 #!/bin/bash
 # Shared by agent-images/claude-code/entrypoint.sh and
 # agent-images/agent-gateway/entrypoint.sh. Configures this container's own
-# OUTPUT chain to allow only the hosts/IPs in CLAUDE_ALLOWED_EGRESS /
-# /etc/claude/egress-allowlist.txt (file mount takes precedence over the env
+# OUTPUT chain to allow only the hosts/IPs in AGENT_ALLOWED_EGRESS /
+# /etc/agent/egress-allowlist.txt (file mount takes precedence over the env
 # var), defaulting to deny-all when neither is set. Must be sourced and
 # called as root, before any privilege drop, since it installs iptables
 # rules and starts dnsmasq.
 
 configure_egress_allowlist() {
-    local allowlist_file="/etc/claude/egress-allowlist.txt"
-    local ipset_name="claude_allowed"
-    local ipset6_name="claude_allowed6"
+    local allowlist_file="/etc/agent/egress-allowlist.txt"
+    local ipset_name="agent_allowed"
+    local ipset6_name="agent_allowed6"
     local -a allowlist
 
     # File mount takes precedence over the env var; neither set means deny-all.
     if [ -f "$allowlist_file" ]; then
         mapfile -t allowlist < <(grep -v '^\s*#' "$allowlist_file" | grep -v '^\s*$')
-    elif [ -n "${CLAUDE_ALLOWED_EGRESS:-}" ]; then
-        IFS=',' read -ra allowlist <<< "$CLAUDE_ALLOWED_EGRESS"
+    elif [ -n "${AGENT_ALLOWED_EGRESS:-}" ]; then
+        IFS=',' read -ra allowlist <<< "$AGENT_ALLOWED_EGRESS"
     else
         allowlist=()
     fi
@@ -26,13 +26,13 @@ configure_egress_allowlist() {
     _egress_is_ipv6() { [[ "$1" == *:* ]]; }
 
     if [ "${#allowlist[@]}" -eq 1 ] && [ "${allowlist[0]}" = "*" ]; then
-        echo "[egress-allowlist] CLAUDE_ALLOWED_EGRESS=* — no egress restrictions applied (IPv4 and IPv6)." >&2
+        echo "[egress-allowlist] AGENT_ALLOWED_EGRESS=* — no egress restrictions applied (IPv4 and IPv6)." >&2
         return 0
     fi
 
     if [ "${#allowlist[@]}" -eq 0 ]; then
-        echo "[egress-allowlist] No allowlist configured (\$CLAUDE_ALLOWED_EGRESS unset, no $allowlist_file mount)." >&2
-        echo "[egress-allowlist] Defaulting to deny-all outbound traffic (IPv4 and IPv6). Set CLAUDE_ALLOWED_EGRESS=host1,host2 (or '*' for unrestricted) to change this." >&2
+        echo "[egress-allowlist] No allowlist configured (\$AGENT_ALLOWED_EGRESS unset, no $allowlist_file mount)." >&2
+        echo "[egress-allowlist] Defaulting to deny-all outbound traffic (IPv4 and IPv6). Set AGENT_ALLOWED_EGRESS=host1,host2 (or '*' for unrestricted) to change this." >&2
         iptables -P OUTPUT DROP
         iptables -A OUTPUT -o lo -j ACCEPT
         iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
@@ -53,7 +53,7 @@ configure_egress_allowlist() {
 
     # /tmp rather than /etc: entrypoint runs before rootfs is guaranteed
     # writable (a --read-only container only gets /tmp and /run as tmpfs).
-    local dnsmasq_conf=/tmp/dnsmasq.claude.conf
+    local dnsmasq_conf=/tmp/dnsmasq.agent.conf
     {
         echo "no-resolv"
         echo "listen-address=127.0.0.1"
