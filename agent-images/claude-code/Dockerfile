@@ -34,7 +34,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 RUN npm install -g @anthropic-ai/claude-code
 
 # cloudflared is always installed but only invoked (see entrypoint.sh) when
-# CLAUDE_GATEWAY_ACCESS_HOSTNAME is set, as an alternative to reaching the
+# AGENT_GATEWAY_ACCESS_HOSTNAME is set, as an alternative to reaching the
 # gateway by direct TCP — TARGETARCH is supplied automatically by Buildx and
 # matches cloudflared's own release-asset naming (amd64/arm64/386/...).
 RUN curl -fsSL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${TARGETARCH}" \
@@ -63,7 +63,7 @@ ENV HOME=/home/claude
 ENV npm_config_prefix=/home/claude/.npm-global
 ENV PATH="/home/claude/.npm-global/bin:${PATH}"
 
-COPY --from=shared egress-allowlist.sh /usr/local/lib/claude/egress-allowlist.sh
+COPY --from=shared egress-allowlist.sh /usr/local/lib/agent/egress-allowlist.sh
 
 COPY plugin-marketplaces.txt /tmp/plugin-marketplaces.txt
 COPY plugins.txt /tmp/plugins.txt
