@@ -37,7 +37,7 @@ RUN useradd -m -s /bin/bash -d /home/tunnel tunnel \
     && chmod 700 /home/tunnel/.ssh \
     && chown -R tunnel:tunnel /home/tunnel
 
-COPY --from=shared egress-allowlist.sh /usr/local/lib/claude/egress-allowlist.sh
+COPY --from=shared egress-allowlist.sh /usr/local/lib/agent/egress-allowlist.sh
 COPY sshd_config.agent-gateway /etc/ssh/sshd_config.d/agent-gateway.conf
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
