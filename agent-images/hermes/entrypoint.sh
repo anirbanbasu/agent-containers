@@ -42,5 +42,8 @@ fi
 # stage2-hook.sh, which chowns /opt/data to the hermes user on first boot —
 # hence this image needing CAP_CHOWN under --cap-drop=ALL) and its own
 # s6-setuidgid drop to the unprivileged hermes user, so no gosu/privilege
-# drop is needed on our side.
+# drop is needed on our side. DAC_OVERRIDE is also required under
+# --cap-drop=ALL: 02-reconcile-profiles registers the main-hermes/dashboard
+# services after the static supervise trees are already chowned, so
+# s6-supervise can't open their supervise/lock files without it.
 exec /init /opt/hermes/docker/main-wrapper.sh "$@"
