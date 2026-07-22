@@ -43,6 +43,8 @@ docker run -it --rm \
 
 ### Capabilities
 
+In the documentation below, _upstream_ refers to the Hermes Agent official base image and its own release engineering, as distinct from the containment/hardening layer this repo's `hermes` image adds on top.
+
 | Flag | Purpose |
 |---|---|
 | `--cap-add=NET_ADMIN` `--cap-add=NET_RAW` | Same as `claude-code` — the entrypoint always installs a default-deny `iptables`/`ip6tables` policy, and domain-based allowlist matching needs `NET_RAW`. |
