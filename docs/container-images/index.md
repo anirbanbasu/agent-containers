@@ -4,11 +4,11 @@ icon: lucide/table-properties
 
 # Summary of container images
 
-This project ships two container images, both hardened by default
+This project ships three container images, all hardened by default
 (non-root user, read-only root filesystem, minimal capability set, deny-all
-egress unless configured otherwise): a workload image that runs a coding
-agent, and a network-tunnelling image that lets you move egress enforcement
-out of that workload entirely.
+egress unless configured otherwise): two workload images that each run a
+different coding/agentic CLI, and a network-tunnelling image that lets you
+move egress enforcement out of either workload entirely.
 
 ## Network tunnelling
 
@@ -26,3 +26,11 @@ same image, same mechanism, only reachability differs.
 container, with either an in-container egress allowlist (the default) or
 opt-in gateway-client mode via `agent-gateway` (above) for stronger
 isolation.
+
+## Hermes
+
+[`hermes`](hermes.md) packages [Hermes Agent](https://github.com/NousResearch/hermes-agent),
+Nous Research's self-improving, multi-provider agentic CLI, with the same
+network-containment posture as `claude-code` — the same in-container
+allowlist or `agent-gateway` gateway-client mode, applied to a different
+workload.

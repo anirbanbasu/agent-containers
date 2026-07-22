@@ -7,7 +7,8 @@ Full documentation: <https://docs-agent-containers.anirbanbasu.com/> (or browse 
 ## Images
 
 - **`claude-code`** — hardened container for running the [Claude Code](https://claude.com/product/claude-code) CLI: non-root user, read-only root filesystem, minimal capability set, egress denied by default. See `docs/container-images/claude-code.md`.
-- **`agent-gateway`** — a disposable sibling container that a workload like `claude-code` can tunnel all its egress through over SSH, so egress enforcement lives outside the workload container entirely. See `docs/container-images/agent-gateway.md`.
+- **`hermes`** — hardened container for running [Hermes Agent](https://github.com/NousResearch/hermes-agent), Nous Research's multi-provider agentic CLI, with the same network-containment posture as `claude-code`. See `docs/container-images/hermes.md`.
+- **`agent-gateway`** — a disposable sibling container that a workload like `claude-code` or `hermes` can tunnel all its egress through over SSH, so egress enforcement lives outside the workload container entirely. See `docs/container-images/agent-gateway.md`.
 
 ## Quickstart: Claude Code
 
