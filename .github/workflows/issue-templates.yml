@@ -1,0 +1,17 @@
+name: Issue templates
+on:
+  pull_request:
+    paths:
+      - "agent-images/**"
+      - ".github/ISSUE_TEMPLATE/**"
+      - "scripts/update-issue-templates.sh"
+      - "justfile"
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: extractions/setup-just@v3
+      - run: just check-issue-templates

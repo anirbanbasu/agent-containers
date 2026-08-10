@@ -1,0 +1,34 @@
+name: New agent image request
+description: Propose a new hardened image for another agent CLI.
+title: "[New image] "
+labels: ["new-image"]
+body:
+  - type: input
+    id: agent-name
+    attributes:
+      label: Agent CLI name and link
+      placeholder: e.g. https://github.com/some-org/some-agent-cli
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Why is this worth containerizing?
+      description: See docs/containment-philosophy.md for the containment posture this repo aims for.
+    validations:
+      required: true
+  - type: checkboxes
+    id: unusual-needs
+    attributes:
+      label: Does it need anything unusual?
+      options:
+        - label: Extra Linux capabilities beyond NET_ADMIN/NET_RAW/SETUID/SETGID
+        - label: A non-standard home directory layout
+        - label: Network egress beyond the default allowlist mechanism
+        - label: Something else (explain below)
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional notes
+    validations:
+      required: false

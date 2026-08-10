@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://docs-agent-containers.anirbanbasu.com/
+    about: General questions and usage help — check the docs site first.
+  - name: Report a security vulnerability
+    url: https://github.com/anirbanbasu/agent-containers/security/advisories/new
+    about: Containment/isolation weaknesses should be reported privately, not as a public issue. See SECURITY.md.

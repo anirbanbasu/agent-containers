@@ -1,0 +1,40 @@
+name: Feature request
+description: New functionality for an existing image or shared script.
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which part of the repo does this affect?
+      options:
+        # BEGIN component-options
+        - agent-gateway
+        - claude-code
+        - hermes
+        - shared (egress-allowlist.sh)
+        - docs/build tooling
+        - other
+        # END component-options
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What can't you do today?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false
