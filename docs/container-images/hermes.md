@@ -103,6 +103,16 @@ sandbox), and a `plugins.txt`-equivalent build-time skill seeding mechanism
 (Hermes has its own skills/MCP ecosystem, unrelated to Claude Code's plugin
 marketplaces).
 
+## Optional configuration
+
+- **`packages-apt.txt` / `packages-npm.txt` / `packages-uv.txt`** — general
+  (non-agent) software to install at build time, one package per line,
+  installed via `apt-get install`, `npm install -g`, and `uv tool install`
+  respectively. `packages-apt.txt` ships prefilled with common CLI tools
+  (`gh`, `jq`, `ripgrep`, `fd-find`, `tree`, `unzip`, `less`); the npm/uv
+  lists ship empty. Edit any of the three and rebuild the image to change
+  what's installed.
+
 ## Egress control
 
 ### In-container allowlist

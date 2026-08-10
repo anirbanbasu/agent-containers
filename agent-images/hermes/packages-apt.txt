@@ -1,0 +1,12 @@
+# Default/optional apt packages installed at build time, one per line.
+# Blank lines and lines starting with '#' are ignored. Edit freely and
+# rebuild the image — this is separate from the Dockerfile's own
+# required-infra apt list (iptables, dnsmasq, sshuttle, etc.), which this
+# file cannot remove packages from.
+gh
+jq
+ripgrep
+fd-find
+tree
+unzip
+less

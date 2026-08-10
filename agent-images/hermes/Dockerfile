@@ -20,6 +20,34 @@ RUN apt-get update \
         sshuttle \
     && rm -rf /var/lib/apt/lists/*
 
+# User-configurable default software (gh, jq, ripgrep, ...) — see
+# packages-apt.txt. Kept as a separate RUN from the baseline block above so
+# the required-infra list stays untouched by editing that file.
+COPY --from=shared install-packages.sh /usr/local/lib/agent/install-packages.sh
+COPY packages-apt.txt /tmp/packages-apt.txt
+RUN bash -c '. /usr/local/lib/agent/install-packages.sh \
+        && install_apt_packages /tmp/packages-apt.txt' \
+    && rm -f /tmp/packages-apt.txt
+
+# Unlike claude-code, this image has no build-time privilege-drop tool
+# installed (upstream's own runtime drop uses s6-setuidgid, not gosu) — `su`,
+# already present in the base image, does the same job here without adding a
+# new apt dependency. HOME/npm_config_prefix/PATH point at /opt/data
+# (upstream's HERMES_HOME, already owned by the hermes user at this layer)
+# so npm/uv installs below, and any the hermes user makes at runtime, land
+# there instead of under root's home or the read-only rootfs.
+ENV HOME=/opt/data
+ENV npm_config_prefix=/opt/data/.npm-global
+ENV PATH="/opt/data/.local/bin:/opt/data/.npm-global/bin:${PATH}"
+
+# packages-npm.txt / packages-uv.txt — see packages-apt.txt above.
+COPY packages-npm.txt /tmp/packages-npm.txt
+COPY packages-uv.txt /tmp/packages-uv.txt
+RUN su hermes -s /bin/bash -c '. /usr/local/lib/agent/install-packages.sh \
+        && install_npm_packages /tmp/packages-npm.txt \
+        && install_uv_packages /tmp/packages-uv.txt' \
+    && rm -f /tmp/packages-npm.txt /tmp/packages-uv.txt
+
 # cloudflared is always installed but only invoked (see entrypoint.sh) when
 # AGENT_GATEWAY_ACCESS_HOSTNAME is set, as an alternative to reaching the
 # gateway by direct TCP — TARGETARCH is supplied automatically by Buildx and
