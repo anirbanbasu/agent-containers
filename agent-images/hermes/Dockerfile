@@ -34,8 +34,9 @@ RUN bash -c '. /usr/local/lib/agent/install-packages.sh \
 # already present in the base image, does the same job here without adding a
 # new apt dependency. HOME/npm_config_prefix/PATH point at /opt/data
 # (upstream's HERMES_HOME, already owned by the hermes user at this layer)
-# so npm/uv installs below, and any the hermes user makes at runtime, land
-# there instead of under root's home or the read-only rootfs.
+# so npm/uv installs below, and any further installs the hermes user makes
+# at runtime, land there instead of under root's home or the read-only
+# rootfs.
 ENV HOME=/opt/data
 ENV npm_config_prefix=/opt/data/.npm-global
 ENV PATH="/opt/data/.local/bin:/opt/data/.npm-global/bin:${PATH}"
