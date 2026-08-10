@@ -1,0 +1,7 @@
+# Optional Python CLI tools installed at build time (via `uv tool install`),
+# one per line. Blank lines and lines starting with '#' are ignored. Empty by
+# default — there's no "everyone wants this" uv-installed CLI the way there
+# is for apt utilities.
+#
+# Example:
+# ruff

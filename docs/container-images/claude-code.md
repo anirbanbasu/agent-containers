@@ -128,6 +128,13 @@ only the cache is.
 - **`plugin-marketplaces.txt`** — additional plugin marketplaces to add
   before installing plugins from `plugins.txt`; see the comments in the
   file for accepted source formats.
+- **`packages-apt.txt` / `packages-npm.txt` / `packages-uv.txt`** — general
+  (non-agent) software to install at build time, one package per line,
+  installed via `apt-get install`, `npm install -g`, and `uv tool install`
+  respectively. `packages-apt.txt` ships prefilled with common CLI tools
+  (`gh`, `jq`, `ripgrep`, `fd-find`, `tree`, `unzip`, `less`); the npm/uv
+  lists ship empty. Edit any of the three and rebuild the image to change
+  what's installed.
 - **`examples/settings.local-model.json`** — sample `settings.json` for
   pointing Claude Code at a custom/local model endpoint
   (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`).

@@ -25,6 +25,15 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
+# User-configurable default software (gh, jq, ripgrep, ...) — see
+# packages-apt.txt. Kept as a separate RUN from the baseline block above so
+# the required-infra list stays untouched by editing that file.
+COPY --from=shared install-packages.sh /usr/local/lib/agent/install-packages.sh
+COPY packages-apt.txt /tmp/packages-apt.txt
+RUN bash -c '. /usr/local/lib/agent/install-packages.sh \
+        && install_apt_packages /tmp/packages-apt.txt' \
+    && rm -f /tmp/packages-apt.txt
+
 # uv/uvx (Python package & venv manager), copied in rather than switching
 # the base image — uv manages venvs against this image's existing system
 # Python just as well as against a uv-provisioned one, without disturbing
@@ -61,7 +70,17 @@ ENV HOME=/home/claude
 # Docker's volume copy-up only seeds genuinely empty volumes) so the prefix
 # applies regardless of what's already in the mounted $HOME volume.
 ENV npm_config_prefix=/home/claude/.npm-global
-ENV PATH="/home/claude/.npm-global/bin:${PATH}"
+ENV PATH="/home/claude/.local/bin:/home/claude/.npm-global/bin:${PATH}"
+
+# packages-npm.txt / packages-uv.txt — see packages-apt.txt above. Run as the
+# claude user (not root) so npm/uv installs land under $HOME, per the ENV
+# block just above.
+COPY packages-npm.txt /tmp/packages-npm.txt
+COPY packages-uv.txt /tmp/packages-uv.txt
+RUN gosu claude bash -c '. /usr/local/lib/agent/install-packages.sh \
+        && install_npm_packages /tmp/packages-npm.txt \
+        && install_uv_packages /tmp/packages-uv.txt' \
+    && rm -f /tmp/packages-npm.txt /tmp/packages-uv.txt
 
 COPY --from=shared egress-allowlist.sh /usr/local/lib/agent/egress-allowlist.sh
 
