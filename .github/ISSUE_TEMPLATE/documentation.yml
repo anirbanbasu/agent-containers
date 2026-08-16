@@ -15,6 +15,7 @@ body:
         - codex
         - hermes
         - opencode
+        - qwen-code
         - shared (egress-allowlist.sh)
         - docs/build tooling
         - other

@@ -10,7 +10,8 @@ Full documentation: <https://docs-agent-containers.anirbanbasu.com/> (or browse 
 - **`codex`** — hardened container for the [OpenAI Codex CLI](https://developers.openai.com/), including API-key and device-login workflows. See `docs/container-images/codex.md`.
 - **`hermes`** — hardened container for running [Hermes Agent](https://github.com/NousResearch/hermes-agent), Nous Research's multi-provider agentic CLI, with the same network-containment posture as `claude-code`. See `docs/container-images/hermes.md`.
 - **`opencode`** — hardened container for the provider-agnostic [OpenCode](https://opencode.ai) terminal coding agent. See `docs/container-images/opencode.md`.
-- **`agent-gateway`** — a disposable sibling container that a workload such as `claude-code`, `codex`, `hermes`, or `opencode` can tunnel all its egress through over SSH, so egress enforcement lives outside the workload container entirely. See `docs/container-images/agent-gateway.md`.
+- **`qwen-code`** — hardened container for [Qwen Code](https://github.com/QwenLM/qwen-code), the open-source terminal coding agent. See `docs/container-images/qwen-code.md`.
+- **`agent-gateway`** — a disposable sibling container that a workload such as `claude-code`, `codex`, `hermes`, `opencode`, or `qwen-code` can tunnel all its egress through over SSH, so egress enforcement lives outside the workload container entirely. See `docs/container-images/agent-gateway.md`.
 
 ## Quickstart: Claude Code
 

@@ -4,9 +4,9 @@ icon: lucide/table-properties
 
 # Summary of container images
 
-This project ships five container images, all hardened by default
+This project ships six container images, all hardened by default
 (non-root user, read-only root filesystem, minimal capability set, deny-all
-egress unless configured otherwise): four workload images that each run a
+egress unless configured otherwise): five workload images that each run a
 different coding/agentic CLI, and a network-tunnelling image that lets you
 move egress enforcement out of a workload entirely.
 
@@ -48,3 +48,11 @@ workload.
 coding agent, with the same standard containment and gateway-client options.
 Its documentation starts with the OpenCode and model-catalog hosts, then
 explains how to add only the model-provider endpoints a user configures.
+
+## Qwen Code
+
+[`qwen-code`](qwen-code.md) packages Qwen Code, an open-source terminal
+coding agent that supports Qwen, OpenAI-compatible, Anthropic, Gemini, and
+local model providers. Its own optional Docker/Podman sandbox is disabled:
+the hardened outer container is the security boundary, and is deliberately
+not given access to a container runtime.

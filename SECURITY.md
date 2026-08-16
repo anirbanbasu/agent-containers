@@ -14,9 +14,9 @@ Do not open a public issue for suspected vulnerabilities.
 
 ## Scope
 
-In scope: anything that defeats the containment guarantees described in `docs/containment-philosophy.md` (egress control, non-root execution, capability restrictions, filesystem isolation) for `claude-code`, `codex`, `hermes`, `opencode`, `agent-gateway`, or the shared `egress-allowlist.sh` script.
+In scope: anything that defeats the containment guarantees described in `docs/containment-philosophy.md` (egress control, non-root execution, capability restrictions, filesystem isolation) for `claude-code`, `codex`, `hermes`, `opencode`, `qwen-code`, `agent-gateway`, or the shared `egress-allowlist.sh` script.
 
-Out of scope: vulnerabilities in the upstream agent CLIs themselves (Claude Code, Codex, Hermes Agent, OpenCode) — report those to their respective maintainers.
+Out of scope: vulnerabilities in the upstream agent CLIs themselves (Claude Code, Codex, Hermes Agent, OpenCode, Qwen Code) — report those to their respective maintainers.
 
 ## Supported versions
 
