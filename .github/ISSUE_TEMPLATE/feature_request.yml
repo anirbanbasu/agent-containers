@@ -12,7 +12,9 @@ body:
         # BEGIN component-options
         - agent-gateway
         - claude-code
+        - codex
         - hermes
+        - opencode
         - shared (egress-allowlist.sh)
         - docs/build tooling
         - other
