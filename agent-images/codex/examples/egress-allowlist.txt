@@ -1,0 +1,11 @@
+# Hosts/IPs the container is allowed to reach outbound, one per line.
+# Blank lines and lines starting with '#' are ignored. Mount this file at
+# /etc/agent/egress-allowlist.txt; it takes precedence over
+# $AGENT_ALLOWED_EGRESS. If neither is set, outbound traffic is denied.
+#
+# API-key authentication:
+api.openai.com
+#
+# Device authentication can use additional OpenAI/ChatGPT identity hosts.
+# Add the hosts displayed by the current CLI flow before running
+# `codex login --device-auth` under the allowlist.

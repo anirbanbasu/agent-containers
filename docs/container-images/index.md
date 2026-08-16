@@ -4,11 +4,11 @@ icon: lucide/table-properties
 
 # Summary of container images
 
-This project ships three container images, all hardened by default
+This project ships five container images, all hardened by default
 (non-root user, read-only root filesystem, minimal capability set, deny-all
-egress unless configured otherwise): two workload images that each run a
+egress unless configured otherwise): four workload images that each run a
 different coding/agentic CLI, and a network-tunnelling image that lets you
-move egress enforcement out of either workload entirely.
+move egress enforcement out of a workload entirely.
 
 ## Network tunnelling
 
@@ -27,6 +27,13 @@ container, with either an in-container egress allowlist (the default) or
 opt-in gateway-client mode via `agent-gateway` (above) for stronger
 isolation.
 
+## Codex
+
+[`codex`](codex.md) packages the OpenAI Codex CLI in the same Python-and-Node
+workload environment as `claude-code`. It supports API-key authentication and
+the CLI's device authorization flow, while keeping its configuration and
+authenticated state in a persisted home volume.
+
 ## Hermes
 
 [`hermes`](hermes.md) packages [Hermes Agent](https://github.com/NousResearch/hermes-agent),
@@ -34,3 +41,10 @@ Nous Research's self-improving, multi-provider agentic CLI, with the same
 network-containment posture as `claude-code` — the same in-container
 allowlist or `agent-gateway` gateway-client mode, applied to a different
 workload.
+
+## OpenCode
+
+[`opencode`](opencode.md) packages OpenCode, a provider-agnostic terminal
+coding agent, with the same standard containment and gateway-client options.
+Its documentation starts with the OpenCode and model-catalog hosts, then
+explains how to add only the model-provider endpoints a user configures.

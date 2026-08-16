@@ -7,8 +7,8 @@ icon: lucide/shield-alert
 Deployments that sit behind an organisational HTTPS proxy performing TLS
 interception (a self-signed or internal-CA certificate presented in place of
 the real destination's certificate) require two independent pieces of
-configuration inside the agent container itself — `claude-code`, `hermes`,
-or any future agent image built on the same
+configuration inside the agent container itself — `claude-code`, `codex`,
+`hermes`, `opencode`, or any future agent image built on the same
 [`AGENT_*`/`/etc/agent/*` contract](container-images/agent-gateway.md) (the
 shared naming convention these images use for egress/gateway configuration:
 environment variables prefixed `AGENT_*` and files mounted under
@@ -35,8 +35,8 @@ outbound HTTPS requests.
 
 Two constraints shape how this can be done:
 
-- The root filesystem runs `--read-only`, and images such as `claude-code`
-  offer no `sudo` access at runtime.
+- The root filesystem runs `--read-only`, and workload images offer no
+  `sudo` access at runtime.
 - `update-ca-certificates` writes into `/etc/ssl/certs` and
   `/usr/local/share/ca-certificates`, both part of the read-only root
   filesystem.
@@ -51,18 +51,18 @@ before the image's final non-root layer.
 
 ### Downstream Dockerfiles
 
-Baking a specific organisation's CA into the shared, tracked `claude-code`/
-`hermes` images is undesirable, since it couples a general-purpose image to
-one deployment and forces a rebuild whenever the certificate rotates. A
+Baking a specific organisation's CA into any shared, tracked workload image
+is undesirable, since it couples a general-purpose image to one deployment
+and forces a rebuild whenever the certificate rotates. A
 downstream build (supplying the certificate via build context or build
 argument on top of the base image) is the more appropriate place for this
 than the images maintained in this repository.
 
 Concretely, this means a separate Dockerfile — outside this repository —
-that starts `FROM claude-code:<tag>` (or `FROM hermes:<tag>`) and adds only
-the `COPY`/`update-ca-certificates` layer on top, rather than modifying the
-Dockerfile or build context of either image maintained here. Neither image
-switches to a non-root user at the Dockerfile level (the privilege drop
+that starts `FROM codex:<tag>` (or another workload image) and adds only the
+`COPY`/`update-ca-certificates` layer on top, rather than modifying the
+Dockerfile or build context of an image maintained here. These images do not
+switch to a non-root user at the Dockerfile level (the privilege drop
 happens in the entrypoint at container start, not at build time), so the
 downstream Dockerfile can `COPY` the certificate and run
 `update-ca-certificates` directly, without needing to reason about `USER`
@@ -72,9 +72,8 @@ wherever that organisation's other deployment-specific configuration
 lives.
 
 The downstream Dockerfile should not declare its own `ENTRYPOINT` or `CMD`.
-`claude-code` sets `ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]` and
-`CMD ["claude"]`; `hermes` sets the equivalent `ENTRYPOINT` pointing at its
-own `entrypoint.sh`. These scripts perform the egress `iptables` setup,
+Each workload image sets `ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]` and
+its CLI as `CMD`. These scripts perform the egress `iptables` setup,
 the gateway-client `sshuttle` bootstrap, and the privilege drop to the
 non-root user — all of which would be silently skipped if a downstream
 `Dockerfile` overrode them. Adding only `COPY`/`RUN` instructions after
