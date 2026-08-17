@@ -1,0 +1,1 @@
+# One uv tool/package specifier per line. These optional packages install at build time.

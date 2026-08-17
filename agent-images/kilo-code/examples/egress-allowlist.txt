@@ -1,0 +1,7 @@
+# One hostname or IP/CIDR per line. This file takes precedence over
+# AGENT_ALLOWED_EGRESS when mounted at /etc/agent/egress-allowlist.txt.
+#
+# Kilo's hosted AI Gateway. Use this only when the Kilo gateway is the selected
+# provider; add a configured direct provider, source-control host, MCP server,
+# and package registry explicitly as needed.
+api.kilo.ai

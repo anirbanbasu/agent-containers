@@ -8,7 +8,7 @@ Deployments that sit behind an organisational HTTPS proxy performing TLS
 interception (a self-signed or internal-CA certificate presented in place of
 the real destination's certificate) require two independent pieces of
 configuration inside the agent container itself — `claude-code`, `codex`,
-`hermes`, `opencode`, or any future agent image built on the same
+`hermes`, `kilo-code`, `opencode`, or any future agent image built on the same
 [`AGENT_*`/`/etc/agent/*` contract](container-images/agent-gateway.md) (the
 shared naming convention these images use for egress/gateway configuration:
 environment variables prefixed `AGENT_*` and files mounted under
