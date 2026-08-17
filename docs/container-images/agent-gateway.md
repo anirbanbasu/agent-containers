@@ -100,6 +100,8 @@ matters once a workload is tunnelling through this gateway — set it to the
 real policy this gateway exists to enforce. Omitting both defaults to
 deny-all. For unrestricted egress, use `-e 'AGENT_ALLOWED_EGRESS=*'`;
 quoting prevents shells such as zsh from treating `*` as a filename pattern.
+To mount the policy from the host, use
+`-v "/path/to/egress-allowlist.txt":/etc/agent/egress-allowlist.txt:ro`.
 
 The `agent-gateway-hostkey` volume persists the gateway's SSH host key
 across restarts at `/etc/ssh/keys` — regenerating it on every start would

@@ -66,6 +66,8 @@ mounted `/etc/agent/egress-allowlist.txt` file is provided. The mounted file
 takes precedence. The sample
 `agent-images/qwen-code/examples/egress-allowlist.txt` lists the mainland and
 international DashScope endpoints; use only the endpoint your account uses.
+Mount a host-maintained policy file read-only with
+`-v "/path/to/egress-allowlist.txt":/etc/agent/egress-allowlist.txt:ro`.
 
 Qwen Code also supports Qwen OAuth, OpenAI-compatible providers, Anthropic,
 Gemini, Ollama, and vLLM. Add only the model-provider endpoints that you

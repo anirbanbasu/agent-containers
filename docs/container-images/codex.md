@@ -117,6 +117,8 @@ docker run -it --rm \
 
 The entrypoint accepts the repository-wide `AGENT_ALLOWED_EGRESS` variable or
 a mounted `/etc/agent/egress-allowlist.txt` file; the file takes precedence.
+Mount a host-maintained policy file read-only with
+`-v "/path/to/egress-allowlist.txt":/etc/agent/egress-allowlist.txt:ro`.
 The sample file at `agent-images/codex/examples/egress-allowlist.txt` includes
 `api.openai.com`, `auth.openai.com`, and `chatgpt.com`, which are required by
 the documented ChatGPT-account flow and the `codex_apps` MCP integration. Add

@@ -59,6 +59,8 @@ The container defaults to deny-all when neither `AGENT_ALLOWED_EGRESS` nor a
 mounted `/etc/agent/egress-allowlist.txt` file is provided. The mounted file
 takes precedence. See `agent-images/opencode/examples/egress-allowlist.txt`
 for the default OpenCode hosts.
+Mount a host-maintained policy file read-only with
+`-v "/path/to/egress-allowlist.txt":/etc/agent/egress-allowlist.txt:ro`.
 
 Add each provider endpoint that you configure, for example
 `api.anthropic.com`, `api.openai.com`, or `openrouter.ai`; package registries,

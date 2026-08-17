@@ -218,7 +218,7 @@ deny-all if neither is set.
       -v claude-home:/home/claude \
       -v "$PWD":"/workspace/$(basename "$PWD")" \
       -w "/workspace/$(basename "$PWD")" \
-      -v "$PWD/agent-images/claude-code/examples/egress-allowlist.txt":/etc/agent/egress-allowlist.txt \
+      -v "$PWD/agent-images/claude-code/examples/egress-allowlist.txt":/etc/agent/egress-allowlist.txt:ro \
       claude-code
     ```
 

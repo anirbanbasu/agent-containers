@@ -123,6 +123,10 @@ The default mode, identical in mechanism to
 which takes precedence) against the container's own `OUTPUT` chain,
 defaulting to deny-all if neither is set.
 
+To supply a host-maintained policy file instead, add
+`-v "/path/to/egress-allowlist.txt":/etc/agent/egress-allowlist.txt:ro` to
+the command.
+
 ```sh
 docker run -it --rm \
   --security-opt=no-new-privileges \

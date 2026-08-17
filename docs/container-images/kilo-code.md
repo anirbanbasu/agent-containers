@@ -64,6 +64,8 @@ mounted `/etc/agent/egress-allowlist.txt` file is provided. The mounted file
 takes precedence. The sample
 `agent-images/kilo-code/examples/egress-allowlist.txt` permits only Kilo's
 hosted AI Gateway, `api.kilo.ai`.
+Mount a host-maintained policy file read-only with
+`-v "/path/to/egress-allowlist.txt":/etc/agent/egress-allowlist.txt:ro`.
 
 Kilo supports its hosted gateway and direct providers. Add only the model
 provider endpoint that you configure, along with any intentionally used MCP
