@@ -31,7 +31,7 @@ docker run -it --rm \
   --security-opt=no-new-privileges \
   --read-only --tmpfs /tmp:exec --tmpfs /run \
   --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
-  -e AGENT_ALLOWED_EGRESS=opencode.ai,models.dev \
+  -e 'AGENT_ALLOWED_EGRESS=opencode.ai,models.dev' \
   -v opencode-home:/home/opencode \
   -v "$PWD":"/workspace/$(basename "$PWD")" \
   -w "/workspace/$(basename "$PWD")" \
@@ -63,7 +63,9 @@ for the default OpenCode hosts.
 Add each provider endpoint that you configure, for example
 `api.anthropic.com`, `api.openai.com`, or `openrouter.ai`; package registries,
 MCP servers, and source-control hosts also need explicit entries when used.
-Set `AGENT_ALLOWED_EGRESS=*` only when unrestricted egress is intentional.
+Use `-e 'AGENT_ALLOWED_EGRESS=*'` only when unrestricted egress is
+intentional; quoting prevents shells such as zsh from treating `*` as a
+filename pattern.
 
 ## Gateway-client mode
 

@@ -70,7 +70,7 @@ and `gateway-key.pub` (public, mounted into the gateway container).
       --read-only --tmpfs /tmp --tmpfs /run \
       --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW \
       --cap-add=SETUID --cap-add=SETGID --cap-add=SYS_CHROOT \
-      -e AGENT_ALLOWED_EGRESS=github.com,pypi.org \
+      -e 'AGENT_ALLOWED_EGRESS=github.com,pypi.org' \
       -v ./gateway-key.pub:/etc/agent/gateway-key.pub:ro \
       -v agent-gateway-hostkey:/etc/ssh/keys \
       agent-gateway
@@ -88,7 +88,7 @@ and `gateway-key.pub` (public, mounted into the gateway container).
       --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW \
       --cap-add=SETUID --cap-add=SETGID --cap-add=SYS_CHROOT \
       -p 2222:2222 \
-      -e AGENT_ALLOWED_EGRESS=github.com,pypi.org \
+      -e 'AGENT_ALLOWED_EGRESS=github.com,pypi.org' \
       -v ./gateway-key.pub:/etc/agent/gateway-key.pub:ro \
       -v agent-gateway-hostkey:/etc/ssh/keys \
       agent-gateway
@@ -98,7 +98,8 @@ and `gateway-key.pub` (public, mounted into the gateway container).
 which takes precedence if both are supplied) is the allowlist that actually
 matters once a workload is tunnelling through this gateway — set it to the
 real policy this gateway exists to enforce. Omitting both defaults to
-deny-all. Set to `*` for unrestricted egress.
+deny-all. For unrestricted egress, use `-e 'AGENT_ALLOWED_EGRESS=*'`;
+quoting prevents shells such as zsh from treating `*` as a filename pattern.
 
 The `agent-gateway-hostkey` volume persists the gateway's SSH host key
 across restarts at `/etc/ssh/keys` — regenerating it on every start would
@@ -228,7 +229,7 @@ docker run -d --name agent-gateway \
   --read-only --tmpfs /tmp --tmpfs /run \
   --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW \
   --cap-add=SETUID --cap-add=SETGID --cap-add=SYS_CHROOT \
-  -e AGENT_ALLOWED_EGRESS=github.com,pypi.org \
+  -e 'AGENT_ALLOWED_EGRESS=github.com,pypi.org' \
   -e CLOUDFLARE_TUNNEL_TOKEN=<token-from-setup-above> \
   -v ./gateway-key.pub:/etc/agent/gateway-key.pub:ro \
   -v agent-gateway-hostkey:/etc/ssh/keys \

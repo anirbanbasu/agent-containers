@@ -24,7 +24,8 @@ docker build --build-context shared=agent-images/shared \
 ## Run
 
 For API-key authentication, pass the key at runtime rather than baking it into
-the image or an image layer:
+the image or an image layer. This starts Codex with API-key authentication; it
+does not initiate a ChatGPT login:
 
 ```sh
 docker run -it --rm \
@@ -32,7 +33,7 @@ docker run -it --rm \
   --read-only --tmpfs /tmp --tmpfs /run \
   --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
   -e OPENAI_API_KEY \
-  -e AGENT_ALLOWED_EGRESS=api.openai.com \
+  -e 'AGENT_ALLOWED_EGRESS=api.openai.com,auth.openai.com,chatgpt.com' \
   -v codex-home:/home/codex \
   -v "$PWD":"/workspace/$(basename "$PWD")" \
   -w "/workspace/$(basename "$PWD")" \
@@ -57,43 +58,72 @@ shared home volume.
 
 ## Authentication
 
-Use an API key through `OPENAI_API_KEY`, as in the example above, or store one
-in the persistent home volume with:
+Choose one authentication mode:
+
+### API key
+
+Use `OPENAI_API_KEY`, as in the example above, or store a key in the
+persistent home volume with:
 
 ```sh
 printf '%s\n' "$OPENAI_API_KEY" | docker run -i --rm \
   --security-opt=no-new-privileges --read-only --tmpfs /tmp --tmpfs /run \
   --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
-  -e AGENT_ALLOWED_EGRESS=api.openai.com \
+  -e 'AGENT_ALLOWED_EGRESS=api.openai.com,auth.openai.com,chatgpt.com' \
   -v codex-home:/home/codex \
-  codex login --with-api-key
+  codex codex login --with-api-key
 ```
 
-For a ChatGPT-account login in a terminal container, use the CLI's device
-authorization flow:
+### ChatGPT account
+
+Use the CLI's device-authorization flow. Do not rely on Codex's usual
+localhost callback login: the browser runs on the host, while that callback
+listener is isolated inside the hardened container and no port is published to
+the host.
 
 ```sh
 docker run -it --rm \
   --security-opt=no-new-privileges --read-only --tmpfs /tmp --tmpfs /run \
   --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
-  -e AGENT_ALLOWED_EGRESS='api.openai.com,auth.openai.com,chatgpt.com' \
+  -e 'AGENT_ALLOWED_EGRESS=api.openai.com,auth.openai.com,chatgpt.com' \
   -v codex-home:/home/codex \
-  codex login --device-auth
+  codex codex login --device-auth
 ```
 
 The CLI displays a URL and user code. Open the URL on the host, complete the
-sign-in, and leave the container running while it waits for completion. If the
-current CLI reports another identity host, add it to the allowlist rather than
-opening unrestricted egress.
+sign-in, and leave the container running while it waits for completion. The
+`codex-home` volume retains the resulting credentials. For later runs, omit
+`OPENAI_API_KEY` and keep the identity hosts in the allowlist if Codex needs
+to refresh the login. If the current CLI reports another identity host, add it
+to the allowlist rather than opening unrestricted egress. The first `codex`
+above is the image name; the second invokes the CLI because providing a Docker
+command replaces the image's default command.
+
+After login completes, start the agent in a new container without the login
+arguments:
+
+```sh
+docker run -it --rm \
+  --security-opt=no-new-privileges --read-only --tmpfs /tmp --tmpfs /run \
+  --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
+  -e 'AGENT_ALLOWED_EGRESS=api.openai.com,auth.openai.com,chatgpt.com' \
+  -v codex-home:/home/codex \
+  -v "$PWD":"/workspace/$(basename "$PWD")" \
+  -w "/workspace/$(basename "$PWD")" \
+  codex
+```
 
 ## Egress and gateway-client mode
 
 The entrypoint accepts the repository-wide `AGENT_ALLOWED_EGRESS` variable or
 a mounted `/etc/agent/egress-allowlist.txt` file; the file takes precedence.
-The sample file at `agent-images/codex/examples/egress-allowlist.txt` starts
-with `api.openai.com`. Add MCP server, package registry, source-control, and
-other explicit service hosts as needed. Unset both inputs to retain deny-all,
-or set `AGENT_ALLOWED_EGRESS=*` only when unrestricted egress is deliberate.
+The sample file at `agent-images/codex/examples/egress-allowlist.txt` includes
+`api.openai.com`, `auth.openai.com`, and `chatgpt.com`, which are required by
+the documented ChatGPT-account flow and the `codex_apps` MCP integration. Add
+MCP server, package registry, source-control, and other explicit service hosts
+as needed. Unset both inputs to retain deny-all, or use
+`-e 'AGENT_ALLOWED_EGRESS=*'` only when unrestricted egress is deliberate.
+Quoting prevents shells such as zsh from treating `*` as a filename pattern.
 
 Set `AGENT_GATEWAY_HOST` to tunnel all traffic through
 [`agent-gateway`](agent-gateway.md) instead. In gateway-client mode, the

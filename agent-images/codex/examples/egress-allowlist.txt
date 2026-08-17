@@ -3,9 +3,8 @@
 # /etc/agent/egress-allowlist.txt; it takes precedence over
 # $AGENT_ALLOWED_EGRESS. If neither is set, outbound traffic is denied.
 #
-# API-key authentication:
+# The documented default supports ChatGPT-account authentication and the
+# `codex_apps` MCP integration, both of which need all three hosts.
 api.openai.com
-#
-# Device authentication can use additional OpenAI/ChatGPT identity hosts.
-# Add the hosts displayed by the current CLI flow before running
-# `codex login --device-auth` under the allowlist.
+auth.openai.com
+chatgpt.com

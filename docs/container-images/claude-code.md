@@ -234,11 +234,12 @@ deny-all if neither is set.
       -v claude-home:/home/claude \
       -v "$PWD":"/workspace/$(basename "$PWD")" \
       -w "/workspace/$(basename "$PWD")" \
-      -e AGENT_ALLOWED_EGRESS=api.anthropic.com,your-local-model.example.com \
+      -e 'AGENT_ALLOWED_EGRESS=api.anthropic.com,your-local-model.example.com' \
       claude-code
     ```
 
-Set `AGENT_ALLOWED_EGRESS=*` for unrestricted egress.
+For unrestricted egress, use `-e 'AGENT_ALLOWED_EGRESS=*'`. Quoting prevents
+shells such as zsh from treating `*` as a filename pattern.
 
 ### Gateway-client mode
 
@@ -285,7 +286,7 @@ ssh-keygen -t ed25519 -f gateway-key -N "" -C "agent-gateway"
 docker run -d --name agent-gateway --network agent-net \
   --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW \
   --cap-add=SETUID --cap-add=SETGID --cap-add=SYS_CHROOT \
-  -e AGENT_ALLOWED_EGRESS=github.com,pypi.org \
+  -e 'AGENT_ALLOWED_EGRESS=github.com,pypi.org' \
   -v ./gateway-key.pub:/etc/agent/gateway-key.pub:ro \
   -v agent-gateway-hostkey:/etc/ssh/keys \
   agent-gateway

@@ -35,7 +35,7 @@ docker run -it --rm \
   -e OPENAI_API_KEY \
   -e OPENAI_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1 \
   -e OPENAI_MODEL=qwen3-coder-plus \
-  -e AGENT_ALLOWED_EGRESS=dashscope.aliyuncs.com \
+  -e 'AGENT_ALLOWED_EGRESS=dashscope.aliyuncs.com' \
   -v qwen-home:/home/qwen \
   -v "$PWD":"/workspace/$(basename "$PWD")" \
   -w "/workspace/$(basename "$PWD")" \
@@ -72,8 +72,9 @@ Gemini, Ollama, and vLLM. Add only the model-provider endpoints that you
 configure, along with any intentionally used MCP server, source-control host,
 or package registry. A local model service on the Docker host needs an
 explicitly reachable address and an allowlist entry; it is not implicitly
-reachable from the container. Set `AGENT_ALLOWED_EGRESS=*` only when
-unrestricted egress is intentional.
+reachable from the container. Use `-e 'AGENT_ALLOWED_EGRESS=*'` only when
+unrestricted egress is intentional; quoting prevents shells such as zsh from
+treating `*` as a filename pattern.
 
 ## Nested sandboxing
 

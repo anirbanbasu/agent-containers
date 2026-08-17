@@ -131,11 +131,12 @@ docker run -it --rm \
   --tmpfs /run:exec \
   --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID --cap-add=CHOWN --cap-add=DAC_OVERRIDE \
   -v hermes-data:/opt/data \
-  -e AGENT_ALLOWED_EGRESS=openrouter.ai,your-provider.example.com \
+  -e 'AGENT_ALLOWED_EGRESS=openrouter.ai,your-provider.example.com' \
   hermes
 ```
 
-Set `AGENT_ALLOWED_EGRESS=*` for unrestricted egress.
+For unrestricted egress, use `-e 'AGENT_ALLOWED_EGRESS=*'`. Quoting prevents
+shells such as zsh from treating `*` as a filename pattern.
 
 ### Gateway-client mode
 

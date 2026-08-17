@@ -33,7 +33,7 @@ docker run -it --rm \
   --security-opt=no-new-privileges \
   --read-only --tmpfs /tmp:exec --tmpfs /run \
   --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
-  -e AGENT_ALLOWED_EGRESS=api.kilo.ai \
+  -e 'AGENT_ALLOWED_EGRESS=api.kilo.ai' \
   -v kilo-home:/home/kilo \
   -v "$PWD":"/workspace/$(basename "$PWD")" \
   -w "/workspace/$(basename "$PWD")" \
@@ -69,8 +69,9 @@ Kilo supports its hosted gateway and direct providers. Add only the model
 provider endpoint that you configure, along with any intentionally used MCP
 server, source-control host, and package registry. Plugins can execute code
 and may require package-registry egress; do not install a plugin unless its
-source and required access are understood. Set `AGENT_ALLOWED_EGRESS=*` only
-when unrestricted egress is intentional.
+source and required access are understood. Use `-e 'AGENT_ALLOWED_EGRESS=*'`
+only when unrestricted egress is intentional; quoting prevents shells such as
+zsh from treating `*` as a filename pattern.
 
 Kilo has its own optional sandboxing and permission controls. They can provide
 defence in depth, but the outer `kilo-code` container is the security boundary:
