@@ -34,3 +34,17 @@ docker run -it --rm \
 ```
 
 `/home/claude` is mounted from a named volume (`claude-home`) so plugins, settings, Claude's own project memory, and any Python/Node package state persist across container runs; each project is mounted under its own `/workspace/<project_name>` subdirectory to keep per-project state distinct within that shared volume. See `docs/container-images/claude-code.md` for the full flag-by-flag rationale, runtime package installation, plugin/model/egress configuration, and the opt-in `agent-gateway` tunnelling mode.
+
+## Local image verification
+
+With a running Docker daemon, run the local test matrix with:
+
+```sh
+just test-images
+```
+
+It syntax-checks the shell scripts, builds every image, smoke-tests the
+documented hardened runtime profile, and verifies deny-by-default and
+allowlisted egress against throwaway HTTP servers on an isolated Docker
+network. It requires no agent credentials or public test endpoint. The
+gateway end-to-end test is available separately via `just test-images-gateway`.

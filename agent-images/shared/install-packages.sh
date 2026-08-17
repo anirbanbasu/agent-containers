@@ -1,7 +1,7 @@
 #!/bin/bash
-# Shared by agent-images/claude-code/Dockerfile and agent-images/hermes/Dockerfile.
-# Build-time only, unlike egress-allowlist.sh: invoked directly during
-# `docker build`, never sourced at runtime. Installs each image's
+# Shared by the workload-image Dockerfiles. Build-time only, unlike
+# egress-allowlist.sh: invoked directly during `docker build`, never sourced
+# at runtime. Installs each image's
 # user-configurable default software from plain package-list files (one
 # entry per line, '#' comments, blank lines ignored) — same convention as
 # plugins.txt. Each function no-ops if its file is missing or has no

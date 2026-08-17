@@ -10,6 +10,18 @@ egress unless configured otherwise): six workload images that each run a
 different coding/agentic CLI, and a network-tunnelling image that lets you
 move egress enforcement out of a workload entirely.
 
+## Shared Python-and-Node workload implementation
+
+`claude-code`, `codex`, `kilo-code`, `opencode`, and `qwen-code` remain
+independently buildable images, but share their required Node.js,
+containment, gateway-client, and cloudflared setup through
+`agent-images/shared/install-node-workload-base.sh`. They also share the
+root-only network setup and non-root handoff through
+`agent-images/shared/node-workload-entrypoint.sh`. Each image still owns its
+CLI package, persistent-home layout, unprivileged user, optional package
+lists, and any agent-specific initialization; this is source-level sharing,
+not a separately published base image.
+
 ## Network tunnelling
 
 [`agent-gateway`](agent-gateway.md) is a small, disposable sibling container
