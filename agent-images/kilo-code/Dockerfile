@@ -17,23 +17,20 @@ RUN bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
-RUN npm install -g @qwen-code/qwen-code
+RUN npm install -g @kilocode/cli
 
-RUN groupadd -g "$GID" qwen \
-    && useradd -m -u "$UID" -g "$GID" -s /bin/bash qwen \
-    && mkdir -p /home/qwen/.qwen /workspace \
-    && chown -R qwen:qwen /home/qwen /workspace
+RUN groupadd -g "$GID" kilo \
+    && useradd -m -u "$UID" -g "$GID" -s /bin/bash kilo \
+    && mkdir -p /home/kilo/.config/kilo /workspace \
+    && chown -R kilo:kilo /home/kilo /workspace
 
-ENV HOME=/home/qwen
-ENV npm_config_prefix=/home/qwen/.npm-global
-ENV PATH="/home/qwen/.local/bin:/home/qwen/.npm-global/bin:${PATH}"
-# The outer container is the sandbox. Never let Qwen Code start a nested
-# Docker/Podman sandbox, which would require access to a container runtime.
-ENV QWEN_SANDBOX=false
+ENV HOME=/home/kilo
+ENV npm_config_prefix=/home/kilo/.npm-global
+ENV PATH="/home/kilo/.local/bin:/home/kilo/.npm-global/bin:${PATH}"
 
 COPY packages-npm.txt /tmp/packages-npm.txt
 COPY packages-uv.txt /tmp/packages-uv.txt
-RUN gosu qwen bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
+RUN gosu kilo bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
         && install_npm_packages /tmp/packages-npm.txt \
         && install_uv_packages /tmp/packages-uv.txt' \
     && rm -f /tmp/packages-npm.txt /tmp/packages-uv.txt
@@ -44,5 +41,5 @@ RUN chmod +x /usr/local/lib/agent/workload-entrypoint.sh
 
 WORKDIR /workspace
 
-ENTRYPOINT ["/usr/local/lib/agent/workload-entrypoint.sh", "qwen", "qwen"]
-CMD ["qwen"]
+ENTRYPOINT ["/usr/local/lib/agent/workload-entrypoint.sh", "kilo", "kilo"]
+CMD ["kilo"]

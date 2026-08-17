@@ -1,7 +1,6 @@
 #!/bin/bash
-# Shared by agent-images/claude-code/entrypoint.sh and
-# agent-images/agent-gateway/entrypoint.sh. Configures this container's own
-# OUTPUT chain to allow only the hosts/IPs in AGENT_ALLOWED_EGRESS /
+# Shared by the workload and agent-gateway entrypoints. Configures this
+# container's own OUTPUT chain to allow only the hosts/IPs in AGENT_ALLOWED_EGRESS /
 # /etc/agent/egress-allowlist.txt (file mount takes precedence over the env
 # var), defaulting to deny-all when neither is set. Must be sourced and
 # called as root, before any privilege drop, since it installs iptables

@@ -1,5 +1,15 @@
 #!/bin/bash
+# Shared runtime entrypoint for first-party workloads that use Python and
+# Node.js. The Dockerfile supplies the fixed default executable and
+# unprivileged user as the first two positional arguments, rather than mutable
+# environment variables, so a runtime -e option cannot alter the privilege
+# drop target.
+
 set -euo pipefail
+
+agent_command="$1"
+agent_user="$2"
+shift 2
 
 if [ -n "${AGENT_GATEWAY_HOST:-}" ]; then
     echo "[entrypoint] AGENT_GATEWAY_HOST=$AGENT_GATEWAY_HOST — tunneling all egress through the gateway." >&2
@@ -8,6 +18,12 @@ if [ -n "${AGENT_GATEWAY_HOST:-}" ]; then
     fi
     if [ -n "${AGENT_GATEWAY_BOOTSTRAP_ALLOW:-}" ]; then
         echo "[entrypoint] Seeding a bootstrap allow rule for ${AGENT_GATEWAY_BOOTSTRAP_ALLOW} until the tunnel is up." >&2
+        # -m addrtype --dst-type LOCAL, not -o lo: sshuttle's own REDIRECT
+        # rules retarget outbound connections to 127.0.0.1:<its local proxy
+        # port> before this chain runs, but that retargeted packet's
+        # out-interface isn't reliably "lo" by the time OUTPUT filtering
+        # sees it. Matching the resolved destination instead reliably covers
+        # both loopback and this redirect-to-local-port case.
         iptables -P OUTPUT DROP
         iptables -A OUTPUT -m addrtype --dst-type LOCAL -j ACCEPT
         iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
@@ -37,9 +53,11 @@ else
     configure_egress_allowlist
 fi
 
+# `docker run <image> <args>` replaces CMD entirely rather than appending to
+# it, so a flag-only invocation must prepend the image's default executable.
 case "${1:-}" in
-    -*) set -- qwen "$@" ;;
-    "") set -- qwen ;;
+    -*) set -- "$agent_command" "$@" ;;
+    "") set -- "$agent_command" ;;
 esac
 
-exec gosu qwen "$@"
+exec gosu "$agent_user" "$@"

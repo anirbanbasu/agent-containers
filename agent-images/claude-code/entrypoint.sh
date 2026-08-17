@@ -17,57 +17,6 @@ if ! gosu claude test -d /home/claude/.claude; then
     gosu claude find /home/claude -mindepth 1 -maxdepth 1 ! -name .claude -exec mv -t /home/claude/.claude -- {} +
 fi
 
-if [ -n "${AGENT_GATEWAY_HOST:-}" ]; then
-    echo "[entrypoint] AGENT_GATEWAY_HOST=$AGENT_GATEWAY_HOST — tunneling all egress through the gateway." >&2
-    if [ -n "${AGENT_ALLOWED_EGRESS:-}" ] || [ -f /etc/agent/egress-allowlist.txt ]; then
-        echo "[entrypoint] AGENT_ALLOWED_EGRESS/egress-allowlist.txt are ignored in gateway mode — set the allowlist on the gateway container instead." >&2
-    fi
-    if [ -n "${AGENT_GATEWAY_BOOTSTRAP_ALLOW:-}" ]; then
-        echo "[entrypoint] Seeding a bootstrap allow rule for ${AGENT_GATEWAY_BOOTSTRAP_ALLOW} until the tunnel is up." >&2
-        # -m addrtype --dst-type LOCAL, not -o lo: sshuttle's own REDIRECT
-        # rules retarget outbound connections to 127.0.0.1:<its local proxy
-        # port> before this chain runs, but that retargeted packet's
-        # out-interface isn't reliably "lo" by the time OUTPUT filtering
-        # sees it (observed on Docker Desktop's linuxkit VM; matches
-        # sshuttle's own choice of --dst-type LOCAL for the equivalent
-        # exclusion in its nat rules) -- addrtype matches on the resolved
-        # destination address instead of the interface, and reliably covers
-        # both loopback and this redirect-to-local-port case.
-        iptables -P OUTPUT DROP
-        iptables -A OUTPUT -m addrtype --dst-type LOCAL -j ACCEPT
-        iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-        ip6tables -P OUTPUT DROP
-        ip6tables -A OUTPUT -m addrtype --dst-type LOCAL -j ACCEPT
-        ip6tables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-        IFS=',' read -ra BOOTSTRAP_ALLOW <<< "$AGENT_GATEWAY_BOOTSTRAP_ALLOW"
-        for addr in "${BOOTSTRAP_ALLOW[@]}"; do
-            if [[ "$addr" == *:* ]]; then
-                ip6tables -A OUTPUT -d "$addr" -j ACCEPT
-            else
-                iptables -A OUTPUT -d "$addr" -j ACCEPT
-            fi
-        done
-    fi
-    install -m 600 /etc/agent/gateway-key /tmp/gateway-key
-    SSH_CMD="ssh -i /tmp/gateway-key -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/etc/agent/gateway-known-hosts"
-    if [ -n "${AGENT_GATEWAY_ACCESS_HOSTNAME:-}" ]; then
-        echo "[entrypoint] Reaching the gateway via Cloudflare Access hostname ${AGENT_GATEWAY_ACCESS_HOSTNAME}." >&2
-        SSH_CMD="$SSH_CMD -o ProxyCommand='cloudflared access ssh --hostname ${AGENT_GATEWAY_ACCESS_HOSTNAME}'"
-    fi
-    sshuttle -r "${AGENT_GATEWAY_USER:-tunnel}@${AGENT_GATEWAY_HOST}:${AGENT_GATEWAY_PORT:-2222}" \
-        0.0.0.0/0 ::/0 --dns --daemon --pidfile=/tmp/sshuttle.pid \
-        -e "$SSH_CMD"
-else
-    source /usr/local/lib/agent/egress-allowlist.sh
-    configure_egress_allowlist
-fi
-
-# `docker run <image> <args>` replaces CMD entirely rather than appending to
-# it, so flag-only invocations (e.g. `--agents`) would otherwise try to exec
-# a binary literally named after the flag. Prepend `claude` when that happens.
-case "${1:-}" in
-    -*) set -- claude "$@" ;;
-    "") set -- claude ;;
-esac
-
-exec gosu claude "$@"
+# Claude-specific state migration stays here; all containment setup and the
+# privilege drop are shared with the other first-party Node.js workload images.
+exec /usr/local/lib/agent/workload-entrypoint.sh claude claude "$@"

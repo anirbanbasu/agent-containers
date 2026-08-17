@@ -4,11 +4,23 @@ icon: lucide/table-properties
 
 # Summary of container images
 
-This project ships six container images, all hardened by default
+This project ships seven container images, all hardened by default
 (non-root user, read-only root filesystem, minimal capability set, deny-all
-egress unless configured otherwise): five workload images that each run a
+egress unless configured otherwise): six workload images that each run a
 different coding/agentic CLI, and a network-tunnelling image that lets you
 move egress enforcement out of a workload entirely.
+
+## Shared Python-and-Node workload implementation
+
+`claude-code`, `codex`, `kilo-code`, `opencode`, and `qwen-code` remain
+independently buildable images, but share their required Node.js,
+containment, gateway-client, and cloudflared setup through
+`agent-images/shared/install-workload-base.sh`. They also share the
+root-only network setup and non-root handoff through
+`agent-images/shared/workload-entrypoint.sh`. Each image still owns its
+CLI package, persistent-home layout, unprivileged user, optional package
+lists, and any agent-specific initialization; this is source-level sharing,
+not a separately published base image.
 
 ## Network tunnelling
 
@@ -41,6 +53,13 @@ Nous Research's self-improving, multi-provider agentic CLI, with the same
 network-containment posture as `claude-code` — the same in-container
 allowlist or `agent-gateway` gateway-client mode, applied to a different
 workload.
+
+## Kilo Code
+
+[`kilo-code`](kilo-code.md) packages [Kilo CLI](https://kilo.ai/cli), the
+open-source, provider-neutral terminal coding agent. Its documentation starts
+with Kilo's hosted gateway, then explains how to add only the direct model
+provider, MCP server, source-control host, and package registry a user selects.
 
 ## OpenCode
 
