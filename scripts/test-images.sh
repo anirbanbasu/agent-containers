@@ -279,7 +279,20 @@ run_gateway_integration() {
         --mount "type=volume,src=$home_volume,dst=/home/codex" \
         --mount "type=volume,src=$workspace_volume,dst=/workspace" \
         "$(image_tag codex)" \
-        sh -c 'curl -fsS --connect-timeout 5 http://allowed.test:8080/ | grep -q "Directory listing"'
+        sh -c '
+            # sshuttle daemonizes before its local forwarding listener is
+            # necessarily ready. Keep this probe in the same workload so
+            # retries wait for that listener instead of starting a fresh
+            # tunnel on every attempt.
+            for attempt in $(seq 1 10); do
+                if curl -fsS --connect-timeout 5 --max-time 5 http://allowed.test:8080/ 2>/dev/null \
+                    | grep -q "Directory listing"; then
+                    exit 0
+                fi
+                sleep 1
+            done
+            curl -fsS --connect-timeout 5 --max-time 5 http://allowed.test:8080/ | grep -q "Directory listing"
+        '
     if docker run --rm --network "$TEST_NETWORK" \
         --security-opt=no-new-privileges \
         --read-only --tmpfs /tmp --tmpfs /run \
@@ -290,7 +303,7 @@ run_gateway_integration() {
         --mount "type=volume,src=$home_volume,dst=/home/codex" \
         --mount "type=volume,src=$workspace_volume,dst=/workspace" \
         "$(image_tag codex)" \
-        sh -c 'curl -fsS --connect-timeout 5 http://blocked.test:8080/ >/dev/null'; then
+        sh -c 'curl -fsS --connect-timeout 5 --max-time 5 http://blocked.test:8080/ >/dev/null'; then
         fail 'Gateway allowed a host outside its egress allowlist.'
     fi
 }
