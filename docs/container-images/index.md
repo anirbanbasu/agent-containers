@@ -22,6 +22,13 @@ CLI package, persistent-home layout, unprivileged user, optional package
 lists, and any agent-specific initialization; this is source-level sharing,
 not a separately published base image.
 
+## Shell shortcuts
+
+The fully spelled-out `docker run` commands are the reference invocations.
+For repeat use, [set up shell functions](shell-shortcuts.md) that preserve
+each image's hardened profile while launching an agent from the current
+project directory.
+
 ## Network tunnelling
 
 [`agent-gateway`](agent-gateway.md) is a small, disposable sibling container
