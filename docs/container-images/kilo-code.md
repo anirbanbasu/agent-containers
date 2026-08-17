@@ -31,7 +31,7 @@ the hosts that configuration needs.
 ```sh
 docker run -it --rm \
   --security-opt=no-new-privileges \
-  --read-only --tmpfs /tmp --tmpfs /run \
+  --read-only --tmpfs /tmp:exec --tmpfs /run \
   --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
   -e AGENT_ALLOWED_EGRESS=api.kilo.ai \
   -v kilo-home:/home/kilo \
@@ -46,7 +46,7 @@ docker run -it --rm \
 |---|---|
 | `--security-opt=no-new-privileges` | Prevents escalation through setuid binaries. |
 | `--read-only` | Keeps the root filesystem immutable. |
-| `--tmpfs /tmp` and `--tmpfs /run` | Provide ephemeral writable locations for the egress-control tooling and runtime files. |
+| `--tmpfs /tmp:exec` and `--tmpfs /run` | Provide ephemeral writable locations for the egress-control tooling and runtime files. Kilo's OpenTUI renderer dynamically loads a native library from `/tmp`, so that mount must be executable. |
 | `--cap-drop=ALL` | Removes Docker's default capabilities. |
 | `NET_ADMIN` and `NET_RAW` | Required for the default-deny `iptables`/`ip6tables` rules and domain allowlists. |
 | `SETUID` and `SETGID` | Let `gosu` switch from the setup user to the unprivileged `kilo` user. |

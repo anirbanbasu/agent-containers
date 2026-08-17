@@ -102,6 +102,14 @@ run_node_workload() {
     local allowlist="$3"
     shift 3
 
+    # OpenCode and Kilo's OpenTUI renderers dynamically load a native library
+    # from /tmp. Docker mounts tmpfs with noexec by default, so their
+    # documented hardened invocations need this narrow exception.
+    local tmpfs_tmp=/tmp
+    case "$image" in
+        kilo-code|opencode) tmpfs_tmp=/tmp:exec ;;
+    esac
+
     local home_volume workspace_volume
     home_volume="$(node_volume_name "$image" home)"
     workspace_volume="$(node_volume_name "$image" workspace)"
@@ -113,7 +121,7 @@ run_node_workload() {
     local -a command=(
         docker run --rm --network "$TEST_NETWORK"
         --security-opt=no-new-privileges
-        --read-only --tmpfs /tmp --tmpfs /run
+        --read-only --tmpfs "$tmpfs_tmp" --tmpfs /run
         --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID
         --mount "type=volume,src=$home_volume,dst=$home"
         --mount "type=volume,src=$workspace_volume,dst=/workspace"
