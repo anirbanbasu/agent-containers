@@ -148,7 +148,7 @@ mounting a file into the container or by setting environment variables
 directly with `-e`.
 
 For the corresponding file paths and mount behaviour for every image, see
-[custom configuration files](custom-configuration.md). Claude Code's global
+[custom configuration files](../customisation/custom-configuration.md). Claude Code's global
 settings file is `/home/claude/.claude/settings.json`.
 
 === "Mount the file"

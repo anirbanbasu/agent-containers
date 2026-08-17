@@ -64,7 +64,7 @@ volume is shared across runs.
 To use a host-maintained global Qwen Code configuration, add
 `-v "$PWD/qwen-settings.json":/home/qwen/.qwen/settings.json:ro` to the run
 command. The read-only mount shadows, rather than merges with, the file in the
-`qwen-home` volume. See [custom configuration files](custom-configuration.md#qwen-code)
+`qwen-home` volume. See [custom configuration files](../customisation/custom-configuration.md#qwen-code)
 for project-scoped alternatives and egress requirements.
 
 ## Providers and egress control

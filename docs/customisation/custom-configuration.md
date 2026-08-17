@@ -27,7 +27,7 @@ must be reachable from the container as well as allowlisted.
 ## Claude Code
 
 Claude Code reads user settings from `/home/claude/.claude/settings.json`.
-The [Claude Code image guide](claude-code.md#custom-configuration-and-optional-build-time-tools)
+The [Claude Code image guide](../container-images/claude-code.md#custom-configuration-and-optional-build-time-tools)
 includes a complete local-model example:
 
 ```sh

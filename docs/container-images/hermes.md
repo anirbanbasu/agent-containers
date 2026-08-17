@@ -110,7 +110,7 @@ To use a host-maintained non-secret Hermes configuration, add
 The read-only mount shadows, rather than merges with, the file in the
 `hermes-data` volume. Keep provider credentials in runtime environment
 variables or Hermes's persisted authentication state. See [custom
-configuration files](custom-configuration.md#hermes) for details and egress
+configuration files](../customisation/custom-configuration.md#hermes) for details and egress
 requirements.
 
 ## Optional configuration

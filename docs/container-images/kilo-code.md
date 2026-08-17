@@ -62,7 +62,7 @@ volume is shared across runs.
 To use a host-maintained global Kilo configuration, add
 `-v "$PWD/kilo.json":/home/kilo/.config/kilo/kilo.json:ro` to the run
 command. The read-only mount shadows, rather than merges with, the file in the
-`kilo-home` volume. See [custom configuration files](custom-configuration.md#kilo-code)
+`kilo-home` volume. See [custom configuration files](../customisation/custom-configuration.md#kilo-code)
 for the JSONC variant, project-scoped alternatives, and egress requirements.
 
 ## Providers, plugins, and egress control

@@ -25,14 +25,14 @@ not a separately published base image.
 ## Shell shortcuts
 
 The fully spelled-out `docker run` commands are the reference invocations.
-For repeat use, [set up shell functions](shell-shortcuts.md) that preserve
+For repeat use, [set up shell functions](../customisation/shell-shortcuts.md) that preserve
 each image's hardened profile while launching an agent from the current
 project directory.
 
 ## Custom configuration files
 
 Each agent has a different configuration path inside its persistent home
-volume. See [custom configuration files](custom-configuration.md) for the
+volume. See [custom configuration files](../customisation/custom-configuration.md) for the
 exact read-only bind mount for Claude Code, Codex, OpenCode, Kilo Code, Qwen
 Code, and Hermes.
 
