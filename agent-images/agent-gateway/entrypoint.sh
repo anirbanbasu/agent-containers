@@ -1,7 +1,13 @@
 #!/bin/bash
 set -euo pipefail
 
-gosu tunnel install -m 600 /etc/agent/gateway-key.pub /home/tunnel/.ssh/authorized_keys
+AUTHORIZED_KEYS_DIR=/run/agent-gateway
+mkdir -p "$AUTHORIZED_KEYS_DIR"
+chmod 755 "$AUTHORIZED_KEYS_DIR"
+# This is a public key, so root ownership and mode 0644 are safe. Keeping it
+# under /run makes the authorization state ephemeral while preserving a
+# read-only image root filesystem.
+install -m 644 /etc/agent/gateway-key.pub "$AUTHORIZED_KEYS_DIR/authorized_keys"
 
 HOST_KEY_DIR=/etc/ssh/keys
 mkdir -p "$HOST_KEY_DIR"
@@ -9,7 +15,6 @@ if [ ! -f "$HOST_KEY_DIR/ssh_host_ed25519_key" ]; then
     echo "[entrypoint] Generating gateway SSH host key ..." >&2
     ssh-keygen -q -t ed25519 -f "$HOST_KEY_DIR/ssh_host_ed25519_key" -N ""
 fi
-echo "HostKey $HOST_KEY_DIR/ssh_host_ed25519_key" > /etc/ssh/sshd_config.d/hostkey.conf
 
 source /usr/local/lib/agent/egress-allowlist.sh
 configure_egress_allowlist

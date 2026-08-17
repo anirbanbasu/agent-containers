@@ -1,8 +1,10 @@
 Port 2222
+HostKey /etc/ssh/keys/ssh_host_ed25519_key
 PermitRootLogin no
 PasswordAuthentication no
 KbdInteractiveAuthentication no
 AllowUsers tunnel
+AuthorizedKeysFile /run/agent-gateway/authorized_keys
 AllowTcpForwarding yes
 X11Forwarding no
 AllowAgentForwarding no

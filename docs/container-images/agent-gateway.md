@@ -67,6 +67,7 @@ and `gateway-key.pub` (public, mounted into the gateway container).
     ```sh
     docker network create agent-net
     docker run -d --name agent-gateway --network agent-net \
+      --read-only --tmpfs /tmp --tmpfs /run \
       --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW \
       --cap-add=SETUID --cap-add=SETGID --cap-add=SYS_CHROOT \
       -e AGENT_ALLOWED_EGRESS=github.com,pypi.org \
@@ -83,6 +84,7 @@ and `gateway-key.pub` (public, mounted into the gateway container).
 
     ```sh
     docker run -d --name agent-gateway --restart unless-stopped \
+      --read-only --tmpfs /tmp --tmpfs /run \
       --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW \
       --cap-add=SETUID --cap-add=SETGID --cap-add=SYS_CHROOT \
       -p 2222:2222 \
@@ -146,7 +148,7 @@ above.
 |---|---|
 | `--cap-drop=ALL` | Strips Docker's full default capability set. |
 | `--cap-add=NET_ADMIN` `--cap-add=NET_RAW` | For the gateway's own `iptables`/`ipset`/`dnsmasq` allowlist setup — the same grant `claude-code`'s in-container allowlist needs, applied here to the gateway's own `OUTPUT` chain instead. |
-| `--cap-add=SETUID` `--cap-add=SETGID` | Needed for `gosu` to install `authorized_keys` as the `tunnel` user (see below), and separately for `dnsmasq` itself to drop from root to its own service user — not for a `claude`-style entrypoint privilege drop, since this image has none. |
+| `--cap-add=SETUID` `--cap-add=SETGID` | Required by `dnsmasq` to drop from root to its service user. The gateway itself has no `claude`-style entrypoint privilege drop. |
 | `--cap-add=SYS_CHROOT` | `sshd`'s privilege-separation model `chroot`s its pre-authentication child into `/run/sshd`; without this capability every connection is reset before authentication even starts. |
 
 `sshd` itself still runs as root throughout — for its own internal
@@ -154,17 +156,13 @@ privilege-separation/setuid-per-session machinery, which is standard for
 `sshd` containers and not a regression — `PermitRootLogin no` is what keeps
 the *login* surface non-root regardless.
 
-!!! info "Why `authorized_keys` needs `gosu`, not a plain root copy"
-    The entrypoint installs the mounted `gateway-key.pub` into
-    `/home/tunnel/.ssh/authorized_keys` via `gosu tunnel install ...`, not a
-    plain root copy. `sshd` re-reads that file as the `tunnel` user during
-    authentication (not as root), so it has to be genuinely owned by
-    `tunnel` — and root, stripped of `CAP_CHOWN`/`CAP_DAC_OVERRIDE` under
-    `--cap-drop=ALL`, can't `chown` a file to another user or write into a
-    directory it doesn't own. Switching to `tunnel` via `gosu` (which only
-    needs `CAP_SETUID`/`CAP_SETGID`, already granted above) sidesteps both
-    restrictions — the file is created by `tunnel`, into `tunnel`'s own
-    directory, no ownership change required.
+!!! info "Ephemeral SSH authorization state"
+    The entrypoint copies the mounted `gateway-key.pub` into the dedicated
+    `/run/agent-gateway/authorized_keys` runtime path, which `sshd` reads via
+    `AuthorizedKeysFile`. `/run` is a tmpfs in the documented invocation, so
+    this configuration disappears when the container stops. The path and file
+    are root-owned; the key is public and mode `0644`, so this needs neither a
+    persistent `/home/tunnel` volume nor `CAP_CHOWN` under `--cap-drop=ALL`.
 
 ## Trust model
 
@@ -227,6 +225,7 @@ port:
 
 ```sh
 docker run -d --name agent-gateway \
+  --read-only --tmpfs /tmp --tmpfs /run \
   --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW \
   --cap-add=SETUID --cap-add=SETGID --cap-add=SYS_CHROOT \
   -e AGENT_ALLOWED_EGRESS=github.com,pypi.org \

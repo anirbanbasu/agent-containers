@@ -23,9 +23,9 @@ RUN apt-get update \
 # User-configurable default software (gh, jq, ripgrep, ...) — see
 # packages-apt.txt. Kept as a separate RUN from the baseline block above so
 # the required-infra list stays untouched by editing that file.
-COPY --from=shared install-packages.sh /usr/local/lib/agent/install-packages.sh
+COPY --from=shared install-additional-packages.sh /usr/local/lib/agent/install-additional-packages.sh
 COPY packages-apt.txt /tmp/packages-apt.txt
-RUN bash -c '. /usr/local/lib/agent/install-packages.sh \
+RUN bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
         && install_apt_packages /tmp/packages-apt.txt' \
     && rm -f /tmp/packages-apt.txt
 
@@ -44,7 +44,7 @@ ENV PATH="/opt/data/.local/bin:/opt/data/.npm-global/bin:${PATH}"
 # packages-npm.txt / packages-uv.txt — see packages-apt.txt above.
 COPY packages-npm.txt /tmp/packages-npm.txt
 COPY packages-uv.txt /tmp/packages-uv.txt
-RUN su hermes -s /bin/bash -c '. /usr/local/lib/agent/install-packages.sh \
+RUN su hermes -s /bin/bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
         && install_npm_packages /tmp/packages-npm.txt \
         && install_uv_packages /tmp/packages-uv.txt' \
     && rm -f /tmp/packages-npm.txt /tmp/packages-uv.txt

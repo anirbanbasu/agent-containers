@@ -1,5 +1,6 @@
 #!/bin/bash
-# Shared by the workload-image Dockerfiles. Build-time only, unlike
+# Shared support for installing additional packages in workload-image
+# Dockerfiles. Build-time only, unlike
 # egress-allowlist.sh: invoked directly during `docker build`, never sourced
 # at runtime. Installs each image's
 # user-configurable default software from plain package-list files (one

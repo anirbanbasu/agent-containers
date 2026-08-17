@@ -1,6 +1,6 @@
 #!/bin/bash
-# Shared runtime entrypoint for the first-party Python-and-Node workload
-# images. The Dockerfile supplies the fixed default executable and
+# Shared runtime entrypoint for first-party workloads that use Python and
+# Node.js. The Dockerfile supplies the fixed default executable and
 # unprivileged user as the first two positional arguments, rather than mutable
 # environment variables, so a runtime -e option cannot alter the privilege
 # drop target.

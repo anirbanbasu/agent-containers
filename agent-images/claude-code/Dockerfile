@@ -6,15 +6,15 @@ ARG TARGETARCH
 
 # Shared Node.js, containment, gateway-client, and cloudflared baseline for
 # the first-party Python-and-Node workload images.
-COPY --from=shared install-node-workload-base.sh /usr/local/lib/agent/install-node-workload-base.sh
-RUN TARGETARCH="$TARGETARCH" bash /usr/local/lib/agent/install-node-workload-base.sh
+COPY --from=shared install-workload-base.sh /usr/local/lib/agent/install-workload-base.sh
+RUN TARGETARCH="$TARGETARCH" bash /usr/local/lib/agent/install-workload-base.sh
 
 # User-configurable default software (gh, jq, ripgrep, ...) — see
 # packages-apt.txt. Kept as a separate RUN from the baseline block above so
 # the required-infra list stays untouched by editing that file.
-COPY --from=shared install-packages.sh /usr/local/lib/agent/install-packages.sh
+COPY --from=shared install-additional-packages.sh /usr/local/lib/agent/install-additional-packages.sh
 COPY packages-apt.txt /tmp/packages-apt.txt
-RUN bash -c '. /usr/local/lib/agent/install-packages.sh \
+RUN bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
         && install_apt_packages /tmp/packages-apt.txt' \
     && rm -f /tmp/packages-apt.txt
 
@@ -53,13 +53,13 @@ ENV PATH="/home/claude/.local/bin:/home/claude/.npm-global/bin:${PATH}"
 # block just above.
 COPY packages-npm.txt /tmp/packages-npm.txt
 COPY packages-uv.txt /tmp/packages-uv.txt
-RUN gosu claude bash -c '. /usr/local/lib/agent/install-packages.sh \
+RUN gosu claude bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
         && install_npm_packages /tmp/packages-npm.txt \
         && install_uv_packages /tmp/packages-uv.txt' \
     && rm -f /tmp/packages-npm.txt /tmp/packages-uv.txt
 
 COPY --from=shared egress-allowlist.sh /usr/local/lib/agent/egress-allowlist.sh
-COPY --from=shared node-workload-entrypoint.sh /usr/local/lib/agent/node-workload-entrypoint.sh
+COPY --from=shared workload-entrypoint.sh /usr/local/lib/agent/workload-entrypoint.sh
 
 COPY plugin-marketplaces.txt /tmp/plugin-marketplaces.txt
 COPY plugins.txt /tmp/plugins.txt
@@ -79,7 +79,7 @@ RUN gosu claude claude plugin marketplace add anthropics/claude-plugins-official
     && rm /tmp/plugin-marketplaces.txt /tmp/plugins.txt
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/lib/agent/node-workload-entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/lib/agent/workload-entrypoint.sh
 
 WORKDIR /workspace
 

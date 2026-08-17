@@ -18,5 +18,5 @@ if ! gosu claude test -d /home/claude/.claude; then
 fi
 
 # Claude-specific state migration stays here; all containment setup and the
-# privilege drop are shared with the other first-party Node workload images.
-exec /usr/local/lib/agent/node-workload-entrypoint.sh claude claude "$@"
+# privilege drop are shared with the other first-party Node.js workload images.
+exec /usr/local/lib/agent/workload-entrypoint.sh claude claude "$@"

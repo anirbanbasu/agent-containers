@@ -6,12 +6,12 @@ ARG TARGETARCH
 
 # Shared Node.js, containment, gateway-client, and cloudflared baseline for
 # the first-party Python-and-Node workload images.
-COPY --from=shared install-node-workload-base.sh /usr/local/lib/agent/install-node-workload-base.sh
-RUN TARGETARCH="$TARGETARCH" bash /usr/local/lib/agent/install-node-workload-base.sh
+COPY --from=shared install-workload-base.sh /usr/local/lib/agent/install-workload-base.sh
+RUN TARGETARCH="$TARGETARCH" bash /usr/local/lib/agent/install-workload-base.sh
 
-COPY --from=shared install-packages.sh /usr/local/lib/agent/install-packages.sh
+COPY --from=shared install-additional-packages.sh /usr/local/lib/agent/install-additional-packages.sh
 COPY packages-apt.txt /tmp/packages-apt.txt
-RUN bash -c '. /usr/local/lib/agent/install-packages.sh \
+RUN bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
         && install_apt_packages /tmp/packages-apt.txt' \
     && rm -f /tmp/packages-apt.txt
 
@@ -33,16 +33,16 @@ ENV QWEN_SANDBOX=false
 
 COPY packages-npm.txt /tmp/packages-npm.txt
 COPY packages-uv.txt /tmp/packages-uv.txt
-RUN gosu qwen bash -c '. /usr/local/lib/agent/install-packages.sh \
+RUN gosu qwen bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
         && install_npm_packages /tmp/packages-npm.txt \
         && install_uv_packages /tmp/packages-uv.txt' \
     && rm -f /tmp/packages-npm.txt /tmp/packages-uv.txt
 
 COPY --from=shared egress-allowlist.sh /usr/local/lib/agent/egress-allowlist.sh
-COPY --from=shared node-workload-entrypoint.sh /usr/local/lib/agent/node-workload-entrypoint.sh
-RUN chmod +x /usr/local/lib/agent/node-workload-entrypoint.sh
+COPY --from=shared workload-entrypoint.sh /usr/local/lib/agent/workload-entrypoint.sh
+RUN chmod +x /usr/local/lib/agent/workload-entrypoint.sh
 
 WORKDIR /workspace
 
-ENTRYPOINT ["/usr/local/lib/agent/node-workload-entrypoint.sh", "qwen", "qwen"]
+ENTRYPOINT ["/usr/local/lib/agent/workload-entrypoint.sh", "qwen", "qwen"]
 CMD ["qwen"]
