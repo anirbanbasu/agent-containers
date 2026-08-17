@@ -56,6 +56,15 @@ material, and user-installed npm/Python tools. Mounting each project below
 `/workspace/<project-name>` keeps per-project state distinct while retaining a
 shared home volume.
 
+## Custom configuration
+
+To use a host-maintained global Codex configuration, add
+`-v "$PWD/codex-config.toml":/home/codex/.codex/config.toml:ro` to the run
+command. The read-only mount shadows, rather than merges with, the file in the
+`codex-home` volume. See [custom configuration files](custom-configuration.md#codex)
+for configuration precedence, project-scoped alternatives, and egress
+requirements.
+
 ## Authentication
 
 Choose one authentication mode:

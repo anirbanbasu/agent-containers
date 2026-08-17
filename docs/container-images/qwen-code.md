@@ -59,6 +59,14 @@ state, MCP definitions, and user-installed npm/Python tools under
 `/workspace/<project-name>` keeps its working path distinct while the home
 volume is shared across runs.
 
+## Custom configuration
+
+To use a host-maintained global Qwen Code configuration, add
+`-v "$PWD/qwen-settings.json":/home/qwen/.qwen/settings.json:ro` to the run
+command. The read-only mount shadows, rather than merges with, the file in the
+`qwen-home` volume. See [custom configuration files](custom-configuration.md#qwen-code)
+for project-scoped alternatives and egress requirements.
+
 ## Providers and egress control
 
 The container defaults to deny-all when neither `AGENT_ALLOWED_EGRESS` nor a

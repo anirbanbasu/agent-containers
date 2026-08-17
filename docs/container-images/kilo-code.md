@@ -57,6 +57,14 @@ user-installed npm/Python tools. Mounting each project below
 `/workspace/<project-name>` keeps its working path distinct while the home
 volume is shared across runs.
 
+## Custom configuration
+
+To use a host-maintained global Kilo configuration, add
+`-v "$PWD/kilo.json":/home/kilo/.config/kilo/kilo.json:ro` to the run
+command. The read-only mount shadows, rather than merges with, the file in the
+`kilo-home` volume. See [custom configuration files](custom-configuration.md#kilo-code)
+for the JSONC variant, project-scoped alternatives, and egress requirements.
+
 ## Providers, plugins, and egress control
 
 The container defaults to deny-all when neither `AGENT_ALLOWED_EGRESS` nor a

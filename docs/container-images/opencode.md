@@ -53,6 +53,14 @@ The `opencode-home` volume persists OpenCode's configuration and credentials,
 including its XDG locations under `~/.config/opencode` and
 `~/.local/share/opencode`, along with user-installed npm/Python tools.
 
+## Custom configuration
+
+To use a host-maintained global OpenCode configuration, add
+`-v "$PWD/opencode.json":/home/opencode/.config/opencode/opencode.json:ro`
+to the run command. The read-only mount shadows, rather than merges with, the
+file in the `opencode-home` volume. See [custom configuration files](custom-configuration.md#opencode)
+for project-scoped alternatives and egress requirements.
+
 ## Providers and egress control
 
 The container defaults to deny-all when neither `AGENT_ALLOWED_EGRESS` nor a

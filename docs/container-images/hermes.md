@@ -103,6 +103,16 @@ sandbox), and a `plugins.txt`-equivalent build-time skill seeding mechanism
 (Hermes has its own skills/MCP ecosystem, unrelated to Claude Code's plugin
 marketplaces).
 
+### Custom configuration file
+
+To use a host-maintained non-secret Hermes configuration, add
+`-v "$PWD/hermes-config.yaml":/opt/data/config.yaml:ro` to the run command.
+The read-only mount shadows, rather than merges with, the file in the
+`hermes-data` volume. Keep provider credentials in runtime environment
+variables or Hermes's persisted authentication state. See [custom
+configuration files](custom-configuration.md#hermes) for details and egress
+requirements.
+
 ## Optional configuration
 
 - **`packages-apt.txt` / `packages-npm.txt` / `packages-uv.txt`** — general

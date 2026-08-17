@@ -120,7 +120,7 @@ depend on conflicting versions of the same package without interfering with
 each other, since environments (venvs, `node_modules`) are never shared —
 only the cache is.
 
-## Optional configuration
+## Custom configuration and optional build-time tools
 
 - **`plugins.txt`** — plugins to install at build time, one per line, as
   `<plugin>@<marketplace>`. The official Anthropic marketplace is
@@ -146,6 +146,10 @@ only the cache is.
 Model settings and the egress allowlist can each be supplied either by
 mounting a file into the container or by setting environment variables
 directly with `-e`.
+
+For the corresponding file paths and mount behaviour for every image, see
+[custom configuration files](custom-configuration.md). Claude Code's global
+settings file is `/home/claude/.claude/settings.json`.
 
 === "Mount the file"
 
