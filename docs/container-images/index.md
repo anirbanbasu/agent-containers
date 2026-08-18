@@ -4,15 +4,15 @@ icon: lucide/table-properties
 
 # Summary of container images
 
-This project ships seven container images, all hardened by default
+This project ships eight container images, all hardened by default
 (non-root user, read-only root filesystem, minimal capability set, deny-all
-egress unless configured otherwise): six workload images that each run a
+egress unless configured otherwise): seven workload images that each run a
 different coding/agentic CLI, and a network-tunnelling image that lets you
 move egress enforcement out of a workload entirely.
 
 ## Shared Python-and-Node workload implementation
 
-`claude-code`, `codex`, `kilo-code`, `opencode`, and `qwen-code` remain
+`adal`, `claude-code`, `codex`, `kilo-code`, `opencode`, and `qwen-code` remain
 independently buildable images, but share their required Node.js,
 containment, gateway-client, and cloudflared setup through
 `agent-images/shared/install-workload-base.sh`. They also share the
@@ -33,8 +33,8 @@ project directory.
 
 Each agent has a different configuration path inside its persistent home
 volume. See [custom configuration files](../customisation/custom-configuration.md) for the
-exact read-only bind mount for Claude Code, Codex, OpenCode, Kilo Code, Qwen
-Code, and Hermes.
+agent-specific configuration guidance for AdaL, Claude Code, Codex, OpenCode,
+Kilo Code, Qwen Code, and Hermes.
 
 ## Network tunnelling
 
@@ -52,6 +52,13 @@ same image, same mechanism, only reachability differs.
 container, with either an in-container egress allowlist (the default) or
 opt-in gateway-client mode via `agent-gateway` (above) for stronger
 isolation.
+
+## AdaL
+
+[`adal`](adal.md) packages SylphAI's AdaL terminal coding agent. Its
+browser-based sign-in, persistent settings/session state, MCP OAuth state,
+skills, and plugins stay in the mounted AdaL home volume; direct model
+providers and each optional integration require explicit egress.
 
 ## Codex
 

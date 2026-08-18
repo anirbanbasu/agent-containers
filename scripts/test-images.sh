@@ -10,8 +10,9 @@ readonly RUN_ID="$$-$(date +%s)"
 readonly TEST_NETWORK="agent-containers-test-${RUN_ID}"
 readonly TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/agent-containers-test.XXXXXX")"
 
-readonly -a ALL_IMAGES=(claude-code codex hermes kilo-code opencode qwen-code agent-gateway)
+readonly -a ALL_IMAGES=(adal claude-code codex hermes kilo-code opencode qwen-code agent-gateway)
 readonly -a NODE_WORKLOADS=(
+    'adal:adal:/home/adal:adal'
     'claude-code:claude:/home/claude:claude'
     'codex:codex:/home/codex:codex'
     'kilo-code:kilo:/home/kilo:kilo'
@@ -321,7 +322,7 @@ usage() {
 Usage: scripts/test-images.sh <all|build|smoke|containment|gateway|static>
 
 all          Static checks, build every image, then smoke-test every image and
-             test in-container egress enforcement for the five Node workloads.
+             test in-container egress enforcement for the six Node workloads.
 gateway      Build every image and run the workload-to-agent-gateway egress test.
 EOF
 }

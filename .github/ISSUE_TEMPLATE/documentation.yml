@@ -10,6 +10,7 @@ body:
       description: Which part of the repo does this affect?
       options:
         # BEGIN component-options
+        - adal
         - agent-gateway
         - claude-code
         - codex

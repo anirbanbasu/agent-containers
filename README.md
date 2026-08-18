@@ -7,12 +7,13 @@ Full documentation: <https://docs-agent-containers.anirbanbasu.com/> (or browse 
 ## Images
 
 - **`claude-code`** — hardened container for running the [Claude Code](https://claude.com/product/claude-code) CLI: non-root user, read-only root filesystem, minimal capability set, egress denied by default. See `docs/container-images/claude-code.md`.
+- **`adal`** — hardened container for [AdaL](https://docs.sylph.ai/), SylphAI's terminal coding agent, including browser-based sign-in and persistent session/MCP state. See `docs/container-images/adal.md`.
 - **`codex`** — hardened container for the [OpenAI Codex CLI](https://developers.openai.com/), including API-key and device-login workflows. See `docs/container-images/codex.md`.
 - **`hermes`** — hardened container for running [Hermes Agent](https://github.com/NousResearch/hermes-agent), Nous Research's multi-provider agentic CLI, with the same network-containment posture as `claude-code`. See `docs/container-images/hermes.md`.
 - **`kilo-code`** — hardened container for [Kilo CLI](https://kilo.ai/cli), the open-source, provider-neutral terminal coding agent. See `docs/container-images/kilo-code.md`.
 - **`opencode`** — hardened container for the provider-agnostic [OpenCode](https://opencode.ai) terminal coding agent. See `docs/container-images/opencode.md`.
 - **`qwen-code`** — hardened container for [Qwen Code](https://github.com/QwenLM/qwen-code), the open-source terminal coding agent. See `docs/container-images/qwen-code.md`.
-- **`agent-gateway`** — a disposable sibling container that a workload such as `claude-code`, `codex`, `hermes`, `kilo-code`, `opencode`, or `qwen-code` can tunnel all its egress through over SSH, so egress enforcement lives outside the workload container entirely. See `docs/container-images/agent-gateway.md`.
+- **`agent-gateway`** — a disposable sibling container that a workload such as `adal`, `claude-code`, `codex`, `hermes`, `kilo-code`, `opencode`, or `qwen-code` can tunnel all its egress through over SSH, so egress enforcement lives outside the workload container entirely. See `docs/container-images/agent-gateway.md`.
 
 ## Quickstart: Claude Code
 

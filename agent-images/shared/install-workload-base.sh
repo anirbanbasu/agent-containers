@@ -1,6 +1,6 @@
 #!/bin/bash
 # Shared build-time baseline for the first-party Python-and-Node workload
-# images: claude-code, codex, kilo-code, opencode, and qwen-code. Keep this
+# images: adal, claude-code, codex, kilo-code, opencode, and qwen-code. Keep this
 # separate from install-additional-packages.sh: this file owns required
 # containment and runtime infrastructure, whereas that script consumes each
 # image's optional user-selected package lists.
