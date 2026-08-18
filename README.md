@@ -13,7 +13,7 @@ Full documentation: <https://docs-agent-containers.anirbanbasu.com/> (or browse 
 - **`kilo-code`** — hardened container for [Kilo CLI](https://kilo.ai/cli), the open-source, provider-neutral terminal coding agent. See `docs/container-images/kilo-code.md`.
 - **`opencode`** — hardened container for the provider-agnostic [OpenCode](https://opencode.ai) terminal coding agent. See `docs/container-images/opencode.md`.
 - **`qwen-code`** — hardened container for [Qwen Code](https://github.com/QwenLM/qwen-code), the open-source terminal coding agent. See `docs/container-images/qwen-code.md`.
-- **`agent-gateway`** — a disposable sibling container that a workload such as `adal`, `claude-code`, `codex`, `hermes`, `kilo-code`, `opencode`, or `qwen-code` can tunnel all its egress through over SSH, so egress enforcement lives outside the workload container entirely. See `docs/container-images/agent-gateway.md`.
+- **`agent-gateway`** — a disposable sibling container that a workload such as `adal`, `claude-code`, `codex`, `hermes`, `kilo-code`, `opencode`, or `qwen-code` can tunnel all its egress through over SSH, so egress enforcement lives outside the workload container entirely. See `docs/container-images/00-agent-gateway.md`.
 
 ## Quickstart: Claude Code
 

@@ -81,7 +81,7 @@ filename pattern.
 ## Gateway-client mode
 
 Setting `AGENT_GATEWAY_HOST` switches the image from its in-container
-allowlist to an SSH tunnel through [`agent-gateway`](agent-gateway.md). The
+allowlist to an SSH tunnel through [`agent-gateway`](00-agent-gateway.md). The
 gateway then owns all egress enforcement, so
 `AGENT_ALLOWED_EGRESS`/`egress-allowlist.txt` are ignored by the workload.
 Use the same gateway key, host-key pinning, bootstrap-rule, and Cloudflare

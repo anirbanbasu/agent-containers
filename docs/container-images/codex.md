@@ -152,7 +152,7 @@ as needed. Unset both inputs to retain deny-all, or use
 Quoting prevents shells such as zsh from treating `*` as a filename pattern.
 
 Set `AGENT_GATEWAY_HOST` to tunnel all traffic through
-[`agent-gateway`](agent-gateway.md) instead. In gateway-client mode, the
+[`agent-gateway`](00-agent-gateway.md) instead. In gateway-client mode, the
 workload's local allowlist is ignored and the gateway owns the policy. The
 gateway key, host-key pinning, bootstrap rule, and optional Cloudflare Access
 settings use the same contract documented in

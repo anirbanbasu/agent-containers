@@ -13,7 +13,7 @@ capability set, and outbound network access denied by default.
 Like `claude-code`, two mechanisms control what the container can reach
 over the network — an **in-container allowlist** (the default) or
 **gateway-client mode**, tunnelling all traffic over SSH to a separate
-[`agent-gateway`](agent-gateway.md) container. See
+[`agent-gateway`](00-agent-gateway.md) container. See
 [Egress control](#egress-control) below; the mechanism and env vars are
 identical to `claude-code`'s, since both consume the same shared
 `AGENT_*`/`/etc/agent/*` contract.
@@ -156,7 +156,7 @@ shells such as zsh from treating `*` as a filename pattern.
 
 Setting `AGENT_GATEWAY_HOST` switches `hermes` from the in-container
 allowlist to gateway-client mode — `sshuttle` tunnels all outbound traffic
-to an [`agent-gateway`](agent-gateway.md) container, exactly as described in
+to an [`agent-gateway`](00-agent-gateway.md) container, exactly as described in
 [`claude-code`'s Gateway-client mode](claude-code.md#gateway-client-mode).
 The same `AGENT_GATEWAY_PORT`/`AGENT_GATEWAY_USER`/
 `AGENT_GATEWAY_BOOTSTRAP_ALLOW`/`AGENT_GATEWAY_ACCESS_HOSTNAME` variables

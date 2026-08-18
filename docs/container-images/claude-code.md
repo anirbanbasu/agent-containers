@@ -19,7 +19,7 @@ over the network:
   rules enforced inside `claude-code` itself; see
   [Egress control](#egress-control) below.
 - **gateway-client mode** — `claude-code` tunnels all outbound traffic over
-  SSH to a separate [`agent-gateway`](agent-gateway.md) container, which
+  SSH to a separate [`agent-gateway`](00-agent-gateway.md) container, which
   owns the allowlist instead. This is a stronger isolation guarantee: a
   compromised `claude-code` container has no access to the rules governing
   its own egress, since those rules live in a different container (or on a
@@ -251,7 +251,7 @@ Setting `AGENT_GATEWAY_HOST` switches `claude-code` from the in-container
 allowlist to gateway-client mode: instead of filtering its own traffic,
 `claude-code` runs [`sshuttle`](https://github.com/sshuttle/sshuttle) to
 tunnel **all** outbound traffic (including DNS) to an
-[`agent-gateway`](agent-gateway.md) container, which enforces the allowlist
+[`agent-gateway`](00-agent-gateway.md) container, which enforces the allowlist
 on the workload's behalf. `AGENT_ALLOWED_EGRESS`/`egress-allowlist.txt` are
 ignored (with a logged warning) when `AGENT_GATEWAY_HOST` is set — the
 allowlist that matters in this mode is the one configured on the gateway
@@ -286,7 +286,7 @@ allowlist uses, just to install redirect rules instead of filter rules.
 docker network create agent-net
 ssh-keygen -t ed25519 -f gateway-key -N "" -C "agent-gateway"
 
-# Start the gateway first — see agent-gateway.md for the full walkthrough.
+# Start the gateway first — see 00-agent-gateway.md for the full walkthrough.
 docker run -d --name agent-gateway --network agent-net \
   --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW \
   --cap-add=SETUID --cap-add=SETGID --cap-add=SYS_CHROOT \
@@ -296,7 +296,7 @@ docker run -d --name agent-gateway --network agent-net \
   agent-gateway
 
 # Scan from another container on agent-net, not from the Docker host — see
-# agent-gateway.md's "Pin the gateway's host key" note for why.
+# 00-agent-gateway.md's "Pin the gateway's host key" note for why.
 docker run --rm --network agent-net alpine:3 sh -c \
   "apk add --no-cache openssh-client >/dev/null && ssh-keyscan -p 2222 agent-gateway" \
   > gateway-known-hosts
@@ -336,7 +336,7 @@ docker run -it --rm \
   claude-code
 ```
 
-See [`agent-gateway`](agent-gateway.md) for how to run the gateway side of
+See [`agent-gateway`](00-agent-gateway.md) for how to run the gateway side of
 either example.
 
 #### Cloudflare Tunnel
@@ -363,7 +363,7 @@ docker run -it --rm \
 ```
 
 This needs the one-time Cloudflare account/tunnel/Access setup described in
-[`agent-gateway`'s Cloudflare Tunnel section](agent-gateway.md#cloudflare-tunnel)
+[`agent-gateway`'s Cloudflare Tunnel section](00-agent-gateway.md#cloudflare-tunnel)
 first. `AGENT_GATEWAY_BOOTSTRAP_ALLOW` still applies (the entrypoint
 doesn't know which reachability option you're using), but its target
 changes: since the workload never contacts the gateway's own address

@@ -38,7 +38,7 @@ Kilo Code, Qwen Code, and Hermes.
 
 ## Network tunnelling
 
-[`agent-gateway`](agent-gateway.md) is a small, disposable sibling container
+[`agent-gateway`](00-agent-gateway.md) is a small, disposable sibling container
 that owns the egress allowlist on behalf of a workload container, which
 tunnels all of its outbound traffic to it over SSH instead of enforcing an
 allowlist on itself. This means a compromise of the workload gives an
@@ -46,19 +46,19 @@ attacker no access to the rules governing its own network egress. It runs
 equally well as a same-host sibling or on a genuinely separate machine —
 same image, same mechanism, only reachability differs.
 
-## Claude Code
-
-[`claude-code`](claude-code.md) packages the Claude Code CLI in a hardened
-container, with either an in-container egress allowlist (the default) or
-opt-in gateway-client mode via `agent-gateway` (above) for stronger
-isolation.
-
 ## AdaL
 
 [`adal`](adal.md) packages SylphAI's AdaL terminal coding agent. Its
 browser-based sign-in, persistent settings/session state, MCP OAuth state,
 skills, and plugins stay in the mounted AdaL home volume; direct model
 providers and each optional integration require explicit egress.
+
+## Claude Code
+
+[`claude-code`](claude-code.md) packages the Claude Code CLI in a hardened
+container, with either an in-container egress allowlist (the default) or
+opt-in gateway-client mode via `agent-gateway` (above) for stronger
+isolation.
 
 ## Codex
 
