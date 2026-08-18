@@ -19,6 +19,9 @@ source "$HOME/.config/agent-containers/shortcuts.sh"
 Restart the shell or run the same `source` command once to activate them.
 Each function mounts the current directory at
 `/workspace/<current-directory-name>` and starts the matching local image.
+Arguments normally pass through to the coding agent. To add options to
+`docker run` instead, put them between `--docker` and `--`; arguments after
+the closing `--` still pass through to the agent.
 
 ```sh
 agent_egress_args() {
@@ -32,7 +35,26 @@ agent_egress_args() {
   fi
 }
 
+agent_split_args() {
+  AGENT_DOCKER_ARGS=()
+  AGENT_CLI_ARGS=()
+
+  if [ "${1-}" = "--docker" ]; then
+    shift
+    while [ "$#" -gt 0 ] && [ "$1" != "--" ]; do
+      AGENT_DOCKER_ARGS+=("$1")
+      shift
+    done
+    if [ "${1-}" = "--" ]; then
+      shift
+    fi
+  fi
+
+  AGENT_CLI_ARGS=("$@")
+}
+
 contained_claude() {
+  agent_split_args "$@"
   agent_egress_args claude "${CONTAINED_CLAUDE_EGRESS:-api.anthropic.com}"
   docker run -it --rm \
     --security-opt=no-new-privileges \
@@ -42,10 +64,12 @@ contained_claude() {
     -v claude-home:/home/claude \
     -v "$PWD":"/workspace/$(basename "$PWD")" \
     -w "/workspace/$(basename "$PWD")" \
-    claude-code claude "$@"
+    "${AGENT_DOCKER_ARGS[@]}" \
+    claude-code claude "${AGENT_CLI_ARGS[@]}"
 }
 
 contained_codex() {
+  agent_split_args "$@"
   agent_egress_args codex "${CONTAINED_CODEX_EGRESS:-api.openai.com,auth.openai.com,chatgpt.com}"
   docker run -it --rm \
     --security-opt=no-new-privileges \
@@ -56,10 +80,12 @@ contained_codex() {
     -v codex-home:/home/codex \
     -v "$PWD":"/workspace/$(basename "$PWD")" \
     -w "/workspace/$(basename "$PWD")" \
-    codex codex "$@"
+    "${AGENT_DOCKER_ARGS[@]}" \
+    codex codex "${AGENT_CLI_ARGS[@]}"
 }
 
 contained_kilo() {
+  agent_split_args "$@"
   agent_egress_args kilo "${CONTAINED_KILO_EGRESS:-api.kilo.ai}"
   docker run -it --rm \
     --security-opt=no-new-privileges \
@@ -69,10 +95,12 @@ contained_kilo() {
     -v kilo-home:/home/kilo \
     -v "$PWD":"/workspace/$(basename "$PWD")" \
     -w "/workspace/$(basename "$PWD")" \
-    kilo-code kilo "$@"
+    "${AGENT_DOCKER_ARGS[@]}" \
+    kilo-code kilo "${AGENT_CLI_ARGS[@]}"
 }
 
 contained_opencode() {
+  agent_split_args "$@"
   agent_egress_args opencode "${CONTAINED_OPENCODE_EGRESS:-opencode.ai,models.dev}"
   docker run -it --rm \
     --security-opt=no-new-privileges \
@@ -82,10 +110,12 @@ contained_opencode() {
     -v opencode-home:/home/opencode \
     -v "$PWD":"/workspace/$(basename "$PWD")" \
     -w "/workspace/$(basename "$PWD")" \
-    opencode opencode "$@"
+    "${AGENT_DOCKER_ARGS[@]}" \
+    opencode opencode "${AGENT_CLI_ARGS[@]}"
 }
 
 contained_qwen() {
+  agent_split_args "$@"
   agent_egress_args qwen "${CONTAINED_QWEN_EGRESS:-dashscope.aliyuncs.com}"
   docker run -it --rm \
     --security-opt=no-new-privileges \
@@ -98,10 +128,12 @@ contained_qwen() {
     -v qwen-home:/home/qwen \
     -v "$PWD":"/workspace/$(basename "$PWD")" \
     -w "/workspace/$(basename "$PWD")" \
-    qwen-code qwen "$@"
+    "${AGENT_DOCKER_ARGS[@]}" \
+    qwen-code qwen "${AGENT_CLI_ARGS[@]}"
 }
 
 contained_hermes() {
+  agent_split_args "$@"
   if [ ! -f "$HOME/.config/agent-containers/hermes-egress-allowlist.txt" ]; then
     : "${CONTAINED_HERMES_EGRESS:?Set CONTAINED_HERMES_EGRESS to the selected provider hosts.}"
   fi
@@ -112,7 +144,8 @@ contained_hermes() {
     --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID --cap-add=CHOWN --cap-add=DAC_OVERRIDE \
     "${AGENT_EGRESS_ARGS[@]}" \
     -v hermes-data:/opt/data \
-    hermes "$@"
+    "${AGENT_DOCKER_ARGS[@]}" \
+    hermes "${AGENT_CLI_ARGS[@]}"
 }
 ```
 
@@ -123,6 +156,27 @@ contained_codex
 contained_opencode
 CONTAINED_HERMES_EGRESS='openrouter.ai' contained_hermes
 ```
+
+To add a bind mount for one run, pass the Docker options before the separator:
+
+```sh
+contained_codex --docker \
+  -v "$PWD/codex-config.toml:/home/codex/.codex/config.toml:ro" \
+  --
+```
+
+The same form works with every shortcut. Agent arguments belong after the
+separator:
+
+```sh
+contained_claude --docker \
+  -v "$PWD/claude-settings.json:/home/claude/.claude/settings.json:ro" \
+  -- --version
+```
+
+Without `--docker`, all arguments continue to pass directly to the agent, as
+before. Docker options must precede the image name, so the opening marker is
+required even when an option such as `-v` is unambiguous to a person.
 
 For Codex device authentication, forward the login subcommand through the
 same function. Do not add another `codex`: the function already supplies the
