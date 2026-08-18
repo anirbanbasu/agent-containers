@@ -55,11 +55,12 @@ including its XDG locations under `~/.config/opencode` and
 
 ## Custom configuration
 
-To use a host-maintained global OpenCode configuration, add
-`-v "$PWD/opencode.json":/home/opencode/.config/opencode/opencode.json:ro`
-to the run command. The read-only mount shadows, rather than merges with, the
-file in the `opencode-home` volume. See [custom configuration files](../customisation/custom-configuration.md#opencode)
-for project-scoped alternatives and egress requirements.
+OpenCode loads global and project configuration layers, but the global file's
+single-file bind-mount and mutation behavior has not yet been verified for
+this image. See [custom configuration files](../customisation/custom-configuration.md)
+for the state-preservation constraints and [local
+models](../customisation/local-models.md#opencode) for a version-recorded
+candidate project layer.
 
 ## Providers and egress control
 

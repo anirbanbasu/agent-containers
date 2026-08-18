@@ -73,12 +73,12 @@ shared home volume.
 
 ## Custom configuration
 
-To use a host-maintained global Codex configuration, add
-`-v "$PWD/codex-config.toml":/home/codex/.codex/config.toml:ro` to the run
-command. The read-only mount shadows, rather than merges with, the file in the
-`codex-home` volume. See [custom configuration files](../customisation/custom-configuration.md#codex)
-for configuration precedence, project-scoped alternatives, and egress
-requirements.
+Codex owns and may rewrite `/home/codex/.codex/config.toml`, including while
+recording project trust. Keep that mutable primary file in `codex-home`; do
+not assume that a single-file bind mount works merely because it is not marked
+read-only. See [custom configuration files](../customisation/custom-configuration.md)
+for the file-update constraints and [local models](../customisation/local-models.md#codex)
+for a version-recorded candidate that uses CLI overrides instead.
 
 ## Authentication
 

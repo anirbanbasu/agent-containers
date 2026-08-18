@@ -59,11 +59,12 @@ volume is shared across runs.
 
 ## Custom configuration
 
-To use a host-maintained global Kilo configuration, add
-`-v "$PWD/kilo.json":/home/kilo/.config/kilo/kilo.json:ro` to the run
-command. The read-only mount shadows, rather than merges with, the file in the
-`kilo-home` volume. See [custom configuration files](../customisation/custom-configuration.md#kilo-code)
-for the JSONC variant, project-scoped alternatives, and egress requirements.
+Kilo's global configuration is below `/home/kilo/.config/kilo`, but its
+single-file bind-mount and mutation behavior has not yet been verified for
+this image. See [custom configuration files](../customisation/custom-configuration.md)
+for the distinction between configuration and mutable state, and [local
+models](../customisation/local-models.md#kilo-code) for the version-recorded
+candidate using a separate `KILO_CONFIG` input.
 
 ## Providers, plugins, and egress control
 

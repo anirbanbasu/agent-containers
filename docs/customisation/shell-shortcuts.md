@@ -4,6 +4,23 @@ icon: lucide/terminal
 
 # Shell shortcuts
 
+!!! warning "Extra Docker options can defeat containment"
+
+    The user launching the container is trusted and is not the threat this
+    repository's containment model is designed to control. The coding agent
+    and model running inside the container are the untrusted workload.
+
+    Nevertheless, if the user intentionally or unintentionally supplies an
+    unsafe option through `--docker`, that option changes the boundary around
+    the agent and can effectively defeat containment. Examples include
+    `--privileged`, `--cap-add=SYS_ADMIN`, `--network=host`, mounting `/` or a
+    sensitive host directory into the container, mounting
+    `/var/run/docker.sock`, replacing the hardened seccomp/AppArmor policy, or
+    making sensitive host files writable. Review every extra option with the
+    same care as a full `docker run` command. `--docker` is a convenience, not
+    a safety filter or an approval mechanism.
+
+
 The documented `docker run` commands deliberately show every containment flag,
 but retyping them is tedious. Use shell functions rather than aliases: a
 function evaluates `$PWD` when it is invoked, forwards arguments to the agent,
@@ -22,6 +39,7 @@ Each function mounts the current directory at
 Arguments normally pass through to the coding agent. To add options to
 `docker run` instead, put them between `--docker` and `--`; arguments after
 the closing `--` still pass through to the agent.
+
 
 ```sh
 agent_egress_args() {
@@ -157,11 +175,12 @@ contained_opencode
 CONTAINED_HERMES_EGRESS='openrouter.ai' contained_hermes
 ```
 
-To add a bind mount for one run, pass the Docker options before the separator:
+To add a genuinely input-only bind mount for one run, pass the Docker options
+before the separator:
 
 ```sh
 contained_codex --docker \
-  -v "$PWD/codex-config.toml:/home/codex/.codex/config.toml:ro" \
+  -v "$PWD/models.json:/home/codex/.codex/models.json:ro" \
   --
 ```
 
@@ -177,6 +196,10 @@ contained_claude --docker \
 Without `--docker`, all arguments continue to pass directly to the agent, as
 before. Docker options must precede the image name, so the opening marker is
 required even when an option such as `-v` is unambiguous to a person.
+Do not infer that an agent's primary configuration file is safe to mount
+read-only or as a single read-write file. See [custom configuration
+files](custom-configuration.md) and the candidate [local-model
+recipes](local-models.md) for the agent-specific constraints.
 
 For Codex device authentication, forward the login subcommand through the
 same function. Do not add another `codex`: the function already supplies the

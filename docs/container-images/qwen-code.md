@@ -61,11 +61,12 @@ volume is shared across runs.
 
 ## Custom configuration
 
-To use a host-maintained global Qwen Code configuration, add
-`-v "$PWD/qwen-settings.json":/home/qwen/.qwen/settings.json:ro` to the run
-command. The read-only mount shadows, rather than merges with, the file in the
-`qwen-home` volume. See [custom configuration files](../customisation/custom-configuration.md#qwen-code)
-for project-scoped alternatives and egress requirements.
+Qwen Code's global settings are below `/home/qwen/.qwen`, but their
+single-file bind-mount and mutation behavior has not yet been verified for
+this image. Prefer runtime provider environment variables for temporary
+routing until that behavior is tested. See [custom configuration
+files](../customisation/custom-configuration.md) and the version-recorded
+candidate under [local models](../customisation/local-models.md#qwen-code).
 
 ## Providers and egress control
 

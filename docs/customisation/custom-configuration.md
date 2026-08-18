@@ -4,101 +4,90 @@ icon: lucide/settings-2
 
 # Custom configuration files
 
-Each workload image keeps its user configuration in its persistent home
-volume. For a reproducible, host-maintained configuration, bind-mount the
-agent's global configuration file at the agent-specific destination below.
-Add the mount to that image's documented `docker run` command.
+Each workload image keeps configuration and runtime state in its persistent
+home volume. Do not assume that an agent's documented configuration file is a
+read-only input: some agents update the same file for project trust, provider
+selection, migrations, or UI preferences.
 
-Create the host-side file first. Docker may otherwise create a directory at
-the source path, which cannot be mounted over the configuration file.
+A single-file bind mount also has different semantics from a normal file in a
+writable directory. A `:ro` mount rejects every write. Removing `:ro` permits
+ordinary writes only when host ownership and permissions allow them, but an
+application may still fail if it updates the file by atomically renaming a new
+file over the bind-mount point. Mounting a file also shadows the copy in the
+persistent volume; it never merges the two.
 
-Use `:ro`: a bind mount shadows the same file in the persistent volume for
-that run; it does not merge with it. A read-only mount prevents the agent from
-rewriting the host file. Authentication, conversation state, caches, and other
-state continue to live in the named home volume.
+Consequently, there is no repository-wide rule that every global
+configuration file should be bind-mounted. Use one of these patterns only when
+the agent-specific documentation says it is appropriate:
 
-Do not put credentials in a configuration file that is checked into a project.
-Use the agent's runtime environment variables or its persisted authentication
-state instead. If the configuration selects a model provider, MCP server, or
-other network service, also allow only its required host/IP with
-`AGENT_ALLOWED_EGRESS` or the mounted egress-policy file. A local service
-must be reachable from the container as well as allowlisted.
+- pass provider selection through supported CLI flags or environment
+  variables, leaving mutable state in the persistent home volume;
+- mount a genuinely input-only file with `:ro`;
+- use an agent-supported configuration layer that does not replace its mutable
+  primary file;
+- keep the configuration in the persistent home volume when the agent owns and
+  rewrites it;
+- mount a whole writable configuration directory only when intentionally
+  moving all state in that directory onto the host.
 
-## Claude Code
+The compatibility details below have not yet been exercised against every
+agent. See [Local models](local-models.md) for version-recorded candidate
+recipes and the verification checklist. Do not treat either page as an
+always-works guide.
 
-Claude Code reads user settings from `/home/claude/.claude/settings.json`.
-The [Claude Code image guide](../container-images/claude-code.md#custom-configuration-and-optional-build-time-tools)
-includes a complete local-model example:
+Create every host-side bind source before starting Docker. Otherwise Docker
+may create a directory at a missing source path. Keep credentials out of
+checked-in configuration; use runtime environment variables or authentication
+state in the persistent home volume.
 
-```sh
--v "$PWD/claude-settings.json":/home/claude/.claude/settings.json:ro
-```
+If configuration selects a model provider, MCP server, or other network
+service, allow only its required host or IP with `AGENT_ALLOWED_EGRESS` or the
+mounted egress-policy file. A service on the host or LAN must be reachable
+from the container as well as allowlisted.
 
-## Codex
+## Current configuration locations
 
-Codex reads global configuration from `/home/codex/.codex/config.toml`.
-It can define the default model/provider, MCP servers, approval policy, and
-other CLI settings; see the [official Codex configuration guide](https://developers.openai.com/codex/config-reference).
+| Agent | Global configuration | Persistent state relationship | Single-file mount status |
+|---|---|---|---|
+| Claude Code | `/home/claude/.claude/settings.json` | Other Claude state remains below `/home/claude` | Candidate only; prefer environment variables for temporary provider routing |
+| Codex | `/home/codex/.codex/config.toml` | Configuration, trust, authentication, and sessions share `/home/codex/.codex` | Do not mount the mutable primary file; Codex may replace it while saving trust |
+| Kilo Code | `/home/kilo/.config/kilo/kilo.json` or `kilo.jsonc` | Configuration and session state persist in `kilo-home` | Candidate only; prefer `KILO_CONFIG` with a separate read-only input for testing |
+| OpenCode | `/home/opencode/.config/opencode/opencode.json` or `.jsonc` | Configuration and credentials use multiple XDG paths in `opencode-home` | Candidate only; a project configuration layer avoids shadowing the global file |
+| Qwen Code | `/home/qwen/.qwen/settings.json` | Settings, authentication, and MCP state share `qwen-home` | Candidate only; prefer runtime provider environment variables for temporary routing |
+| Hermes | `/opt/data/config.yaml` | Configuration, auth, memories, sessions, and skills share `hermes-data` | Do not assume it is input-only; Hermes persists model/provider changes to it |
 
-```sh
--v "$PWD/codex-config.toml":/home/codex/.codex/config.toml:ro
-```
+These paths identify where each agent normally stores configuration; they are
+not blanket recommendations to mount those files.
 
-Codex also supports trusted project configuration at
-`/workspace/<project>/.codex/config.toml`; that is appropriate for
-non-secret, project-specific settings.
+## Project configuration
 
-## OpenCode
+Project-scoped configuration can be useful for non-secret settings when the
+agent supports it, but it has different trust and precedence rules:
 
-OpenCode's global configuration is
-`/home/opencode/.config/opencode/opencode.json`. It configures providers,
-models, permissions, and integrations; see the [OpenCode configuration
-reference](https://dev.opencode.ai/docs/config).
+- Codex reads `.codex/config.toml` only for trusted projects and does not allow
+  project configuration to redirect provider or authentication settings.
+- OpenCode searches for `opencode.json(c)` and `.opencode/opencode.json(c)` in
+  the project hierarchy and merges those layers with global configuration.
+- Kilo supports project configuration, but secret environment/file references
+  are restricted outside trusted configuration locations.
+- Qwen Code supports `.qwen/settings.json` in a project.
 
-```sh
--v "$PWD/opencode.json":/home/opencode/.config/opencode/opencode.json:ro
-```
+Do not use a repository-controlled file to supply credentials or silently
+redirect a trusted user's model traffic.
 
-For non-secret project configuration, OpenCode also reads `opencode.json` at
-the project root.
+## Runtime overrides with shell shortcuts
 
-## Kilo Code
-
-Kilo's global configuration is `/home/kilo/.config/kilo/kilo.json` (or the
-JSONC variant `kilo.jsonc`). It configures the model/provider, MCP servers,
-permissions, and other CLI behaviour; see the [Kilo CLI configuration
-reference](https://kilo.ai/docs/code-with-ai/platforms/cli).
-
-```sh
--v "$PWD/kilo.json":/home/kilo/.config/kilo/kilo.json:ro
-```
-
-Kilo also supports non-secret project configuration such as `kilo.json` or
-`.kilo/` configuration below the mounted project directory.
-
-## Qwen Code
-
-Qwen Code reads its user settings from `/home/qwen/.qwen/settings.json`.
-That file configures providers, MCP servers, and other persistent settings;
-see the [Qwen Code settings reference](https://qwenlm.github.io/qwen-code-docs/en/users/configuration/settings/).
-
-```sh
--v "$PWD/qwen-settings.json":/home/qwen/.qwen/settings.json:ro
-```
-
-For non-secret project settings, Qwen Code also reads
-`.qwen/settings.json` in the project root.
-
-## Hermes
-
-Hermes Agent stores its non-secret global settings in
-`/opt/data/config.yaml`, because this image maps Hermes's upstream home to
-`/opt/data`. Its `auth.json` and other state stay in the `hermes-data` volume.
-See the [Hermes configuration guide](https://github.com/hermes-agent-org/hermes/blob/main/website/docs/user-guide/configuration.md).
+The [shell shortcuts](shell-shortcuts.md) accept additional Docker arguments
+between `--docker` and `--`, followed by agent arguments. This is useful for
+candidate configuration files and environment variables without changing the
+shortcut itself:
 
 ```sh
--v "$PWD/hermes-config.yaml":/opt/data/config.yaml:ro
+contained_codex --docker \
+  -v "$PWD/input.json:/etc/agent/input.json:ro" \
+  -- --version
 ```
 
-Use runtime environment variables for provider keys rather than mounting a
-host `.env` file over the persistent data volume.
+The shortcut is a convenience for the user, not an additional containment
+boundary. The agent running inside the container does not receive access to
+the host shell function or Docker socket.

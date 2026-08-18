@@ -105,13 +105,13 @@ marketplaces).
 
 ### Custom configuration file
 
-To use a host-maintained non-secret Hermes configuration, add
-`-v "$PWD/hermes-config.yaml":/opt/data/config.yaml:ro` to the run command.
-The read-only mount shadows, rather than merges with, the file in the
-`hermes-data` volume. Keep provider credentials in runtime environment
+Hermes treats `/opt/data/config.yaml` as mutable provider state and persists
+model changes to it. Keep that file in `hermes-data` rather than mounting the
+individual file read-only. Keep provider credentials in runtime environment
 variables or Hermes's persisted authentication state. See [custom
-configuration files](../customisation/custom-configuration.md#hermes) for details and egress
-requirements.
+configuration files](../customisation/custom-configuration.md) for the general
+state constraints and [local models](../customisation/local-models.md#hermes)
+for the version-recorded custom-endpoint candidate.
 
 ## Optional configuration
 
