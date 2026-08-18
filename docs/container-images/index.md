@@ -4,15 +4,15 @@ icon: lucide/table-properties
 
 # Summary of container images
 
-This project ships seven container images, all hardened by default
+This project ships eight container images, all hardened by default
 (non-root user, read-only root filesystem, minimal capability set, deny-all
-egress unless configured otherwise): six workload images that each run a
+egress unless configured otherwise): seven workload images that each run a
 different coding/agentic CLI, and a network-tunnelling image that lets you
 move egress enforcement out of a workload entirely.
 
 ## Shared Python-and-Node workload implementation
 
-`claude-code`, `codex`, `kilo-code`, `opencode`, and `qwen-code` remain
+`adal`, `claude-code`, `codex`, `kilo-code`, `opencode`, and `qwen-code` remain
 independently buildable images, but share their required Node.js,
 containment, gateway-client, and cloudflared setup through
 `agent-images/shared/install-workload-base.sh`. They also share the
@@ -33,18 +33,25 @@ project directory.
 
 Each agent has a different configuration path inside its persistent home
 volume. See [custom configuration files](../customisation/custom-configuration.md) for the
-exact read-only bind mount for Claude Code, Codex, OpenCode, Kilo Code, Qwen
-Code, and Hermes.
+agent-specific configuration guidance for AdaL, Claude Code, Codex, OpenCode,
+Kilo Code, Qwen Code, and Hermes.
 
 ## Network tunnelling
 
-[`agent-gateway`](agent-gateway.md) is a small, disposable sibling container
+[`agent-gateway`](00-agent-gateway.md) is a small, disposable sibling container
 that owns the egress allowlist on behalf of a workload container, which
 tunnels all of its outbound traffic to it over SSH instead of enforcing an
 allowlist on itself. This means a compromise of the workload gives an
 attacker no access to the rules governing its own network egress. It runs
 equally well as a same-host sibling or on a genuinely separate machine —
 same image, same mechanism, only reachability differs.
+
+## AdaL
+
+[`adal`](adal.md) packages SylphAI's AdaL terminal coding agent. Its
+browser-based sign-in, persistent settings/session state, MCP OAuth state,
+skills, and plugins stay in the mounted AdaL home volume; direct model
+providers and each optional integration require explicit egress.
 
 ## Claude Code
 

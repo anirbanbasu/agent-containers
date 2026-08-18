@@ -49,6 +49,7 @@ from the container as well as allowlisted.
 
 | Agent | Global configuration | Persistent state relationship | Single-file mount status |
 |---|---|---|---|
+| AdaL | `/home/adal/.adal/settings.json` | Settings, OAuth credentials, sessions, MCP authentication, skills, and plugins share `adal-home` | Do not mount the mutable primary file; AdaL stores BYOAK keys and lifecycle hooks there |
 | Claude Code | `/home/claude/.claude/settings.json` | Other Claude state remains below `/home/claude` | Candidate only; prefer environment variables for temporary provider routing |
 | Codex | `/home/codex/.codex/config.toml` | Configuration, trust, authentication, and sessions share `/home/codex/.codex` | Do not mount the mutable primary file; Codex may replace it while saving trust |
 | Kilo Code | `/home/kilo/.config/kilo/kilo.json` or `kilo.jsonc` | Configuration and session state persist in `kilo-home` | Candidate only; prefer `KILO_CONFIG` with a separate read-only input for testing |
@@ -64,6 +65,9 @@ not blanket recommendations to mount those files.
 Project-scoped configuration can be useful for non-secret settings when the
 agent supports it, but it has different trust and precedence rules:
 
+- AdaL auto-loads `.adal/tools.py` and `.adal/skills/` from the project; both
+  can contain executable code or instructions, so treat them as project code
+  inside the container rather than a source of global credentials.
 - Codex reads `.codex/config.toml` only for trusted projects and does not allow
   project configuration to redirect provider or authentication settings.
 - OpenCode searches for `opencode.json(c)` and `.opencode/opencode.json(c)` in

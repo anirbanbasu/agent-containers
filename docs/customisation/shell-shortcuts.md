@@ -71,6 +71,21 @@ agent_split_args() {
   AGENT_CLI_ARGS=("$@")
 }
 
+contained_adal() {
+  agent_split_args "$@"
+  agent_egress_args adal "${CONTAINED_ADAL_EGRESS:-adal.sylph.ai}"
+  docker run -it --rm \
+    --security-opt=no-new-privileges \
+    --read-only --tmpfs /tmp --tmpfs /run \
+    --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
+    "${AGENT_EGRESS_ARGS[@]}" \
+    -v adal-home:/home/adal \
+    -v "$PWD":"/workspace/$(basename "$PWD")" \
+    -w "/workspace/$(basename "$PWD")" \
+    "${AGENT_DOCKER_ARGS[@]}" \
+    adal adal "${AGENT_CLI_ARGS[@]}"
+}
+
 contained_claude() {
   agent_split_args "$@"
   agent_egress_args claude "${CONTAINED_CLAUDE_EGRESS:-api.anthropic.com}"
@@ -171,6 +186,7 @@ For example, after building the images:
 
 ```sh
 contained_codex
+contained_adal
 contained_opencode
 CONTAINED_HERMES_EGRESS='openrouter.ai' contained_hermes
 ```

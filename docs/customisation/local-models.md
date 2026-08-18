@@ -58,6 +58,45 @@ The container still needs a route to the inference server and an egress rule
 that permits that destination. Keep those values in the local invocation or
 private configuration rather than the documentation.
 
+## AdaL
+
+| Field | Value |
+|---|---|
+| Status | **Candidate** |
+| Tested agent version | Not yet tested — record `adal --version` from the hardened invocation |
+| Expected protocol | Ollama API |
+| Shared state | `adal-home` persists AdaL credentials, provider selection, sessions, MCP authentication, skills, and plugins under `~/.adal` |
+| Candidate mechanism | Start Ollama separately, allow only its reachable host, then select the local model in AdaL's `/model` dialog |
+
+AdaL documents local-model support through Ollama. The image intentionally
+does not install Ollama or a model: the inference service must be operated
+separately. Make the service reachable from the container through a private
+network path, then allow only that hostname or IP. Do not use `localhost` for
+a model server on the Docker host; from the workload it refers to the AdaL
+container itself.
+
+Candidate invocation:
+
+```sh
+AGENT_ALLOWED_EGRESS=LOCAL_MODEL_HOST \
+docker run -it --rm \
+  --security-opt=no-new-privileges \
+  --read-only --tmpfs /tmp --tmpfs /run \
+  --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
+  -e AGENT_ALLOWED_EGRESS \
+  -v adal-home:/home/adal \
+  -v "$PWD":"/workspace/$(basename "$PWD")" \
+  -w "/workspace/$(basename "$PWD")" \
+  adal
+```
+
+In AdaL, use `/model`, select the **Ollama** section, and choose the model
+served by the reachable Ollama instance. AdaL documents local models as a
+preview feature and notes that some capabilities, including image input, are
+not available. Confirm that the local selection survives a restart without
+replacing the volume-backed AdaL settings, and that the agent does not fall
+back to a hosted route.
+
 ## Claude Code
 
 | Field | Value |
