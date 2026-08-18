@@ -12,6 +12,7 @@ body:
         # BEGIN component-options
         - adal
         - agent-gateway
+        - aider
         - claude-code
         - codex
         - hermes

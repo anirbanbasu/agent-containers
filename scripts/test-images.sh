@@ -10,9 +10,10 @@ readonly RUN_ID="$$-$(date +%s)"
 readonly TEST_NETWORK="agent-containers-test-${RUN_ID}"
 readonly TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/agent-containers-test.XXXXXX")"
 
-readonly -a ALL_IMAGES=(adal claude-code codex hermes kilo-code opencode qwen-code agent-gateway)
-readonly -a NODE_WORKLOADS=(
+readonly -a ALL_IMAGES=(adal aider claude-code codex hermes kilo-code opencode qwen-code agent-gateway)
+readonly -a WORKLOADS=(
     'adal:adal:/home/adal:adal'
+    'aider:aider:/home/aider:aider'
     'claude-code:claude:/home/claude:claude'
     'codex:codex:/home/codex:codex'
     'kilo-code:kilo:/home/kilo:kilo'
@@ -93,11 +94,11 @@ ensure_network() {
         || docker network create "$TEST_NETWORK" >/dev/null
 }
 
-node_volume_name() {
+workload_volume_name() {
     printf 'agent-containers-test-%s-%s-%s\n' "$RUN_ID" "$1" "$2"
 }
 
-run_node_workload() {
+run_workload() {
     local image="$1"
     local home="$2"
     local allowlist="$3"
@@ -112,8 +113,8 @@ run_node_workload() {
     esac
 
     local home_volume workspace_volume
-    home_volume="$(node_volume_name "$image" home)"
-    workspace_volume="$(node_volume_name "$image" workspace)"
+    home_volume="$(workload_volume_name "$image" home)"
+    workspace_volume="$(workload_volume_name "$image" workspace)"
     if ! docker volume inspect "$home_volume" >/dev/null 2>&1; then
         track_volume "$home_volume"
         track_volume "$workspace_volume"
@@ -147,14 +148,14 @@ wait_for_running() {
     fail "$container did not remain running."
 }
 
-smoke_node_workloads() {
+smoke_workloads() {
     ensure_network
     local spec image user home cli
-    for spec in "${NODE_WORKLOADS[@]}"; do
+    for spec in "${WORKLOADS[@]}"; do
         IFS=: read -r image user home cli <<< "$spec"
         echo "[test-images] Smoke testing $image"
-        run_node_workload "$image" "$home" '' --version >/dev/null
-        run_node_workload "$image" "$home" '' sh -ceu '
+        run_workload "$image" "$home" '' --version >/dev/null
+        run_workload "$image" "$home" '' sh -ceu '
             test "$(id -un)" = "$0"
             test -w "$HOME"
             grep -Eq "^[^ ]+ / [^ ]+ ro[, ]" /proc/mounts
@@ -241,15 +242,15 @@ run_containment_tests() {
     start_http_server "$blocked" blocked.test
 
     local spec image user home cli
-    for spec in "${NODE_WORKLOADS[@]}"; do
+    for spec in "${WORKLOADS[@]}"; do
         IFS=: read -r image user home cli <<< "$spec"
         echo "[test-images] Testing deny-by-default and allowlisted egress for $image"
-        if run_node_workload "$image" "$home" '' sh -c 'curl -fsS --connect-timeout 3 http://allowed.test:8080/ >/dev/null'; then
+        if run_workload "$image" "$home" '' sh -c 'curl -fsS --connect-timeout 3 http://allowed.test:8080/ >/dev/null'; then
             fail "$image reached an endpoint with no egress allowlist."
         fi
-        run_node_workload "$image" "$home" allowed.test \
+        run_workload "$image" "$home" allowed.test \
             sh -c 'curl -fsS --connect-timeout 3 http://allowed.test:8080/ | grep -q "Directory listing"'
-        if run_node_workload "$image" "$home" allowed.test \
+        if run_workload "$image" "$home" allowed.test \
             sh -c 'curl -fsS --connect-timeout 3 http://blocked.test:8080/ >/dev/null'; then
             fail "$image reached a host outside its egress allowlist."
         fi
@@ -322,7 +323,7 @@ usage() {
 Usage: scripts/test-images.sh <all|build|smoke|containment|gateway|static>
 
 all          Static checks, build every image, then smoke-test every image and
-             test in-container egress enforcement for the six Node workloads.
+             test in-container egress enforcement for every workload image.
 gateway      Build every image and run the workload-to-agent-gateway egress test.
 EOF
 }
@@ -332,10 +333,10 @@ main() {
     case "$mode" in
         static) run_static_checks ;;
         build) build_images ;;
-        smoke) build_images; smoke_node_workloads; smoke_hermes; smoke_gateway ;;
+        smoke) build_images; smoke_workloads; smoke_hermes; smoke_gateway ;;
         containment) build_images; run_containment_tests ;;
         gateway) build_images; run_gateway_integration ;;
-        all) run_static_checks; build_images; smoke_node_workloads; smoke_hermes; smoke_gateway; run_containment_tests ;;
+        all) run_static_checks; build_images; smoke_workloads; smoke_hermes; smoke_gateway; run_containment_tests ;;
         *) usage >&2; exit 2 ;;
     esac
     echo "[test-images] PASS: $mode"

@@ -97,6 +97,39 @@ not available. Confirm that the local selection survives a restart without
 replacing the volume-backed AdaL settings, and that the agent does not fall
 back to a hosted route.
 
+## Aider
+
+| Field | Value |
+|---|---|
+| Status | **Candidate** |
+| Tested agent version | Not yet tested — record `contained_aider --version` |
+| Expected protocol | OpenAI-compatible API |
+| Shared state | `aider-home` persists home-level configuration, optional credentials, caches, and user-installed tools |
+| Candidate mechanism | Runtime CLI options and a placeholder API key; do not shadow the home configuration |
+
+Aider can use a local OpenAI-compatible endpoint through its `openai/` model
+prefix and API-base option. This image does not install or operate a local
+inference server. Make the server deliberately reachable from the container,
+then allow only its hostname or IP.
+
+Candidate invocation:
+
+```sh
+OPENAI_API_KEY=local-placeholder \
+CONTAINED_AIDER_EGRESS=LOCAL_MODEL_HOST \
+contained_aider --docker \
+  -e OPENAI_API_KEY \
+  -- \
+  --model openai/LOCAL_MODEL_ID \
+  --openai-api-base http://LOCAL_MODEL_HOST:LOCAL_MODEL_PORT/v1
+```
+
+Some keyless servers still require a non-empty placeholder because the client
+expects an API key. Verify a normal generation and a shell/tool-call workflow,
+then confirm Aider does not contact a hosted provider or attempt an update
+check. Do not use `localhost` for a server on the Docker host: it refers to
+the Aider container itself.
+
 ## Claude Code
 
 | Field | Value |
