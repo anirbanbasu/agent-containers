@@ -19,7 +19,14 @@ RUN bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
 # matching the other first-party CLI workload image.
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
-RUN npm install -g @openai/codex
+RUN npm install -g @openai/codex \
+    && codex_path="$(command -v codex)" \
+    && codex_target="$(readlink -f "$codex_path")" \
+    && ln -s "$codex_target" /usr/local/bin/codex-cli \
+    && rm -f "$codex_path"
+
+COPY codex-wrapper.sh /usr/local/bin/codex
+RUN chmod +x /usr/local/bin/codex
 
 RUN groupadd -g "$GID" codex \
     && useradd -m -u "$UID" -g "$GID" -s /bin/bash codex \

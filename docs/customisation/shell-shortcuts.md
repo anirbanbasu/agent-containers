@@ -21,12 +21,24 @@ Each function mounts the current directory at
 `/workspace/<current-directory-name>` and starts the matching local image.
 
 ```sh
+agent_egress_args() {
+  local agent="$1" fallback="$2" allowlist
+  allowlist="$HOME/.config/agent-containers/$agent-egress-allowlist.txt"
+
+  if [ -f "$allowlist" ]; then
+    AGENT_EGRESS_ARGS=(-v "$allowlist:/etc/agent/egress-allowlist.txt:ro")
+  else
+    AGENT_EGRESS_ARGS=(-e "AGENT_ALLOWED_EGRESS=$fallback")
+  fi
+}
+
 contained_claude() {
+  agent_egress_args claude "${CONTAINED_CLAUDE_EGRESS:-api.anthropic.com}"
   docker run -it --rm \
     --security-opt=no-new-privileges \
     --read-only --tmpfs /tmp --tmpfs /run \
     --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
-    -e "AGENT_ALLOWED_EGRESS=${CONTAINED_CLAUDE_EGRESS:-api.anthropic.com}" \
+    "${AGENT_EGRESS_ARGS[@]}" \
     -v claude-home:/home/claude \
     -v "$PWD":"/workspace/$(basename "$PWD")" \
     -w "/workspace/$(basename "$PWD")" \
@@ -34,12 +46,13 @@ contained_claude() {
 }
 
 contained_codex() {
+  agent_egress_args codex "${CONTAINED_CODEX_EGRESS:-api.openai.com,auth.openai.com,chatgpt.com}"
   docker run -it --rm \
     --security-opt=no-new-privileges \
     --read-only --tmpfs /tmp --tmpfs /run \
     --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
     -e OPENAI_API_KEY \
-    -e "AGENT_ALLOWED_EGRESS=${CONTAINED_CODEX_EGRESS:-api.openai.com,auth.openai.com,chatgpt.com}" \
+    "${AGENT_EGRESS_ARGS[@]}" \
     -v codex-home:/home/codex \
     -v "$PWD":"/workspace/$(basename "$PWD")" \
     -w "/workspace/$(basename "$PWD")" \
@@ -47,11 +60,12 @@ contained_codex() {
 }
 
 contained_kilo() {
+  agent_egress_args kilo "${CONTAINED_KILO_EGRESS:-api.kilo.ai}"
   docker run -it --rm \
     --security-opt=no-new-privileges \
     --read-only --tmpfs /tmp:exec --tmpfs /run \
     --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
-    -e "AGENT_ALLOWED_EGRESS=${CONTAINED_KILO_EGRESS:-api.kilo.ai}" \
+    "${AGENT_EGRESS_ARGS[@]}" \
     -v kilo-home:/home/kilo \
     -v "$PWD":"/workspace/$(basename "$PWD")" \
     -w "/workspace/$(basename "$PWD")" \
@@ -59,11 +73,12 @@ contained_kilo() {
 }
 
 contained_opencode() {
+  agent_egress_args opencode "${CONTAINED_OPENCODE_EGRESS:-opencode.ai,models.dev}"
   docker run -it --rm \
     --security-opt=no-new-privileges \
     --read-only --tmpfs /tmp:exec --tmpfs /run \
     --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
-    -e "AGENT_ALLOWED_EGRESS=${CONTAINED_OPENCODE_EGRESS:-opencode.ai,models.dev}" \
+    "${AGENT_EGRESS_ARGS[@]}" \
     -v opencode-home:/home/opencode \
     -v "$PWD":"/workspace/$(basename "$PWD")" \
     -w "/workspace/$(basename "$PWD")" \
@@ -71,6 +86,7 @@ contained_opencode() {
 }
 
 contained_qwen() {
+  agent_egress_args qwen "${CONTAINED_QWEN_EGRESS:-dashscope.aliyuncs.com}"
   docker run -it --rm \
     --security-opt=no-new-privileges \
     --read-only --tmpfs /tmp --tmpfs /run \
@@ -78,7 +94,7 @@ contained_qwen() {
     -e OPENAI_API_KEY \
     -e "OPENAI_BASE_URL=${CONTAINED_QWEN_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}" \
     -e "OPENAI_MODEL=${CONTAINED_QWEN_MODEL:-qwen3-coder-plus}" \
-    -e "AGENT_ALLOWED_EGRESS=${CONTAINED_QWEN_EGRESS:-dashscope.aliyuncs.com}" \
+    "${AGENT_EGRESS_ARGS[@]}" \
     -v qwen-home:/home/qwen \
     -v "$PWD":"/workspace/$(basename "$PWD")" \
     -w "/workspace/$(basename "$PWD")" \
@@ -86,12 +102,15 @@ contained_qwen() {
 }
 
 contained_hermes() {
-  : "${CONTAINED_HERMES_EGRESS:?Set CONTAINED_HERMES_EGRESS to the selected provider hosts.}"
+  if [ ! -f "$HOME/.config/agent-containers/hermes-egress-allowlist.txt" ]; then
+    : "${CONTAINED_HERMES_EGRESS:?Set CONTAINED_HERMES_EGRESS to the selected provider hosts.}"
+  fi
+  agent_egress_args hermes "${CONTAINED_HERMES_EGRESS:-}"
   docker run -it --rm \
     --security-opt=no-new-privileges \
     --read-only --tmpfs /tmp --tmpfs /run:exec \
     --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID --cap-add=CHOWN --cap-add=DAC_OVERRIDE \
-    -e "AGENT_ALLOWED_EGRESS=$CONTAINED_HERMES_EGRESS" \
+    "${AGENT_EGRESS_ARGS[@]}" \
     -v hermes-data:/opt/data \
     hermes "$@"
 }
@@ -118,5 +137,10 @@ specific image's `CONTAINED_<IMAGE>_EGRESS` variable only with the hosts its
 selected provider, MCP server, source-control integration, or package
 registry requires. Quote a wildcard value, for example
 `CONTAINED_HERMES_EGRESS='*'`, when unrestricted egress is intentional.
+If `$HOME/.config/agent-containers/<agent>-egress-allowlist.txt` exists, the
+matching function instead mounts it read-only at
+`/etc/agent/egress-allowlist.txt`; the source may be a symlink to a regular
+file. The mounted file takes precedence, so the function does not pass
+`AGENT_ALLOWED_EGRESS` in that case.
 Refer to each image page for the provider-specific allowlist and authentication
 requirements.

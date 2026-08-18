@@ -14,6 +14,21 @@ is implemented in Rust, its npm package supplies the native CLI executable, so
 the runtime image does not install a Rust toolchain. Python, `uv`, and `uvx`
 remain available for Python-based MCP servers and project tooling.
 
+## Nested sandboxing
+
+The image starts Codex with `--sandbox danger-full-access` by default. This
+disables Codex's nested process sandbox, which cannot create the namespaces it
+needs under the documented container security flags. It does not give Codex
+additional access outside the container: the outer container remains the
+security boundary and continues to enforce its read-only root filesystem,
+explicit writable mounts, unprivileged user, dropped capabilities, and egress
+policy.
+
+The image supplies this default through its `codex` wrapper, so it also applies
+when a Docker command overrides the image's `CMD`, such as `codex codex login`.
+Pass another global `--sandbox` option explicitly to override the default for a
+container started with different runtime permissions.
+
 ## Build
 
 ```sh
