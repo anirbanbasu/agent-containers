@@ -1,0 +1,22 @@
+# Example egress allowlist for the claude-code-ci image. Unlike the
+# interactive claude-code image, this list is meant to be fixed per CI
+# pipeline rather than chosen per session — narrow it to what the repos this
+# pipeline runs against actually need (e.g. drop the registries a given repo
+# doesn't build with).
+#
+# Mount to /etc/agent/egress-allowlist.txt, or pass the equivalent as
+# AGENT_ALLOWED_EGRESS (comma-separated).
+
+# Anthropic API
+api.anthropic.com
+
+# GitHub — clone, push, PR creation via gh
+github.com
+api.github.com
+codeload.github.com
+
+# Common package registries a fix might need to install against; trim to
+# what the target repo(s) actually use.
+registry.npmjs.org
+pypi.org
+files.pythonhosted.org
