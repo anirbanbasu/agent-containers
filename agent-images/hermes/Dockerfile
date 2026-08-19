@@ -62,6 +62,16 @@ COPY --from=shared egress-allowlist.sh /usr/local/lib/agent/egress-allowlist.sh
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
+# Strip setuid/setgid bits picked up from upstream's base image and the
+# packages installed above (mount, passwd, su, ...). --security-opt
+# no-new-privileges (every documented run invocation) already makes these
+# inert on execve; stripping them removes the exploitable shape instead of
+# relying solely on that flag never regressing. Safe after this point:
+# upstream's runtime privilege drop is s6-setuidgid, which runs as root
+# under the container's own granted CAP_SETUID/CAP_SETGID rather than
+# through any setuid-bit binary.
+RUN find / -xdev -perm /6000 -type f -exec chmod a-s {} + || true
+
 # No useradd/UID build-arg here (unlike claude-code): upstream already
 # ships its own non-root user (hermes, UID 10000, home /opt/data) and its
 # own privilege-drop chain; see entrypoint.sh. CMD is deliberately left at

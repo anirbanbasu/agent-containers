@@ -48,6 +48,17 @@ COPY --from=shared egress-allowlist.sh /usr/local/lib/agent/egress-allowlist.sh
 COPY --from=shared workload-entrypoint.sh /usr/local/lib/agent/workload-entrypoint.sh
 RUN chmod +x /usr/local/lib/agent/workload-entrypoint.sh
 
+# Strip setuid/setgid bits from the base image and every package installed
+# above — required infra (install-workload-base.sh), packages-apt.txt,
+# packages-npm.txt, and packages-uv.txt — run last so nothing installed by
+# any of those is missed. NoNewPrivs=1 (set by every documented run
+# invocation) already makes these bits inert on execve, but that's an
+# argument for stripping them, not against: if any single control ever
+# regresses, a setuid-root `mount` becomes a live escalation primitive. None
+# of these binaries are needed at runtime, so none should ship
+# exploitable-shaped.
+RUN find / -xdev -perm /6000 -type f -exec chmod a-s {} + || true
+
 WORKDIR /workspace
 
 ENTRYPOINT ["/usr/local/lib/agent/workload-entrypoint.sh", "codex", "codex"]

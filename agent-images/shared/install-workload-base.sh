@@ -37,3 +37,10 @@ rm -rf /var/lib/apt/lists/*
 curl -fsSL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${TARGETARCH}" \
     -o /usr/local/bin/cloudflared
 chmod +x /usr/local/bin/cloudflared
+
+# Deliberately no setuid/setgid strip here: this script runs before each
+# consuming Dockerfile's optional packages-apt.txt install, so stripping at
+# this point would miss any setuid/setgid binary a user-added apt package
+# ships. Each Dockerfile that sources this script instead runs its own strip
+# as its last build step, after every package list (required and optional)
+# has been installed. See claude-code/Dockerfile for the reference comment.

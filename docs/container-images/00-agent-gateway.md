@@ -67,6 +67,7 @@ and `gateway-key.pub` (public, mounted into the gateway container).
     ```sh
     docker network create agent-net
     docker run -d --name agent-gateway --network agent-net \
+      --security-opt=no-new-privileges \
       --read-only --tmpfs /tmp --tmpfs /run \
       --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW \
       --cap-add=SETUID --cap-add=SETGID --cap-add=SYS_CHROOT \
@@ -84,6 +85,7 @@ and `gateway-key.pub` (public, mounted into the gateway container).
 
     ```sh
     docker run -d --name agent-gateway --restart unless-stopped \
+      --security-opt=no-new-privileges \
       --read-only --tmpfs /tmp --tmpfs /run \
       --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW \
       --cap-add=SETUID --cap-add=SETGID --cap-add=SYS_CHROOT \
@@ -149,15 +151,20 @@ above.
 
 | Flag | Purpose |
 |---|---|
+| `--security-opt=no-new-privileges` | Blocks privilege escalation via setuid binaries. |
 | `--cap-drop=ALL` | Strips Docker's full default capability set. |
 | `--cap-add=NET_ADMIN` `--cap-add=NET_RAW` | For the gateway's own `iptables`/`ipset`/`dnsmasq` allowlist setup — the same grant `claude-code`'s in-container allowlist needs, applied here to the gateway's own `OUTPUT` chain instead. |
 | `--cap-add=SETUID` `--cap-add=SETGID` | Required by `dnsmasq` to drop from root to its service user. The gateway itself has no `claude`-style entrypoint privilege drop. |
 | `--cap-add=SYS_CHROOT` | `sshd`'s privilege-separation model `chroot`s its pre-authentication child into `/run/sshd`; without this capability every connection is reset before authentication even starts. |
 
 `sshd` itself still runs as root throughout — for its own internal
-privilege-separation/setuid-per-session machinery, which is standard for
-`sshd` containers and not a regression — `PermitRootLogin no` is what keeps
-the *login* surface non-root regardless.
+privilege-separation/per-session machinery, which is standard for `sshd`
+containers and not a regression — `PermitRootLogin no` is what keeps the
+*login* surface non-root regardless. None of this depends on a setuid-bit
+binary (privsep forks and calls `setuid()`/`setgid()` directly, using the
+capability already granted above), so `--security-opt=no-new-privileges`
+doesn't interfere with it — the same is true of `dnsmasq`'s own root-to-
+service-user drop.
 
 !!! info "Ephemeral SSH authorization state"
     The entrypoint copies the mounted `gateway-key.pub` into the dedicated
@@ -228,6 +235,7 @@ port:
 
 ```sh
 docker run -d --name agent-gateway \
+  --security-opt=no-new-privileges \
   --read-only --tmpfs /tmp --tmpfs /run \
   --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW \
   --cap-add=SETUID --cap-add=SETGID --cap-add=SYS_CHROOT \

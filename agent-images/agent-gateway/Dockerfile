@@ -36,5 +36,15 @@ COPY sshd_config.agent-gateway /etc/ssh/sshd_config.d/agent-gateway.conf
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
+# Strip setuid/setgid bits from the base image and packages above (mount,
+# umount, passwd, chfn, gpasswd, newgrp, ...) — none of them are this image's
+# own privilege mechanism. sshd runs as real root throughout (not via a
+# setuid binary) and dnsmasq drops root->its own user via the CAP_SETUID/
+# CAP_SETGID this container is granted directly, not through any setuid-bit
+# binary, so both keep working unaffected. The build's own `passwd -l
+# tunnel` step above already ran as root before this point, so it isn't
+# affected either.
+RUN find / -xdev -perm /6000 -type f -exec chmod a-s {} + || true
+
 EXPOSE 2222
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

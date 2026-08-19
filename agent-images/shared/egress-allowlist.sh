@@ -61,9 +61,17 @@ configure_egress_allowlist() {
         # tell its own upstream forwarding apart from every other process's
         # DNS traffic (both otherwise share the same destination: $upstream_dns).
         echo "user=dnsmasq"
-        for ns in $upstream_dns; do
-            echo "server=$ns"
-        done
+        # Deliberately no unqualified "server=$ns" default here. Only the
+        # per-domain "server=/entry/$ns" lines added below (one per
+        # allowlisted name) are allowed to forward upstream; a query for
+        # anything else matches no server line, so dnsmasq answers it
+        # locally (NXDOMAIN) instead of forwarding it. Without this, every
+        # domain — allowlisted or not — would resolve via the blanket
+        # default, and only the *connection* to the resolved address would
+        # be filtered, leaving DNS itself as an unfiltered exfiltration
+        # channel (arbitrary data encoded in queried names, or in the
+        # queried names of an attacker-controlled zone, still reaches the
+        # upstream resolver even though the matching IP egress is blocked).
     } > "$dnsmasq_conf"
 
     local entry
@@ -77,6 +85,10 @@ configure_egress_allowlist() {
             # dnsmasq routes A records into the first set and AAAA records
             # into the second, based on each set's own address family.
             echo "ipset=/$entry/$ipset_name,$ipset6_name" >> "$dnsmasq_conf"
+            local ns
+            for ns in $upstream_dns; do
+                echo "server=/$entry/$ns" >> "$dnsmasq_conf"
+            done
         fi
     done
 
