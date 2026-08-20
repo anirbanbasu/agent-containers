@@ -19,6 +19,7 @@ body:
         - kilo-code
         - opencode
         - qwen-code
+        - volume-bridge
         - shared (egress-allowlist.sh)
         - docs/build tooling
         - other

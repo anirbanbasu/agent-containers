@@ -10,7 +10,7 @@ readonly RUN_ID="$$-$(date +%s)"
 readonly TEST_NETWORK="agent-containers-test-${RUN_ID}"
 readonly TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/agent-containers-test.XXXXXX")"
 
-readonly -a ALL_IMAGES=(adal aider claude-code codex hermes kilo-code opencode qwen-code agent-gateway)
+readonly -a ALL_IMAGES=(adal aider claude-code codex hermes kilo-code opencode qwen-code agent-gateway volume-bridge)
 readonly -a WORKLOADS=(
     'adal:adal:/home/adal:adal'
     'aider:aider:/home/aider:aider'
@@ -224,6 +224,31 @@ smoke_gateway() {
         tunnel@gateway id -un | grep -qx tunnel
 }
 
+smoke_volume_bridge() {
+    local container="agent-containers-test-${RUN_ID}-volume-bridge"
+    local volume="agent-containers-test-${RUN_ID}-volume-bridge-state"
+    local key="$TEMP_DIR/volume-bridge-key"
+    track_volume "$volume"
+    test_containers+=("$container")
+    ssh-keygen -q -t ed25519 -N '' -f "$key"
+    echo '[test-images] Smoke testing volume-bridge'
+    docker run -d --name "$container" --network "$TEST_NETWORK" \
+        --security-opt=no-new-privileges \
+        --read-only --tmpfs /tmp --tmpfs /run \
+        --cap-drop=ALL \
+        -e "VOLUME_BRIDGE_AUTHORIZED_KEY=$(cat "$key.pub")" \
+        --mount "type=volume,src=$volume,dst=/state" \
+        "$(image_tag volume-bridge)" >/dev/null
+    wait_for_running "$container"
+    docker exec "$container" sh -ceu '
+        test "$(id -un)" = bridge
+        test -s /state/authorized_keys
+        test -s /state/ssh_host_ed25519_key
+        grep -Eq "^[^ ]+ / [^ ]+ ro[, ]" /proc/mounts
+        grep -Eq "^CapEff:[[:space:]]*0{16}$" /proc/self/status
+    '
+}
+
 start_http_server() {
     local name="$1"
     local alias="$2"
@@ -333,10 +358,10 @@ main() {
     case "$mode" in
         static) run_static_checks ;;
         build) build_images ;;
-        smoke) build_images; smoke_workloads; smoke_hermes; smoke_gateway ;;
+        smoke) build_images; smoke_workloads; smoke_hermes; smoke_gateway; smoke_volume_bridge ;;
         containment) build_images; run_containment_tests ;;
         gateway) build_images; run_gateway_integration ;;
-        all) run_static_checks; build_images; smoke_workloads; smoke_hermes; smoke_gateway; run_containment_tests ;;
+        all) run_static_checks; build_images; smoke_workloads; smoke_hermes; smoke_gateway; smoke_volume_bridge; run_containment_tests ;;
         *) usage >&2; exit 2 ;;
     esac
     echo "[test-images] PASS: $mode"
