@@ -271,9 +271,30 @@ see above.
   [above](#bounding-what-the-agent-can-do-not-just-where-it-can-escape-to).
 - No published image yet, so the GitHub Actions example above is
   necessarily hypothetical about where `claude-code-ci` comes from.
-- No package-cache volume — every job re-fetches npm/uv/apt state from
-  nothing, which is correct for reproducibility but slower than the
-  interactive image.
-- `run-agent-task.sh` supports a single repo/issue per container invocation
-  only; a "fix N issues" or queue-based workflow would need a wrapper around
-  this, not a change to the image itself.
+- **No package-cache volume, and none is planned.** A shared, writable cache
+  volume across jobs would reintroduce the cross-job state leak
+  `--tmpfs /home/claude` exists to prevent: a cache entry written by one job
+  (including postinstall script output) would be read, and potentially
+  executed, by the next — a poisoning channel that doesn't require breaking
+  out of the container. It's also arguably not this image's problem: the slow
+  part is almost always the *target repo's* dependency install inside
+  `/workspace`, not anything Claude Code itself needs, and that's ordinary CI
+  caching the calling workflow already has a tool for (`actions/cache` keyed
+  on the lockfile hash, bind-mounted into `/workspace`), independent of
+  whether `/home/claude` is a tmpfs. If cold installs get expensive enough
+  that this isn't sufficient, the shape to reach for is a cache volume
+  populated out-of-band by a separate trusted step and mounted **read-only**
+  into the CI container — never a volume the agent job itself can write to.
+- **"Fix N issues" is a wrapper concern, resolved as: an external loop or
+  matrix over independent `docker run` invocations, not an entrypoint
+  change.** `run-agent-task.sh` stays single repo/issue per container. Fanning
+  out inside the entrypoint (or one long-lived process working a queue) would
+  let one issue's failure mode — a hang, a runaway loop, a prompt injection
+  in the issue body — bleed into the handling of the next issue in the same
+  process. A `strategy.matrix` (or an outer shell loop) over `CI_ISSUE_NUMBER`
+  values, each a separate `docker run` with its own fresh tmpfs home, keeps
+  blast radius per-issue and keeps the container's own contract at "one
+  clone, one fix, one PR, exit." Concurrency caps (GitHub Actions
+  `max-parallel`) and any per-issue/total cost or time budget belong at that
+  orchestration layer, not duplicated inside every container. No example of
+  this wrapper exists yet in this doc.
