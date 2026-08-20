@@ -3,14 +3,13 @@ FROM debian:trixie-slim
 ARG UID=1000
 ARG GID=1000
 
-# rclone's SFTP server is a userspace server: unlike OpenSSH chroot mode, it
-# can expose only its configured local backend without CAP_SYS_CHROOT or a
-# root-owned source volume. openssh-client supplies ssh-keygen for the
-# persistent server host key.
+# rclone's WebDAV server is a userspace server, so it can expose only its
+# configured local backend without CAP_SYS_CHROOT or a root-owned source
+# volume. apache2-utils creates the persistent bcrypt password verifier.
 RUN apt-get update \
     && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends \
-        openssh-client \
+        apache2-utils \
         rclone \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd -g "$GID" bridge \
@@ -26,5 +25,5 @@ RUN chmod 755 /usr/local/bin/entrypoint.sh
 USER bridge:bridge
 ENV HOME=/tmp
 
-EXPOSE 2222
+EXPOSE 16080
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

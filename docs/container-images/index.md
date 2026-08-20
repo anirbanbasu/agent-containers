@@ -48,11 +48,11 @@ same image, same mechanism, only reachability differs.
 
 ## Volume bridge
 
-[`volume-bridge`](01-volume-bridge.md) is a read-only SFTP sidecar for named
+[`volume-bridge`](01-volume-bridge.md) is a read-only WebDAV sidecar for named
 agent-home volumes. It lets a trusted Docker operator expose selected volume
-paths to a host reader over SSHFS without placing the agent and consumer on the
-same Docker network. This supports host-side session-analysis tools as well as
-interactive inspection.
+paths to a host reader without placing the agent and consumer on the same Docker
+network. This supports host-side session-analysis tools as well as interactive
+inspection.
 
 ## AdaL
 

@@ -227,26 +227,37 @@ smoke_gateway() {
 smoke_volume_bridge() {
     local container="agent-containers-test-${RUN_ID}-volume-bridge"
     local volume="agent-containers-test-${RUN_ID}-volume-bridge-state"
-    local key="$TEMP_DIR/volume-bridge-key"
     track_volume "$volume"
     test_containers+=("$container")
-    ssh-keygen -q -t ed25519 -N '' -f "$key"
     echo '[test-images] Smoke testing volume-bridge'
     docker run -d --name "$container" --network "$TEST_NETWORK" \
         --security-opt=no-new-privileges \
         --read-only --tmpfs /tmp --tmpfs /run \
         --cap-drop=ALL \
-        -e "VOLUME_BRIDGE_AUTHORIZED_KEY=$(cat "$key.pub")" \
+        -e VOLUME_BRIDGE_PASSWORD=volume-bridge-test-password \
         --mount "type=volume,src=$volume,dst=/state" \
         "$(image_tag volume-bridge)" >/dev/null
     wait_for_running "$container"
     docker exec "$container" sh -ceu '
         test "$(id -un)" = bridge
-        test -s /state/authorized_keys
-        test -s /state/ssh_host_ed25519_key
+        test -s /state/htpasswd
+        grep -q "^bridge:\$2" /state/htpasswd
+        ! grep -q volume-bridge-test-password /state/htpasswd
         grep -Eq "^[^ ]+ / [^ ]+ ro[, ]" /proc/mounts
         grep -Eq "^CapEff:[[:space:]]*0{16}$" /proc/self/status
     '
+    if docker run --rm --network "$TEST_NETWORK" --entrypoint curl "$(image_tag codex)" \
+        -fsS --connect-timeout 3 "http://$container:16080/" >/dev/null; then
+        fail 'volume-bridge accepted an unauthenticated WebDAV request.'
+    fi
+    docker run --rm --network "$TEST_NETWORK" --entrypoint curl "$(image_tag codex)" \
+        -fsS --connect-timeout 3 -u bridge:volume-bridge-test-password \
+        "http://$container:16080/" >/dev/null
+    if docker run --rm --network "$TEST_NETWORK" --entrypoint curl "$(image_tag codex)" \
+        -fsS --connect-timeout 3 -u bridge:volume-bridge-test-password \
+        -X PUT --data rejected "http://$container:16080/write-test" >/dev/null; then
+        fail 'volume-bridge accepted a WebDAV write.'
+    fi
 }
 
 start_http_server() {
