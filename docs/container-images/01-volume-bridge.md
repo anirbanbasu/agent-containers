@@ -54,6 +54,8 @@ reader password, private key, or unrelated credentials.
 Every agent volume is mounted `:ro`, and rclone's WebDAV server is also started
 with `--read-only`. The service exposes `/exports` as its virtual root, not the
 container filesystem, so its state volume is not reachable through WebDAV.
+Rejected writes come back as a `404`, not the more idiomatic `403`/`405` — an
+inconsistent status code, not a gap in the read-only enforcement itself.
 
 !!! warning
 
@@ -68,6 +70,18 @@ container filesystem, so its state volume is not reachable through WebDAV.
     and never place a LAN-facing reverse proxy in front of it. A
     loopback-only service keeps the credentials off the network; non-loopback
     deployment needs TLS and a separately designed trust setup.
+
+!!! warning
+
+    "Loopback-only" binds to `127.0.0.1` on whatever machine the Docker
+    *daemon* runs on, not necessarily the machine you're typing on. On a
+    remote or shared daemon — an SSH-forwarded `DOCKER_HOST`, a cloud dev box,
+    some Colima/Lima setups — `127.0.0.1` means "reachable by any other local
+    user on that host." This image assumes a single-user local daemon; on a
+    shared one, treat the bridge as reachable by every other local account.
+    `rclone`'s WebDAV server has no brute-force lockout or rate limiting on
+    Basic Auth, so that assumption matters: a loopback bind alone does not
+    stop another local user on a shared host from guessing the password.
 
 ## Build and host prerequisites
 
@@ -191,6 +205,14 @@ The username defaults to `bridge`; the example explicitly sets it to that
 value. A read-only client mount is advisable, but the server's `--read-only`
 setting and each source volume's `readonly` mount independently reject writes.
 Do not save the password in a project directory or pass it to an agent.
+
+Prefer a native OS WebDAV client mount (below) over authenticating in a
+general-purpose browser tab. A browser that has ever authenticated to the
+bridge's origin auto-attaches the cached credential to later requests from any
+page it visits, including third-party ones — a low-likelihood but avoidable
+exposure. Reads are blocked cross-origin by CORS and writes are already
+rejected server-side, so the practical risk is small, but closing the browser
+tab (or logging out) after use avoids it entirely.
 
 rclone caches directory metadata for one second, but a WebDAV mount is not a
 transactional snapshot. Readers can observe a file while an agent is writing it.
