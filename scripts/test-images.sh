@@ -220,7 +220,7 @@ smoke_gateway() {
         --mount "type=bind,src=$key,dst=/tmp/gateway-key,readonly" \
         --mount "type=bind,src=$known_hosts,dst=/tmp/gateway-known-hosts,readonly" \
         --entrypoint ssh "$(image_tag codex)" \
-        -i /tmp/gateway-key -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/tmp/gateway-known-hosts \
+        -p 2222 -i /tmp/gateway-key -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/tmp/gateway-known-hosts \
         tunnel@gateway id -un | grep -qx tunnel
 }
 
@@ -238,6 +238,14 @@ smoke_volume_bridge() {
         --mount "type=volume,src=$volume,dst=/state" \
         "$(image_tag volume-bridge)" >/dev/null
     wait_for_running "$container"
+    # The container reports Running as soon as the entrypoint process starts,
+    # but it still has to bcrypt-hash the password into /state/htpasswd
+    # before rclone comes up; wait for that file rather than racing it.
+    local attempt
+    for attempt in $(seq 1 20); do
+        docker exec "$container" test -s /state/htpasswd 2>/dev/null && break
+        sleep 0.5
+    done
     docker exec "$container" sh -ceu '
         test "$(id -un)" = bridge
         test -s /state/htpasswd
