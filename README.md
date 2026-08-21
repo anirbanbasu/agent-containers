@@ -15,6 +15,7 @@ Full documentation: <https://docs-agent-containers.anirbanbasu.com/> (or browse 
 - **`opencode`** — hardened container for the provider-agnostic [OpenCode](https://opencode.ai) terminal coding agent. See `docs/container-images/opencode.md`.
 - **`qwen-code`** — hardened container for [Qwen Code](https://github.com/QwenLM/qwen-code), the open-source terminal coding agent. See `docs/container-images/qwen-code.md`.
 - **`agent-gateway`** — a disposable sibling container that a workload such as `adal`, `aider`, `claude-code`, `codex`, `hermes`, `kilo-code`, `opencode`, or `qwen-code` can tunnel all its egress through over SSH, so egress enforcement lives outside the workload container entirely. See `docs/container-images/00-agent-gateway.md`.
+- **`volume-bridge`** — a loopback-only, read-only WebDAV sidecar that exposes selected named agent-home volumes to host tools without granting them Docker access. See `docs/container-images/01-volume-bridge.md`.
 
 ## Quickstart: Claude Code
 

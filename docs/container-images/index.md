@@ -4,11 +4,11 @@ icon: lucide/table-properties
 
 # Summary of container images
 
-This project ships nine container images, all hardened by default
+This project ships ten container images, all hardened by default
 (non-root user, read-only root filesystem, minimal capability set, deny-all
 egress unless configured otherwise): eight workload images that each run a
-different coding/agentic CLI, and a network-tunnelling image that lets you
-move egress enforcement out of a workload entirely.
+different coding/agentic CLI, a network-tunnelling image that lets you move
+egress enforcement out of a workload entirely, and a read-only volume bridge.
 
 ## Shared Python-and-Node workload implementation
 
@@ -45,6 +45,14 @@ allowlist on itself. This means a compromise of the workload gives an
 attacker no access to the rules governing its own network egress. It runs
 equally well as a same-host sibling or on a genuinely separate machine —
 same image, same mechanism, only reachability differs.
+
+## Volume bridge
+
+[`volume-bridge`](01-volume-bridge.md) is a read-only WebDAV sidecar for named
+agent-home volumes. It lets a trusted Docker operator expose selected volume
+paths to a host reader without placing the agent and consumer on the same Docker
+network. This supports host-side session-analysis tools as well as interactive
+inspection.
 
 ## AdaL
 

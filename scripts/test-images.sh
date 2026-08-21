@@ -10,7 +10,7 @@ readonly RUN_ID="$$-$(date +%s)"
 readonly TEST_NETWORK="agent-containers-test-${RUN_ID}"
 readonly TEMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/agent-containers-test.XXXXXX")"
 
-readonly -a ALL_IMAGES=(adal aider claude-code codex hermes kilo-code opencode qwen-code agent-gateway)
+readonly -a ALL_IMAGES=(adal aider claude-code codex hermes kilo-code opencode qwen-code agent-gateway volume-bridge)
 readonly -a WORKLOADS=(
     'adal:adal:/home/adal:adal'
     'aider:aider:/home/aider:aider'
@@ -220,8 +220,52 @@ smoke_gateway() {
         --mount "type=bind,src=$key,dst=/tmp/gateway-key,readonly" \
         --mount "type=bind,src=$known_hosts,dst=/tmp/gateway-known-hosts,readonly" \
         --entrypoint ssh "$(image_tag codex)" \
-        -i /tmp/gateway-key -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/tmp/gateway-known-hosts \
+        -p 2222 -i /tmp/gateway-key -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/tmp/gateway-known-hosts \
         tunnel@gateway id -un | grep -qx tunnel
+}
+
+smoke_volume_bridge() {
+    local container="agent-containers-test-${RUN_ID}-volume-bridge"
+    local volume="agent-containers-test-${RUN_ID}-volume-bridge-state"
+    track_volume "$volume"
+    test_containers+=("$container")
+    echo '[test-images] Smoke testing volume-bridge'
+    docker run -d --name "$container" --network "$TEST_NETWORK" \
+        --security-opt=no-new-privileges \
+        --read-only --tmpfs /tmp --tmpfs /run \
+        --cap-drop=ALL \
+        -e VOLUME_BRIDGE_PASSWORD=volume-bridge-test-password \
+        --mount "type=volume,src=$volume,dst=/state" \
+        "$(image_tag volume-bridge)" >/dev/null
+    wait_for_running "$container"
+    # The container reports Running as soon as the entrypoint process starts,
+    # but it still has to bcrypt-hash the password into /state/htpasswd
+    # before rclone comes up; wait for that file rather than racing it.
+    local attempt
+    for attempt in $(seq 1 20); do
+        docker exec "$container" test -s /state/htpasswd 2>/dev/null && break
+        sleep 0.5
+    done
+    docker exec "$container" sh -ceu '
+        test "$(id -un)" = bridge
+        test -s /state/htpasswd
+        grep -q "^bridge:\$2" /state/htpasswd
+        ! grep -q volume-bridge-test-password /state/htpasswd
+        grep -Eq "^[^ ]+ / [^ ]+ ro[, ]" /proc/mounts
+        grep -Eq "^CapEff:[[:space:]]*0{16}$" /proc/self/status
+    '
+    if docker run --rm --network "$TEST_NETWORK" --entrypoint curl "$(image_tag codex)" \
+        -fsS --connect-timeout 3 "http://$container:16080/" >/dev/null; then
+        fail 'volume-bridge accepted an unauthenticated WebDAV request.'
+    fi
+    docker run --rm --network "$TEST_NETWORK" --entrypoint curl "$(image_tag codex)" \
+        -fsS --connect-timeout 3 -u bridge:volume-bridge-test-password \
+        "http://$container:16080/" >/dev/null
+    if docker run --rm --network "$TEST_NETWORK" --entrypoint curl "$(image_tag codex)" \
+        -fsS --connect-timeout 3 -u bridge:volume-bridge-test-password \
+        -X PUT --data rejected "http://$container:16080/write-test" >/dev/null; then
+        fail 'volume-bridge accepted a WebDAV write.'
+    fi
 }
 
 start_http_server() {
@@ -333,10 +377,10 @@ main() {
     case "$mode" in
         static) run_static_checks ;;
         build) build_images ;;
-        smoke) build_images; smoke_workloads; smoke_hermes; smoke_gateway ;;
+        smoke) build_images; smoke_workloads; smoke_hermes; smoke_gateway; smoke_volume_bridge ;;
         containment) build_images; run_containment_tests ;;
         gateway) build_images; run_gateway_integration ;;
-        all) run_static_checks; build_images; smoke_workloads; smoke_hermes; smoke_gateway; run_containment_tests ;;
+        all) run_static_checks; build_images; smoke_workloads; smoke_hermes; smoke_gateway; smoke_volume_bridge; run_containment_tests ;;
         *) usage >&2; exit 2 ;;
     esac
     echo "[test-images] PASS: $mode"
