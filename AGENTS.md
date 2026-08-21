@@ -40,6 +40,17 @@ when evaluating an image built on an upstream vendor base image. Do not seed
 credentials, plugins, or skills unless the requested image explicitly calls
 for them.
 
+`volume-bridge` is not a workload image and is deliberately exempt from the
+shared `egress-allowlist.sh` convention: it has no legitimate outbound need at
+all (it only serves inbound WebDAV reads from a local backend), so it hard-codes
+a small, non-configurable deny-by-default `iptables`/`ip6tables` policy for
+both `INPUT` (only its WebDAV port, plus loopback/established) and `OUTPUT`
+(loopback/established only) instead of pulling in the allowlist script's
+`AGENT_ALLOWED_EGRESS`/`ipset`/`dnsmasq` machinery, which exists only to open
+exceptions this image should never have. Treat other pure-infrastructure
+images the same way if they have no legitimate outbound need: prefer a fixed
+deny-all over a configurable allowlist that could be misconfigured open.
+
 ## Required integration work
 
 When adding or removing an `agent-images/<name>/` directory:

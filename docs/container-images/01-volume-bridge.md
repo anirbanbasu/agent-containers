@@ -35,12 +35,21 @@ As described above, this image does not defend a volume against its Docker
 administrator; it lets that administrator delegate live read-only access to a
 reader that must not receive Docker or root access.
 
-The bridge is designed to run with a read-only root filesystem, no Linux
-capabilities, and no host bind mounts. The documented network publishes only
-to host loopback; it needs host or network-boundary policy if the bridge itself
-also requires deny-by-default egress. Its state volume contains a bcrypt
-password verifier only; it must never contain a plaintext reader password,
-private key, or unrelated credentials.
+The bridge is designed to run with a read-only root filesystem and no host
+bind mounts. It never needs outbound network access at all — it only serves
+inbound WebDAV reads from a local `/exports` backend — so instead of the
+shared, configurable `egress-allowlist.sh` used by the CLI agent images (see
+[the containment philosophy](../containment-philosophy.md)), its entrypoint
+installs a small, fixed, non-configurable `iptables`/`ip6tables` policy: deny
+all `OUTPUT` except loopback and established/related traffic, and deny all
+`INPUT` except loopback, established/related, and new connections to the
+WebDAV port. That is a stricter guarantee than a default-deny allowlist,
+since there is no `AGENT_ALLOWED_EGRESS`-style variable that could ever
+loosen it. Installing those rules needs `NET_ADMIN` and `NET_RAW`; the
+entrypoint then uses `gosu` (needing `SETUID`/`SETGID`) to drop from root to
+the unprivileged bridge user before `rclone` ever runs. Its state volume
+contains a bcrypt password verifier only; it must never contain a plaintext
+reader password, private key, or unrelated credentials.
 
 Every agent volume is mounted `:ro`, and rclone's WebDAV server is also started
 with `--read-only`. The service exposes `/exports` as its virtual root, not the
@@ -101,18 +110,28 @@ docker network create volume-bridge-net
 docker volume create volume-bridge-state
 ```
 
-Choose a strong, unique password. In common POSIX-shell environments, the
-following reads it without echoing it. The password is used only to create (or
+Choose a strong, unique password. The password is used only to create (or
 rotate) the bcrypt verifier in the state volume; it is not written to that
-volume. Docker
-administrators can inspect a container's environment and are already the
-trusted provisioning boundary for the source volumes.
+volume.
+
+Prefer `VOLUME_BRIDGE_PASSWORD_FILE` over `VOLUME_BRIDGE_PASSWORD` where the
+password can be delivered as a bind-mounted file: `-e VOLUME_BRIDGE_PASSWORD`
+sends the resolved value to the Docker daemon, which stores it in that
+container's config for as long as the container exists — readable by anyone
+who can `docker inspect` it, not just at launch. `VOLUME_BRIDGE_PASSWORD_FILE`
+is read once at startup and never lands in that persisted config. Docker
+administrators can already read the source volumes directly either way, so
+this isn't about a more-privileged actor — it's about not leaving the
+plaintext in a place that support bundles, `docker inspect` dumps, or CI logs
+routinely capture.
 
 ```sh
+umask 077
 printf 'WebDAV password: ' >&2
-IFS= read -r -s VOLUME_BRIDGE_PASSWORD
+IFS= read -r -s webdav_password
 printf '\n' >&2
-export VOLUME_BRIDGE_PASSWORD
+printf '%s' "$webdav_password" > /tmp/volume-bridge-password
+unset webdav_password
 ```
 
 The following example exports the Claude Code and Codex home volumes. They are
@@ -129,23 +148,30 @@ docker run -d --name volume-bridge \
   --tmpfs /tmp:rw,noexec,nosuid,nodev \
   --tmpfs /run:rw,noexec,nosuid,nodev \
   --cap-drop=ALL \
+  --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
   --mount type=volume,src=volume-bridge-state,dst=/state \
   --mount type=volume,src=claude-home,dst=/exports/claude,readonly \
   --mount type=volume,src=codex-home,dst=/exports/codex,readonly \
+  --mount type=bind,src=/tmp/volume-bridge-password,dst=/run/secrets/volume-bridge-password,readonly \
   -e VOLUME_BRIDGE_USERNAME=bridge \
-  -e VOLUME_BRIDGE_PASSWORD \
+  -e VOLUME_BRIDGE_PASSWORD_FILE=/run/secrets/volume-bridge-password \
   volume-bridge:local
-unset VOLUME_BRIDGE_PASSWORD
+rm -f /tmp/volume-bridge-password
 ```
 
+| Capability | Why it's needed |
+| --- | --- |
+| `NET_ADMIN`, `NET_RAW` | The entrypoint always installs its fixed deny-by-default `iptables`/`ip6tables` policy (see [Security model](#security-model)), even though there is no allowlist to configure. |
+| `SETUID`, `SETGID` | Needed for `gosu` to drop from root to the unprivileged `bridge` user once that policy is installed. |
+
 This is an ordinary user-defined bridge network, rather than `--internal`, so
-Docker Desktop can forward the loopback-published service to the host. It gives
-the bridge ordinary Docker-network egress: if deny-by-default egress is required
-for the bridge itself, enforce it in the host firewall or network boundary. Keep
+Docker Desktop can forward the loopback-published service to the host. Keep
 the bridge network private: do not attach an agent container to it and do not
 use host networking. Docker publishes the WebDAV port only on `127.0.0.1`; the
 server listens on `0.0.0.0` *inside* its isolated container because that is
-where Docker forwards the published port.
+where Docker forwards the published port. The container's own network policy
+denies it all other inbound and outbound traffic regardless of what the
+Docker network otherwise permits.
 
 For a single reader with several same-UID volumes, one bridge with multiple
 `/exports/<name>` mounts is convenient. That reader can browse every export in
@@ -300,13 +326,15 @@ access to those paths through Docker Desktop's sharing mechanism.
 
 ## Password rotation and troubleshooting
 
-- To rotate the password, restart with both `VOLUME_BRIDGE_USERNAME` and
-  `VOLUME_BRIDGE_PASSWORD` set. This replaces the state volume's bcrypt verifier.
-  The bootstrap interface deliberately supports one reader account; use separate
-  bridges for distinct readers or manage a multi-user `htpasswd` file through a
-  trusted Docker-administration process.
+- To rotate the password, restart with `VOLUME_BRIDGE_USERNAME` and either
+  `VOLUME_BRIDGE_PASSWORD` or `VOLUME_BRIDGE_PASSWORD_FILE` set. This replaces
+  the state volume's bcrypt verifier. The bootstrap interface deliberately
+  supports one reader account; use separate bridges for distinct readers or
+  manage a multi-user `htpasswd` file through a trusted Docker-administration
+  process.
 - Keep `volume-bridge-state`. Deleting it removes the password verifier and
-  makes `VOLUME_BRIDGE_PASSWORD` mandatory on the next start.
+  makes `VOLUME_BRIDGE_PASSWORD`/`VOLUME_BRIDGE_PASSWORD_FILE` mandatory on the
+  next start.
 - If startup says `/state` is not writable, use a newly created state volume or
   initialize its ownership through the trusted Docker administration process.
 - If source paths are unreadable, rebuild the image with the agent volume's

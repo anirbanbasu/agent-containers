@@ -1,48 +1,29 @@
-#!/bin/sh
-set -eu
+#!/bin/bash
+set -euo pipefail
 
-readonly state_dir=/state
-readonly htpasswd_file="$state_dir/htpasswd"
-readonly username="${VOLUME_BRIDGE_USERNAME:-bridge}"
+# volume-bridge only ever serves inbound WebDAV reads from a local backend —
+# it has no legitimate reason to make outbound connections, and the only
+# thing that should ever be reachable inbound is that one WebDAV port — so
+# this is a small, fixed, non-configurable deny-by-default policy rather than
+# the shared agent-images/shared/egress-allowlist.sh: that script exists to
+# support opening exceptions, and this image should never have any to open.
+readonly webdav_port="${VOLUME_BRIDGE_LISTEN_ADDR:-0.0.0.0:16080}"
+readonly webdav_tcp_port="${webdav_port##*:}"
 
-if [ ! -w "$state_dir" ]; then
-    echo '[volume-bridge] /state must be an empty volume first mounted by this image, or be writable by the bridge UID/GID.' >&2
-    exit 1
-fi
+iptables -P OUTPUT DROP
+iptables -A OUTPUT -o lo -j ACCEPT
+iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+ip6tables -P OUTPUT DROP
+ip6tables -A OUTPUT -o lo -j ACCEPT
+ip6tables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
 
-# The password is accepted only to initialise or rotate a bcrypt verifier in
-# the state volume. Do not put a reader private key or plaintext credential in
-# the image or state volume. A Docker administrator can already read the source
-# volumes, so they are the trusted provisioning boundary for this input.
-if [ -n "${VOLUME_BRIDGE_PASSWORD:-}" ]; then
-    case "$username" in
-        *:* | *'
-'*)
-            echo '[volume-bridge] VOLUME_BRIDGE_USERNAME must not contain a colon or newline.' >&2
-            exit 1
-            ;;
-    esac
-    umask 077
-    printf '%s\n' "$VOLUME_BRIDGE_PASSWORD" \
-        | htpasswd -B -C 12 -c -i "$htpasswd_file.new" "$username"
-    mv "$htpasswd_file.new" "$htpasswd_file"
-fi
+iptables -P INPUT DROP
+iptables -A INPUT -i lo -j ACCEPT
+iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+iptables -A INPUT -p tcp --dport "$webdav_tcp_port" -m state --state NEW -j ACCEPT
+ip6tables -P INPUT DROP
+ip6tables -A INPUT -i lo -j ACCEPT
+ip6tables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+ip6tables -A INPUT -p tcp --dport "$webdav_tcp_port" -m state --state NEW -j ACCEPT
 
-if [ ! -s "$htpasswd_file" ]; then
-    echo '[volume-bridge] VOLUME_BRIDGE_PASSWORD is required on first start.' >&2
-    exit 1
-fi
-chmod 600 "$htpasswd_file"
-
-# The source is the deliberately narrow /exports tree. rclone's WebDAV server
-# authenticates against the bcrypt verifier and exposes this backend as its
-# virtual root. The service listens on all container interfaces because Docker's
-# host-loopback port publishing forwards to the container address, not its
-# loopback address.
-exec rclone --config /dev/null --cache-dir /tmp/rclone-cache serve webdav \
-    --addr "${VOLUME_BRIDGE_LISTEN_ADDR:-0.0.0.0:16080}" \
-    --htpasswd "$htpasswd_file" \
-    --realm volume-bridge \
-    --read-only \
-    --dir-cache-time "${VOLUME_BRIDGE_DIR_CACHE_TIME:-1s}" \
-    :local:/exports
+exec gosu bridge /usr/local/lib/agent/volume-bridge-serve.sh
