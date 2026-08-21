@@ -10,14 +10,14 @@ Windows have built-in WebDAV clients, so this avoids installing a FUSE driver
 just to inspect agent state.
 
 Anyone with Docker daemon access on the host can already mount a named volume
-directly, read all of it, and, unless careful, write to it too - `volume-bridge`
+directly, read all of it, and, unless careful, write to it too — `volume-bridge`
 does not add a boundary that a Docker-privileged actor could not bypass by
 mounting the volume themselves. Its value is delegation, not containment:
 Docker daemon access is host-root-equivalent, so handing it to a reader or tool
 that only needs to inspect one export is usually a far larger privilege grant
 than the task requires. `volume-bridge` lets a trusted Docker administrator
 publish a narrow, read-only, authenticated slice of a volume to a reader that
-must not receive Docker or root access - a native host process, a
+must not receive Docker or root access — a native host process, a
 non-Docker-aware tool, or a containerized consumer that should not hold a
 Docker socket. That reader authenticates with its own revocable WebDAV
 credential instead of Docker or OS-level access, and the bridge enforces
@@ -26,7 +26,7 @@ read-only independently of how the reader chooses to mount it.
 The bridge never mounts a host directory, and agent containers are not
 attached to its network. This is useful both for interactive host access and
 for host-side tools that need to observe agent state without themselves
-becoming a Docker-privileged principal - see [a real use-case: Decant](#a-real-use-case-decant)
+becoming a Docker-privileged principal — see [a real use-case: Decant](#a-real-use-case-decant)
 below.
 
 ## Security model
@@ -258,7 +258,7 @@ container; the Docker form mounts the relevant `.claude`/`.codex` directories
 from ordinary host paths.
 
 Decant illustrates the delegation this image is for. Whoever launches a
-containerized Decant *could* mount `claude-home`/`codex-home` directly - but
+containerized Decant *could* mount `claude-home`/`codex-home` directly — but
 only if they already hold Docker daemon access, and a direct volume mount
 exposes the entire home directory, not just the session-bearing subdirectories
 Decant needs. `volume-bridge` lets the Docker administrator publish read-only,
@@ -290,8 +290,8 @@ access to those paths through Docker Desktop's sharing mechanism.
     Two other ways of getting this data into Decant were tried and rejected.
     Mounting `claude-home`/`codex-home` directly into a Decant container,
     narrowed with `--mount ...,volume-subpath=.claude` (Docker Engine 25+)
-    instead of using `volume-bridge`, needs Docker daemon access - already
-    host-root-equivalent - just to read session logs, and failed Decant's sync
+    instead of using `volume-bridge`, needs Docker daemon access — already
+    host-root-equivalent — just to read session logs, and failed Decant's sync
     outright in testing. Running Decant natively (`npx @dosu/decant@latest
     serve --claude-dir ... --codex-dir ...`) against the same WebDAV mounts
     avoids Docker entirely, but on Linux took an impractically long time to
