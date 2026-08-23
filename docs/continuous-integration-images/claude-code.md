@@ -546,9 +546,20 @@ this at `agent-containers` itself for a real end-to-end test.
 
 ## Known gaps in this sketch
 
-- Not smoke-tested. `bash -n` passes on both scripts and
-  `managed-settings.json` parses as valid JSON; the Dockerfile hasn't been
-  built.
+- **Partially smoke-tested.** `docker build` succeeds; `glab --version`
+  reports `1.114.0` and `gh --version` runs; the container drops to the
+  unprivileged `claude` user (confirmed via `id`/`whoami` through the real
+  `ci-entrypoint.sh` → `workload-entrypoint.sh` path, not a bypassed
+  entrypoint) with a read-only rootfs (`touch /etc/...` fails as expected);
+  the egress-allowlist setup runs; `run-agent-task.sh`'s env-var validation
+  (missing `CI_TASK`, invalid `CI_PROVIDER`) fails cleanly with the expected
+  messages, tested inside the real container under the full security flags
+  (`--read-only --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW
+  --cap-add=SETUID --cap-add=SETGID`). **Not yet tested: an actual `claude -p`
+  run** (no `ANTHROPIC_API_KEY` available at verification time) — so nothing
+  about `CI_OUTPUT_MODE=report`'s diff/transcript output, the `pr`/`mr`
+  push-and-open path, or `managed-settings.json`'s actual enforcement
+  (next bullet) has been exercised end-to-end yet.
 - `managed-settings.json`'s actual enforcement under `bypassPermissions`
   mode and its pattern-matching semantics are unverified — see
   [above](#bounding-what-the-agent-can-do-not-just-where-it-can-escape-to).
