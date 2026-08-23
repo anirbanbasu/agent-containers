@@ -97,6 +97,103 @@ What this deliberately does **not** attempt:
   unverified. Confirm both before relying on this file for anything that
   matters; see [Known gaps](#known-gaps-in-this-sketch).
 
+## The three independent axes
+
+`run-agent-task.sh` is controlled by three independent environment-variable
+axes rather than one big mode flag, so a caller only sets what's actually
+relevant to their pipeline:
+
+| Variable | Values | Default | What it controls |
+|---|---|---|---|
+| `CI_OUTPUT_MODE` | `pr`, `report` | `pr` | `pr` clones/uses the workspace, runs the task, commits, pushes a branch, and opens a PR/MR. `report` runs the task and prints the diff and transcript — never touches the remote, and a no-op diff is not a failure. |
+| `CI_WORKSPACE_MODE` | `clone`, `mounted` | `clone` | `clone` has the script clone `CI_REPO` itself into `/workspace`. `mounted` skips cloning — the caller has already populated `/workspace` (e.g. a bind mount, or a prior step in the same CI job), and `CI_REPO` is derived from that workspace's `origin` remote if unset. |
+| `CI_PROVIDER` | `github`, `gitlab` | *(none)* | Which CLI (`gh` or `glab`) and API shape to use for cloning, looking up the default branch, and opening a PR/MR. Only required when a provider action is actually needed — see the matrix below. |
+
+Every combination is valid; here's what each one actually requires:
+
+| `CI_WORKSPACE_MODE` | `CI_OUTPUT_MODE` | `CI_REPO` | `CI_PROVIDER` | Token |
+|---|---|---|---|---|
+| `clone` | `pr` | required | required | required (`GH_TOKEN` or `GITLAB_TOKEN`, matching `CI_PROVIDER`) |
+| `clone` | `report` | required | required | required — cloning a private repo still needs auth even though nothing gets pushed |
+| `mounted` | `pr` | optional (derived from `origin` if unset) | required | required |
+| `mounted` | `report` | not needed | not needed | not needed — this is the fully credential-free combination, see [Testing locally](#testing-locally) below |
+
+`CI_TASK` (the full prompt for `claude -p`) is required in every combination
+— there is no default prompt derived from an issue number or anything else.
+Older versions of this image had a `CI_ISSUE_NUMBER` parameter for that;
+it's gone. If a caller's task is "fix issue #40", they build that sentence
+into `CI_TASK` themselves — the container already has `gh`/`glab` available
+*inside* the task run, so the agent can look the issue up itself
+(`gh issue view 40`) the same way it follows any other instruction in the
+prompt. This also generalizes to instructions a single numeric env var
+never could: "fix issues 40, 41, and 44", "fix whatever's labeled `bug` and
+unassigned", etc.
+
+`CI_TITLE` (optional) sets the commit/PR/MR title; it defaults to a fixed
+generic string (`Automated fix by claude-code-ci`) rather than referencing
+an issue number.
+
+## Provider support
+
+`CI_PROVIDER=github` uses `gh` (GitHub CLI); `CI_PROVIDER=gitlab` uses
+`glab` (GitLab CLI). Both are always present in the image — this is a
+runtime switch, not a build-time or per-image choice. That tradeoff was
+made deliberately: most individual pipelines only ever talk to one
+provider, so most builds of this image do carry a CLI, an install step, and
+a `managed-settings.json` deny-list they'll never exercise, in exchange for
+one artifact to build and maintain instead of two (or a build-arg-gated
+Dockerfile). Revisit this if that dead weight becomes a real problem for a
+specific pipeline — the alternatives (split images, a build-arg) were
+weighed and explicitly not chosen, not merely undiscovered.
+
+`gh` installs through the same `packages-apt.txt` mechanism as every other
+optional package in this image (it's apt-packaged in Debian trixie). `glab`
+is not apt-packaged in Debian trixie, so it's pulled from GitLab's own
+published multi-arch CLI container image
+(`registry.gitlab.com/gitlab-org/cli`) via a Dockerfile `COPY --from=`,
+pinned to `v1.114.0` — the same pattern this Dockerfile already uses for
+`uv` (`COPY --from=ghcr.io/astral-sh/uv:latest`). That's a slight asymmetry
+worth naming: `gh` is technically removable by a user editing
+`packages-apt.txt`, `glab` is not (it's baked in like `uv`), so "both CLIs
+always present" is only strictly guaranteed for `glab`. Not worth resolving
+by moving `gh` out of the user-editable list too — an image builder who
+deliberately removes `gh` from `packages-apt.txt` is making an informed
+choice about their own build.
+
+Provider dispatch (`setup_provider_auth`, `clone_repo`, `default_branch`,
+`open_request` in `run-agent-task.sh`) is four flat
+`case "$CI_PROVIDER" in github|gitlab|*)` blocks — no abstraction layer.
+Confirmed against a real build of this image and the actual installed
+`glab` binary (`glab 1.114.0`, `COPY --from=registry.gitlab.com/gitlab-org/cli:v1.114.0
+/usr/bin/glab /usr/local/bin/glab` — the source path was correct on the
+first build, no correction needed) and against GitLab's own CLI
+documentation for the command shapes below:
+
+- `GITLAB_TOKEN` is a real `glab`-recognized environment variable, taking
+  precedence over stored credentials — the same shape as `gh`'s `GH_TOKEN`.
+- `glab repo clone <repo> <dir> -- <gitflags>` passes extra `git clone`
+  flags after `--`, the same shape as `gh repo clone`.
+- `glab mr create --repo <repo> --source-branch <head> --target-branch
+  <base> --title <title> --description <body>` is the non-interactive MR
+  creation shape.
+- There is no documented `glab auth setup-git` (`gh`'s one-shot credential
+  helper setup). The equivalent is `glab auth login --hostname gitlab.com
+  --token "$GITLAB_TOKEN" --git-protocol https` followed by explicitly
+  setting `git config --global credential."https://gitlab.com".helper
+  '!glab auth git-credential'` — both included in `run-agent-task.sh`. Note
+  this only configures an HTTPS credential helper: if `CI_WORKSPACE_MODE=mounted`
+  and the mounted workspace's `origin` remote is an SSH URL
+  (`git@gitlab.com:...`), the later `git push` still has no SSH key
+  configured and will fail — this image assumes HTTPS remotes throughout.
+- Default-branch lookup uses `glab api "projects/<url-encoded-repo>"` piped
+  through `jq -r .default_branch`, mirroring `gh repo view --json
+  defaultBranchRef -q .defaultBranchRef.name`. `glab api` mirrors `gh api`
+  closely enough that it's also included in `managed-settings.json`'s deny
+  list as the same kind of blanket escape hatch.
+
+The `glab mr create`/`api` command shapes above have not themselves been
+run against a live GitLab project — see [Known gaps](#known-gaps-in-this-sketch).
+
 ## Model provider configuration
 
 There's no browser in this container for an interactive OAuth login, so
@@ -195,7 +292,8 @@ docker run --rm \
   --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
   -e AGENT_ALLOWED_EGRESS='api.anthropic.com,github.com,api.github.com,codeload.github.com,registry.npmjs.org,pypi.org,files.pythonhosted.org' \
   -e CI_REPO='owner/repo' \
-  -e CI_ISSUE_NUMBER='40' \
+  -e CI_PROVIDER='github' \
+  -e CI_TASK='Fix issue #40 in owner/repo. Make the smallest correct change that resolves it, matching the existing conventions in this repository.' \
   -e GH_TOKEN \
   -e ANTHROPIC_API_KEY \
   claude-code-ci
@@ -240,7 +338,8 @@ jobs:
       - name: Run claude-code-ci
         env:
           CI_REPO: ${{ github.repository }}
-          CI_ISSUE_NUMBER: ${{ inputs.issue_number }}
+          CI_PROVIDER: github
+          CI_TASK: "Fix issue #${{ inputs.issue_number }} in ${{ github.repository }}. Make the smallest correct change that resolves it, matching the existing conventions in this repository."
           # Installation token for a GitHub App scoped to this repo only —
           # Contents: write, Pull requests: write, nothing else. See
           # "Scoping what the CI agent can do" above.
@@ -253,13 +352,197 @@ jobs:
             --tmpfs /tmp --tmpfs /run --tmpfs /home/claude \
             --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
             -e AGENT_ALLOWED_EGRESS='api.anthropic.com,github.com,api.github.com,codeload.github.com' \
-            -e CI_REPO -e CI_ISSUE_NUMBER -e GH_TOKEN -e ANTHROPIC_API_KEY \
+            -e CI_REPO -e CI_PROVIDER -e CI_TASK -e GH_TOKEN -e ANTHROPIC_API_KEY \
             ghcr.io/<org>/claude-code-ci:<tag>
 ```
 
 Branch protection on the target repo (required review, required status
 checks) is what actually stops the resulting PR from merging itself —
 see above.
+
+### If no pre-built image is published yet
+
+The example above assumes `claude-code-ci` has already been built and
+pushed somewhere reachable (a registry). Until that's set up, build it in
+the same job instead — this needs a second checkout to pull in the
+Dockerfile/build context from `agent-containers`, since the workflow above
+lives in the *target* repo being fixed, not in `agent-containers` itself:
+
+```yaml
+jobs:
+  fix-issue:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out agent-containers for the CI image build context
+        uses: actions/checkout@v4
+        with:
+          repository: <org>/agent-containers
+          path: agent-containers
+          # Only needed if agent-containers is private:
+          # token: ${{ secrets.AGENT_CONTAINERS_READ_TOKEN }}
+
+      - name: Build claude-code-ci
+        run: |
+          docker build --build-context shared=agent-containers/agent-images/shared \
+            -t claude-code-ci:local agent-containers/ci-images/claude-code
+
+      - name: Run claude-code-ci
+        env:
+          CI_REPO: ${{ github.repository }}
+          CI_PROVIDER: github
+          CI_TASK: "Fix issue #${{ inputs.issue_number }} in ${{ github.repository }}. Make the smallest correct change that resolves it, matching the existing conventions in this repository."
+          GH_TOKEN: ${{ secrets.CI_AGENT_GITHUB_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          docker run --rm \
+            --security-opt=no-new-privileges \
+            --read-only \
+            --tmpfs /tmp --tmpfs /run --tmpfs /home/claude \
+            --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
+            -e AGENT_ALLOWED_EGRESS='api.anthropic.com,github.com,api.github.com,codeload.github.com' \
+            -e CI_REPO -e CI_PROVIDER -e CI_TASK -e GH_TOKEN -e ANTHROPIC_API_KEY \
+            claude-code-ci:local
+```
+
+If `agent-containers` is private, the checkout step needs its own
+read-scoped credential (a PAT or GitHub App installation token), separate
+from the `GH_TOKEN` used *inside* the container for the target repo. This
+costs a full image build on every run (no layer cache by default on
+`ubuntu-latest`) — add `actions/cache` or
+`docker/build-push-action`'s GHA cache backend if build time becomes a
+problem, or move to a publish-once-and-pull setup (a separate workflow in
+`agent-containers` that builds and pushes to `ghcr.io` on changes to
+`ci-images/claude-code/**`) once more than one target repo uses this image.
+
+## GitLab CI example
+
+The equivalent for a GitLab pipeline, triggered manually with a merge
+request opened against a target branch:
+
+```yaml
+fix-issue:
+  image: docker:24
+  services:
+    - docker:24-dind
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+  variables:
+    CI_TARGET_REPO: $CI_PROJECT_PATH
+  script:
+    - >
+      docker run --rm
+      --security-opt=no-new-privileges
+      --read-only
+      --tmpfs /tmp --tmpfs /run --tmpfs /home/claude
+      --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID
+      -e AGENT_ALLOWED_EGRESS='api.anthropic.com,gitlab.com'
+      -e CI_REPO="$CI_TARGET_REPO"
+      -e CI_PROVIDER=gitlab
+      -e CI_TASK="$CI_TASK"
+      -e GITLAB_TOKEN="$CI_AGENT_GITLAB_TOKEN"
+      -e ANTHROPIC_API_KEY
+      registry.example.com/claude-code-ci:latest
+```
+
+`CI_TASK` and `CI_AGENT_GITLAB_TOKEN` (a project or group access token
+scoped to this project only, `Reporter`+ role with API access, no
+`Owner`/`Maintainer`) are set as pipeline variables (masked, and protected
+if this pipeline only runs on protected branches) rather than hardcoded —
+same reasoning as ["Scoping what the token can
+reach"](#scoping-what-the-token-can-reach) above, just with GitLab's own
+token/role vocabulary instead of GitHub App installation tokens and
+fine-grained PAT scopes. `docker:dind` is one way to get a Docker daemon
+inside a GitLab CI job; use whatever this project's existing pipelines
+already use to run containers if that differs.
+
+### If no pre-built image is published yet
+
+Same tradeoff as the GitHub Actions case above: until
+`registry.example.com/claude-code-ci:latest` (or wherever this gets
+published) actually exists, clone `agent-containers` in the job and build
+from it instead:
+
+```yaml
+fix-issue:
+  image: docker:24
+  services:
+    - docker:24-dind
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+  variables:
+    CI_TARGET_REPO: $CI_PROJECT_PATH
+  before_script:
+    # If agent-containers is private, clone with a read-scoped credential
+    # separate from $CI_AGENT_GITLAB_TOKEN (used inside the container for
+    # the target project) — e.g. a deploy token or a group access token
+    # with read_repository only, stored as its own masked/protected
+    # variable.
+    - git clone --depth=1 https://gitlab.com/<group>/agent-containers.git /tmp/agent-containers
+    - >
+      docker build --build-context shared=/tmp/agent-containers/agent-images/shared
+      -t claude-code-ci:local /tmp/agent-containers/ci-images/claude-code
+  script:
+    - >
+      docker run --rm
+      --security-opt=no-new-privileges
+      --read-only
+      --tmpfs /tmp --tmpfs /run --tmpfs /home/claude
+      --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID
+      -e AGENT_ALLOWED_EGRESS='api.anthropic.com,gitlab.com'
+      -e CI_REPO="$CI_TARGET_REPO"
+      -e CI_PROVIDER=gitlab
+      -e CI_TASK="$CI_TASK"
+      -e GITLAB_TOKEN="$CI_AGENT_GITLAB_TOKEN"
+      -e ANTHROPIC_API_KEY
+      claude-code-ci:local
+```
+
+Same costs as the GitHub Actions build-in-job variant: a full image build
+on every pipeline run (no layer cache by default), and an extra read-scoped
+credential if `agent-containers` is private. Move to a publish-once
+pipeline (build and push to a registry on changes to
+`ci-images/claude-code/**`) once that cost matters or more than one project
+uses this image.
+
+## Testing locally
+
+`claude-code-ci` is not a self-hosted GitHub Actions/GitLab CI runner —
+nothing here registers with either platform's runner protocol. It's a
+one-shot task container: whatever calls `docker run` (a terminal, or a CI
+job) is just the trigger, and the container doesn't know or care which.
+That means local testing never requires installing a runner — only Docker
+(or Podman) itself, with the ability to grant `--cap-add=NET_ADMIN
+--cap-add=NET_RAW` (the container sets up its own egress-allowlist
+`iptables` rules on start).
+
+The fully credential-free path is `CI_WORKSPACE_MODE=mounted` +
+`CI_OUTPUT_MODE=report`: bind-mount a real local checkout into
+`/workspace`, and the script runs the task and prints the diff/transcript
+without ever needing `CI_REPO`, a provider, or a token (see the
+requirements matrix above). For example:
+
+```sh
+docker build --build-context shared=agent-images/shared \
+  -t claude-code-ci:local ci-images/claude-code
+
+docker run --rm \
+  --security-opt=no-new-privileges \
+  --read-only \
+  --tmpfs /tmp --tmpfs /run --tmpfs /home/claude \
+  --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
+  -v "$PWD/some-local-checkout":/workspace \
+  -e AGENT_ALLOWED_EGRESS='api.anthropic.com' \
+  -e CI_WORKSPACE_MODE=mounted \
+  -e CI_OUTPUT_MODE=report \
+  -e CI_TASK='Explain what this repository does in one paragraph.' \
+  -e ANTHROPIC_API_KEY \
+  claude-code-ci:local
+```
+
+Testing the actual clone/push/PR-or-MR path (`CI_OUTPUT_MODE=pr`, either
+`CI_WORKSPACE_MODE`) does require a real, ideally disposable, repository
+and a token scoped to it — there is currently no mock provider. Don't point
+this at `agent-containers` itself for a real end-to-end test.
 
 ## Known gaps in this sketch
 
@@ -291,10 +574,29 @@ see above.
   out inside the entrypoint (or one long-lived process working a queue) would
   let one issue's failure mode — a hang, a runaway loop, a prompt injection
   in the issue body — bleed into the handling of the next issue in the same
-  process. A `strategy.matrix` (or an outer shell loop) over `CI_ISSUE_NUMBER`
+  process. A `strategy.matrix` (or an outer shell loop) over `CI_TASK`
   values, each a separate `docker run` with its own fresh tmpfs home, keeps
   blast radius per-issue and keeps the container's own contract at "one
   clone, one fix, one PR, exit." Concurrency caps (GitHub Actions
   `max-parallel`) and any per-issue/total cost or time budget belong at that
   orchestration layer, not duplicated inside every container. No example of
   this wrapper exists yet in this doc.
+- **`glab`'s actual command behavior is unverified.** The image build and
+  the `glab` binary itself were confirmed for real (`docker build` succeeds,
+  `glab --version` reports `1.114.0`), but the specific command shapes
+  `run-agent-task.sh` calls — `glab repo clone`, `glab mr create`, `glab api
+  "projects/<id>"`, `glab auth login` + the `git-credential` helper — were
+  only confirmed against GitLab's own CLI documentation, not run against a
+  live GitLab project. Confirm flag names/shapes against the real binary
+  (`docker run --rm --entrypoint glab claude-code-ci:local --help` and the
+  relevant subcommand `--help`) and, ideally, a disposable GitLab project
+  before relying on this for anything that matters.
+- **`managed-settings.json`'s GitHub/GitLab deny-rule parity is incomplete
+  by design, not oversight.** `gh repo edit *` has no confirmed `glab`
+  equivalent (GitLab CLI has no `glab repo edit`; project-setting changes
+  go through `glab api`, which is already denied). `gh workflow
+  enable/disable *`'s closest GitLab analogue would be a pipeline-schedule
+  command under `glab ci`/`glab pipeline`, but the exact subcommand wasn't
+  confirmed, so no rule was added for it rather than guessing one that
+  might not match the real syntax (a wrong glob is silently a no-op, which
+  is worse than an honest gap).
