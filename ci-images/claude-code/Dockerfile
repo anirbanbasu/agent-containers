@@ -22,6 +22,17 @@ RUN bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
+# glab (GitLab CLI) — not apt-packaged in Debian trixie, so pulled from
+# GitLab's own multi-arch CLI image the same way uv is pulled above,
+# instead of a hand-verified .deb download. Pinned to a specific tag so a
+# rebuild doesn't silently pick up a new glab version; confirmed as a real
+# published linux/amd64 + linux/arm64 multi-arch image via the GitLab
+# container registry API. gh (GitHub CLI) is installed separately via
+# packages-apt.txt, which does have it packaged — see that file's own
+# comment for why gh, unlike glab, is a user-editable default rather than
+# baked in here.
+COPY --from=registry.gitlab.com/gitlab-org/cli:v1.114.0 /usr/bin/glab /usr/local/bin/glab
+
 RUN npm install -g @anthropic-ai/claude-code
 
 RUN groupadd -g "$GID" claude \
