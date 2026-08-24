@@ -45,9 +45,12 @@ Consequently, there is no runtime window in which the system trust store
 can be updated. For anything that consults the system trust store (curl,
 git, most OpenSSL-linked tooling), the certificate has to be installed
 during the image build: the `.cer`/`.pem` file copied into
-`/usr/local/share/ca-certificates/custom/`, referenced from
-`/etc/ca-certificates.conf`, and `update-ca-certificates` run as root
-before the image's final non-root layer.
+`/usr/local/share/ca-certificates/custom/` — auto-detected there by
+`update-ca-certificates` without needing an entry in
+`/etc/ca-certificates.conf`, which only governs the separate packaged
+catalog under `/usr/share/ca-certificates` — and `update-ca-certificates`
+run as root, the only user any layer of these images runs as at build
+time (see below).
 
 ### Downstream Dockerfiles
 
@@ -102,6 +105,113 @@ to a private/internal registry the organisation controls and referencing
 that registry path in `FROM` instead — a public registry is never
 required.
 
+#### Example
+
+Save one of the following as `network-proxy.dockerfile` next to your
+organisation's certificate(s), outside this repository. Neither is specific
+to `claude-code`: since no first-party image switches to a non-root user at
+the Dockerfile level (see above), the same file works unmodified against
+any of them by pointing `BASE_IMAGE` at that image instead.
+
+=== "Single certificate"
+
+    ```dockerfile
+    ARG BASE_IMAGE=claude-code:local
+    FROM ${BASE_IMAGE}
+
+    # Base image has no USER instruction at this point in its own build (the
+    # privilege drop to the runtime user happens in entrypoint.sh at
+    # container start, not at build time) — so this RUN executes as root
+    # without needing any USER switch.
+    ARG CERT_FILE=custom-ca.pem
+    COPY ${CERT_FILE} /usr/local/share/ca-certificates/custom/org-ca.crt
+    RUN update-ca-certificates
+
+    # Deliberately no ENTRYPOINT/CMD here — both are inherited unchanged
+    # from the base image (entrypoint.sh's egress setup and privilege drop,
+    # then the CLI as CMD). Adding either would silently skip that setup.
+    ```
+
+    ```sh
+    docker build -f network-proxy.dockerfile \
+      --build-arg BASE_IMAGE=claude-code:local \
+      --build-arg CERT_FILE=custom-ca.pem \
+      -t claude-code-myorg:local .
+    ```
+
+=== "Multiple certificates"
+
+    For an organisation with more than one certificate to trust — a proxy
+    certificate and a separate internal-CA certificate, for instance —
+    copy a directory instead of a single file. Every file under `certs/`
+    needs a `.crt` extension for `update-ca-certificates` to pick it up;
+    the `RUN` below renames anything that doesn't already have one.
+
+    ```dockerfile
+    ARG BASE_IMAGE=claude-code:local
+    FROM ${BASE_IMAGE}
+
+    # Base image has no USER instruction at this point in its own build (the
+    # privilege drop to the runtime user happens in entrypoint.sh at
+    # container start, not at build time) — so this RUN executes as root
+    # without needing any USER switch.
+    COPY certs/ /usr/local/share/ca-certificates/custom/
+    RUN for f in /usr/local/share/ca-certificates/custom/*; do \
+          case "$f" in *.crt) ;; *) mv "$f" "${f%.*}.crt" ;; esac; \
+        done \
+        && update-ca-certificates
+
+    # Deliberately no ENTRYPOINT/CMD here — both are inherited unchanged
+    # from the base image (entrypoint.sh's egress setup and privilege drop,
+    # then the CLI as CMD). Adding either would silently skip that setup.
+    ```
+
+    ```sh
+    docker build -f network-proxy.dockerfile \
+      --build-arg BASE_IMAGE=claude-code:local \
+      -t claude-code-myorg:local .
+    ```
+
+#### Invoking the resulting image
+
+The certificate is now trusted by the system store (curl, git,
+OpenSSL-linked tooling) inside the image itself, but Node.js and Python
+still need pointing at it explicitly (see the runtime table below), and the
+[proxy environment variables](#proxy-environment-variables) still need
+setting at `docker run` time regardless — baking the certificate in changes
+nothing about that second requirement. A shell function wrapping the
+documented [`claude-code` run invocation](container-images/claude-code.md#run)
+keeps both in one place instead of retyping them per invocation:
+
+```sh
+claude-code-myorg() {
+  docker run -it --rm \
+    --security-opt=no-new-privileges \
+    --read-only \
+    --tmpfs /tmp \
+    --tmpfs /run \
+    --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
+    -v claude-home-myorg:/home/claude \
+    -v "$PWD":"/workspace/$(basename "$PWD")" \
+    -w "/workspace/$(basename "$PWD")" \
+    -e HTTP_PROXY=http://proxy.myorg.internal:3128 -e http_proxy=http://proxy.myorg.internal:3128 \
+    -e HTTPS_PROXY=http://proxy.myorg.internal:3128 -e https_proxy=http://proxy.myorg.internal:3128 \
+    -e NO_PROXY=localhost,127.0.0.1 -e no_proxy=localhost,127.0.0.1 \
+    -e NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/custom/org-ca.crt \
+    -e SSL_CERT_FILE=/usr/local/share/ca-certificates/custom/org-ca.crt \
+    -e REQUESTS_CA_BUNDLE=/usr/local/share/ca-certificates/custom/org-ca.crt \
+    -e NODE_USE_ENV_PROXY=1 \
+    claude-code-myorg:local "$@"
+}
+```
+
+Keep this function in your own shell profile (or the downstream repository
+holding the Dockerfile), not in this one — like the Dockerfile itself, the
+proxy host and image tag are deployment-specific, not something a
+general-purpose image should default. `claude-home-myorg` is deliberately a
+separate volume from the stock `claude-home`, so switching between the
+vanilla and organisation-patched image doesn't mix state between them.
+
 ### Runtimes with their own certificate stores
 
 Installing the certificate into the system trust store is not always
@@ -114,13 +224,20 @@ sufficient. Several language runtimes ship a bundled CA list and ignore
 | Node.js (`https`, `fetch`/undici) | No — uses its own bundled CA list | `NODE_EXTRA_CA_CERTS=/path/to/cert.pem` |
 | Python (`requests`, stdlib `ssl`) | No — `requests`/`certifi` ship their own bundle | `SSL_CERT_FILE` and/or `REQUESTS_CA_BUNDLE` pointing at the certificate |
 
+If the certificate was already baked in via a downstream Dockerfile above,
+these variables can just point at the same in-image path the `COPY`
+instruction used (`/usr/local/share/ca-certificates/custom/org-ca.crt` in
+the example) — no separate mount needed, as shown in the shell function
+above.
+
 Since these are plain file paths rather than a system-wide store rebuild,
-they do not require an image rebuild: the certificate can instead be
-supplied as a read-only bind mount (analogous to the existing
+they do not otherwise require an image rebuild: the certificate can instead
+be supplied as a read-only bind mount (analogous to the existing
 `/etc/agent/gateway-key` mount) with the corresponding environment
-variable pointing at the mounted path. This keeps an organisation-specific
-certificate out of the image entirely, at the cost of needing to identify
-every runtime/library in the agent's dependency tree that requires its own
+variable pointing at the mounted path, for a deployment that would rather
+not build a downstream image at all — at the cost of losing system-store
+trust for curl/git/etc, and needing to identify every runtime/library in
+the agent's dependency tree that requires its own
 pointer, since a single system-store update does not cover all of them.
 
 ## Proxy environment variables
