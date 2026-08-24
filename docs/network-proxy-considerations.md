@@ -143,9 +143,10 @@ any of them by pointing `BASE_IMAGE` at that image instead.
 
     For an organisation with more than one certificate to trust — a proxy
     certificate and a separate internal-CA certificate, for instance —
-    copy a directory instead of a single file. Every file under `certs/`
-    needs a `.crt` extension for `update-ca-certificates` to pick it up;
-    the `RUN` below renames anything that doesn't already have one.
+    copy a directory instead of a single file, its host path supplied as a
+    build argument. Every file in that directory needs a `.crt` extension
+    for `update-ca-certificates` to pick it up; the `RUN` below renames
+    anything that doesn't already have one.
 
     ```dockerfile
     ARG BASE_IMAGE=claude-code:local
@@ -155,7 +156,8 @@ any of them by pointing `BASE_IMAGE` at that image instead.
     # privilege drop to the runtime user happens in entrypoint.sh at
     # container start, not at build time) — so this RUN executes as root
     # without needing any USER switch.
-    COPY certs/ /usr/local/share/ca-certificates/custom/
+    ARG CERTS_DIR=certs
+    COPY ${CERTS_DIR}/ /usr/local/share/ca-certificates/custom/
     RUN for f in /usr/local/share/ca-certificates/custom/*; do \
           case "$f" in *.crt) ;; *) mv "$f" "${f%.*}.crt" ;; esac; \
         done \
@@ -169,6 +171,7 @@ any of them by pointing `BASE_IMAGE` at that image instead.
     ```sh
     docker build -f network-proxy.dockerfile \
       --build-arg BASE_IMAGE=claude-code:local \
+      --build-arg CERTS_DIR=certs \
       -t claude-code-myorg:local .
     ```
 
@@ -179,9 +182,20 @@ OpenSSL-linked tooling) inside the image itself, but Node.js and Python
 still need pointing at it explicitly (see the runtime table below), and the
 [proxy environment variables](#proxy-environment-variables) still need
 setting at `docker run` time regardless — baking the certificate in changes
-nothing about that second requirement. A shell function wrapping the
+nothing about that second requirement.
+
+`NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, and `REQUESTS_CA_BUNDLE` each take
+exactly one file path, so they should point at
+`/etc/ssl/certs/ca-certificates.crt` — the merged bundle
+`update-ca-certificates` already produced during the build — rather than at
+the custom certificate(s) directly. That bundle already contains every
+certificate installed above, whether the single-certificate or the
+multiple-certificates option was used, concatenated alongside the base
+image's own public CAs, so the same three variables work unmodified
+regardless of which option built the image. A shell function wrapping the
 documented [`claude-code` run invocation](container-images/claude-code.md#run)
-keeps both in one place instead of retyping them per invocation:
+keeps both this and the proxy variables in one place instead of retyping
+them per invocation:
 
 ```sh
 claude-code-myorg() {
@@ -197,9 +211,9 @@ claude-code-myorg() {
     -e HTTP_PROXY=http://proxy.myorg.internal:3128 -e http_proxy=http://proxy.myorg.internal:3128 \
     -e HTTPS_PROXY=http://proxy.myorg.internal:3128 -e https_proxy=http://proxy.myorg.internal:3128 \
     -e NO_PROXY=localhost,127.0.0.1 -e no_proxy=localhost,127.0.0.1 \
-    -e NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/custom/org-ca.crt \
-    -e SSL_CERT_FILE=/usr/local/share/ca-certificates/custom/org-ca.crt \
-    -e REQUESTS_CA_BUNDLE=/usr/local/share/ca-certificates/custom/org-ca.crt \
+    -e NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt \
+    -e SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+    -e REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
     -e NODE_USE_ENV_PROXY=1 \
     claude-code-myorg:local "$@"
 }
@@ -221,14 +235,17 @@ sufficient. Several language runtimes ship a bundled CA list and ignore
 | Runtime / library | System store consulted by default? | What is needed |
 |---|---|---|
 | curl, git, most OpenSSL-linked CLIs | Yes | Nothing beyond the system store update |
-| Node.js (`https`, `fetch`/undici) | No — uses its own bundled CA list | `NODE_EXTRA_CA_CERTS=/path/to/cert.pem` |
-| Python (`requests`, stdlib `ssl`) | No — `requests`/`certifi` ship their own bundle | `SSL_CERT_FILE` and/or `REQUESTS_CA_BUNDLE` pointing at the certificate |
+| Node.js (`https`, `fetch`/undici) | No — uses its own bundled CA list | `NODE_EXTRA_CA_CERTS` (path below) |
+| Python (`requests`, stdlib `ssl`) | No — `requests`/`certifi` ship their own bundle | `SSL_CERT_FILE` and/or `REQUESTS_CA_BUNDLE` (path below) |
 
-If the certificate was already baked in via a downstream Dockerfile above,
-these variables can just point at the same in-image path the `COPY`
-instruction used (`/usr/local/share/ca-certificates/custom/org-ca.crt` in
-the example) — no separate mount needed, as shown in the shell function
-above.
+If the certificate(s) were already baked in via a downstream Dockerfile
+above, these variables can just point at
+`/etc/ssl/certs/ca-certificates.crt` — the merged bundle
+`update-ca-certificates` produced from them at build time — no separate
+mount needed, as shown in the shell function above. Pointing at that merged
+bundle rather than the custom certificate file(s) directly also means the
+same three variables work whether one certificate or several were baked
+in.
 
 Since these are plain file paths rather than a system-wide store rebuild,
 they do not otherwise require an image rebuild: the certificate can instead
