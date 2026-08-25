@@ -90,6 +90,10 @@ Access configuration described in
 
 ## Optional build-time tools
 
-Edit `packages-apt.txt`, `packages-npm.txt`, or `packages-uv.txt` and rebuild
-to add general-purpose tools. No plugins or skills are seeded in v1; all
+Edit `packages-apt.txt`, `packages-npm.txt`, `tools-uv.txt`, or
+`packages-uv.txt` and rebuild to add general-purpose tools. `tools-uv.txt`
+(`uv tool install`) is for standalone Python CLI tools, each in its own
+isolated venv; `packages-uv.txt` (`uv pip install --system`) is for plain
+importable libraries with no console-script of their own, installed into the
+image's system Python instead. No plugins or skills are seeded in v1; all
 OpenCode state lives under the persisted home volume.

@@ -160,7 +160,11 @@ settings use the same contract documented in
 
 ## Optional build-time tools
 
-Edit `packages-apt.txt`, `packages-npm.txt`, or `packages-uv.txt` and rebuild
-to add general-purpose tools. They are installed separately from the image's
-required infrastructure, so edits cannot remove egress enforcement or the
-privilege-drop tooling.
+Edit `packages-apt.txt`, `packages-npm.txt`, `tools-uv.txt`, or
+`packages-uv.txt` and rebuild to add general-purpose tools. `tools-uv.txt`
+(`uv tool install`) is for standalone Python CLI tools, each in its own
+isolated venv; `packages-uv.txt` (`uv pip install --system`) is for plain
+importable libraries with no console-script of their own, installed into the
+image's system Python instead. They are installed separately from the
+image's required infrastructure, so edits cannot remove egress enforcement
+or the privilege-drop tooling.

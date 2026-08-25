@@ -29,6 +29,16 @@ RUN bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
         && install_apt_packages /tmp/packages-apt.txt' \
     && rm -f /tmp/packages-apt.txt
 
+# packages-uv.txt — general Python libraries (not CLI tools; see
+# tools-uv.txt below), installed via `uv pip install --system` into
+# upstream's system Python (already on PATH in this base image — no
+# separate uv/uvx COPY needed here, unlike claude-code). Runs as root, since
+# it writes into the image's system site-packages rather than $HOME.
+COPY packages-uv.txt /tmp/packages-uv.txt
+RUN bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
+        && install_uv_packages /tmp/packages-uv.txt' \
+    && rm -f /tmp/packages-uv.txt
+
 # Unlike claude-code, this image has no build-time privilege-drop tool
 # installed (upstream's own runtime drop uses s6-setuidgid, not gosu) — `su`,
 # already present in the base image, does the same job here without adding a
@@ -41,13 +51,13 @@ ENV HOME=/opt/data
 ENV npm_config_prefix=/opt/data/.npm-global
 ENV PATH="/opt/data/.local/bin:/opt/data/.npm-global/bin:${PATH}"
 
-# packages-npm.txt / packages-uv.txt — see packages-apt.txt above.
+# packages-npm.txt / tools-uv.txt — see packages-apt.txt above.
 COPY packages-npm.txt /tmp/packages-npm.txt
-COPY packages-uv.txt /tmp/packages-uv.txt
+COPY tools-uv.txt /tmp/tools-uv.txt
 RUN su hermes -s /bin/bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
         && install_npm_packages /tmp/packages-npm.txt \
-        && install_uv_packages /tmp/packages-uv.txt' \
-    && rm -f /tmp/packages-npm.txt /tmp/packages-uv.txt
+        && install_uv_tools /tmp/tools-uv.txt' \
+    && rm -f /tmp/packages-npm.txt /tmp/tools-uv.txt
 
 # cloudflared is always installed but only invoked (see entrypoint.sh) when
 # AGENT_GATEWAY_ACCESS_HOSTNAME is set, as an alternative to reaching the

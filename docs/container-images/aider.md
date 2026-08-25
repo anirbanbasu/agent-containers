@@ -154,7 +154,11 @@ configuration.
 
 ## Optional build-time tools
 
-Edit `packages-apt.txt`, `packages-npm.txt`, or `packages-uv.txt` and rebuild
-to add general-purpose tools. `packages-apt.txt` starts with the common CLI
-utilities used by the other first-party images. Do not seed API keys, provider
+Edit `packages-apt.txt`, `packages-npm.txt`, `tools-uv.txt`, or
+`packages-uv.txt` and rebuild to add general-purpose tools. `packages-apt.txt`
+starts with the common CLI utilities used by the other first-party images.
+`tools-uv.txt` (`uv tool install`) is for standalone Python CLI tools, each in
+its own isolated venv; `packages-uv.txt` (`uv pip install --system`) is for
+plain importable libraries with no console-script of their own, installed
+into the image's system Python instead. Do not seed API keys, provider
 configuration, plugins, a browser, or a local-model runtime in the image.

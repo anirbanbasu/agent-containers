@@ -19,6 +19,15 @@ RUN bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
 # matching the other first-party CLI workload image.
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
+# packages-uv.txt — general Python libraries (not CLI tools; see
+# tools-uv.txt below), installed via `uv pip install --system` into this
+# system Python. Runs as root, before the codex user exists, since it writes
+# into the image's system site-packages rather than $HOME.
+COPY packages-uv.txt /tmp/packages-uv.txt
+RUN bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
+        && install_uv_packages /tmp/packages-uv.txt' \
+    && rm -f /tmp/packages-uv.txt
+
 RUN npm install -g @openai/codex \
     && codex_path="$(command -v codex)" \
     && codex_target="$(readlink -f "$codex_path")" \
@@ -38,11 +47,11 @@ ENV npm_config_prefix=/home/codex/.npm-global
 ENV PATH="/home/codex/.local/bin:/home/codex/.npm-global/bin:${PATH}"
 
 COPY packages-npm.txt /tmp/packages-npm.txt
-COPY packages-uv.txt /tmp/packages-uv.txt
+COPY tools-uv.txt /tmp/tools-uv.txt
 RUN gosu codex bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
         && install_npm_packages /tmp/packages-npm.txt \
-        && install_uv_packages /tmp/packages-uv.txt' \
-    && rm -f /tmp/packages-npm.txt /tmp/packages-uv.txt
+        && install_uv_tools /tmp/tools-uv.txt' \
+    && rm -f /tmp/packages-npm.txt /tmp/tools-uv.txt
 
 COPY --from=shared egress-allowlist.sh /usr/local/lib/agent/egress-allowlist.sh
 COPY --from=shared workload-entrypoint.sh /usr/local/lib/agent/workload-entrypoint.sh
@@ -50,9 +59,9 @@ RUN chmod +x /usr/local/lib/agent/workload-entrypoint.sh
 
 # Strip setuid/setgid bits from the base image and every package installed
 # above — required infra (install-workload-base.sh), packages-apt.txt,
-# packages-npm.txt, and packages-uv.txt — run last so nothing installed by
-# any of those is missed. NoNewPrivs=1 (set by every documented run
-# invocation) already makes these bits inert on execve, but that's an
+# packages-npm.txt, packages-uv.txt, and tools-uv.txt — run last so nothing
+# installed by any of those is missed. NoNewPrivs=1 (set by every documented
+# run invocation) already makes these bits inert on execve, but that's an
 # argument for stripping them, not against: if any single control ever
 # regresses, a setuid-root `mount` becomes a live escalation primitive. None
 # of these binaries are needed at runtime, so none should ship

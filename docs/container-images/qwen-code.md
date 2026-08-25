@@ -110,7 +110,11 @@ Access configuration described in
 
 ## Optional build-time tools
 
-Edit `packages-apt.txt`, `packages-npm.txt`, or `packages-uv.txt` and rebuild
-to add general-purpose tools. No credentials, extensions, skills, or plugins
-are seeded in the image; Qwen Code stores user-selected state in the persisted
-home volume.
+Edit `packages-apt.txt`, `packages-npm.txt`, `tools-uv.txt`, or
+`packages-uv.txt` and rebuild to add general-purpose tools. `tools-uv.txt`
+(`uv tool install`) is for standalone Python CLI tools, each in its own
+isolated venv; `packages-uv.txt` (`uv pip install --system`) is for plain
+importable libraries with no console-script of their own, installed into the
+image's system Python instead. No credentials, extensions, skills, or
+plugins are seeded in the image; Qwen Code stores user-selected state in the
+persisted home volume.

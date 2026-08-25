@@ -24,6 +24,15 @@ RUN bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
 # the apt/Node.js setup above.
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
+# packages-uv.txt — general Python libraries (not CLI tools; see
+# tools-uv.txt below), installed via `uv pip install --system` into this
+# system Python. Runs as root, before the claude user exists, since it
+# writes into the image's system site-packages rather than $HOME.
+COPY packages-uv.txt /tmp/packages-uv.txt
+RUN bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
+        && install_uv_packages /tmp/packages-uv.txt' \
+    && rm -f /tmp/packages-uv.txt
+
 RUN npm install -g @anthropic-ai/claude-code
 
 RUN groupadd -g "$GID" claude \
@@ -48,15 +57,15 @@ ENV HOME=/home/claude
 ENV npm_config_prefix=/home/claude/.npm-global
 ENV PATH="/home/claude/.local/bin:/home/claude/.npm-global/bin:${PATH}"
 
-# packages-npm.txt / packages-uv.txt — see packages-apt.txt above. Run as the
-# claude user (not root) so npm/uv installs land under $HOME, per the ENV
-# block just above.
+# packages-npm.txt / tools-uv.txt — see packages-apt.txt above. Run as the
+# claude user (not root) so npm/uv-tool installs land under $HOME, per the
+# ENV block just above.
 COPY packages-npm.txt /tmp/packages-npm.txt
-COPY packages-uv.txt /tmp/packages-uv.txt
+COPY tools-uv.txt /tmp/tools-uv.txt
 RUN gosu claude bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
         && install_npm_packages /tmp/packages-npm.txt \
-        && install_uv_packages /tmp/packages-uv.txt' \
-    && rm -f /tmp/packages-npm.txt /tmp/packages-uv.txt
+        && install_uv_tools /tmp/tools-uv.txt' \
+    && rm -f /tmp/packages-npm.txt /tmp/tools-uv.txt
 
 COPY --from=shared egress-allowlist.sh /usr/local/lib/agent/egress-allowlist.sh
 COPY --from=shared workload-entrypoint.sh /usr/local/lib/agent/workload-entrypoint.sh
@@ -83,13 +92,13 @@ RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/lib/agent/workload-entrypoi
 
 # Strip setuid/setgid bits from the base image and every package installed
 # above — required infra (install-workload-base.sh), packages-apt.txt,
-# packages-npm.txt, packages-uv.txt, and installed plugins — run last so
-# nothing installed by any of those is missed. NoNewPrivs=1 (set by every
-# documented run invocation) already makes these bits inert on execve, but
-# that's an argument for stripping them, not against: if any single control
-# ever regresses, a setuid-root `mount` becomes a live escalation primitive.
-# None of these binaries are needed at runtime, so none should ship
-# exploitable-shaped.
+# packages-npm.txt, packages-uv.txt, tools-uv.txt, and installed plugins —
+# run last so nothing installed by any of those is missed. NoNewPrivs=1 (set
+# by every documented run invocation) already makes these bits inert on
+# execve, but that's an argument for stripping them, not against: if any
+# single control ever regresses, a setuid-root `mount` becomes a live
+# escalation primitive. None of these binaries are needed at runtime, so
+# none should ship exploitable-shaped.
 RUN find / -xdev -perm /6000 -type f -exec chmod a-s {} + || true
 
 WORKDIR /workspace

@@ -115,13 +115,19 @@ for the version-recorded custom-endpoint candidate.
 
 ## Optional configuration
 
-- **`packages-apt.txt` / `packages-npm.txt` / `packages-uv.txt`** — general
-  (non-agent) software to install at build time, one package per line,
-  installed via `apt-get install`, `npm install -g`, and `uv tool install`
-  respectively. `packages-apt.txt` ships prefilled with common CLI tools
-  (`gh`, `jq`, `ripgrep`, `fd-find`, `tree`, `unzip`, `less`); the npm/uv
-  lists ship empty. Edit any of the three and rebuild the image to change
-  what's installed.
+- **`packages-apt.txt` / `packages-npm.txt` / `tools-uv.txt` /
+  `packages-uv.txt`** — general (non-agent) software to install at build
+  time, one package per line. `packages-apt.txt` (`apt-get install`) ships
+  prefilled with common CLI tools (`gh`, `jq`, `ripgrep`, `fd-find`, `tree`,
+  `unzip`, `less`); the rest ship empty. `packages-npm.txt` runs
+  `npm install -g`. `tools-uv.txt` runs `uv tool install`, one isolated venv
+  per entry, for standalone Python CLI tools (e.g. `ruff`) — only that
+  entry's own console-script ends up on `PATH`, nothing importable lands
+  anywhere shared. `packages-uv.txt` runs `uv pip install --system` into the
+  image's system Python instead, for plain importable libraries with no
+  console-script of their own (e.g. `langfuse`) that need to be importable
+  by whatever runs inside the image. Edit any of the four and rebuild the
+  image to change what's installed.
 
 ## Egress control
 
