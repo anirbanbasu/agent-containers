@@ -251,6 +251,24 @@ concrete config for either yet.
 None of this needs an image change: `run-agent-task.sh` doesn't hardcode a
 provider, it just execs `claude` and lets these env vars decide.
 
+## Installing additional software
+
+Same four build-time package-list files as
+[`claude-code`](../container-images/claude-code.md#custom-configuration-and-optional-build-time-tools),
+and the same split between them: `packages-apt.txt` (`apt-get install`, prefilled
+with `gh`, `jq`, `ripgrep`, `fd-find`, `tree`, `unzip`, `less` — `gh` is what
+`CI_PROVIDER=github` actually needs, the rest is generically useful for a fix
+task) and `packages-npm.txt` (`npm install -g`) ship the same defaults as the
+interactive image. `tools-uv.txt` runs `uv tool install`, one isolated venv
+per entry, for standalone Python CLI tools (e.g. `ruff`) — only that entry's
+own console-script ends up on `PATH`, nothing importable lands anywhere
+shared. `packages-uv.txt` runs `uv pip install --system` into the image's
+system Python instead, for plain importable libraries with no console-script
+of their own (e.g. `langfuse`) that need to be importable by whatever runs
+inside the image. `glab`, unlike `gh`, is baked in rather than
+user-editable — see [Provider support](#provider-support) above. Edit any of
+the four and rebuild the image to change what's installed.
+
 ## Scoping what the token can reach
 
 `run-agent-task.sh` never calls `gh pr merge` — merging stays a human

@@ -33,6 +33,16 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 # baked in here.
 COPY --from=registry.gitlab.com/gitlab-org/cli:v1.114.0 /usr/bin/glab /usr/local/bin/glab
 
+# packages-uv.txt — general Python libraries (not CLI tools; see
+# tools-uv.txt below), installed via `uv pip install --system` into this
+# system Python — same split and same ordering (root, before the claude
+# user exists) as agent-images/claude-code, since this writes into the
+# image's system site-packages rather than $HOME.
+COPY packages-uv.txt /tmp/packages-uv.txt
+RUN bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
+        && install_uv_packages /tmp/packages-uv.txt' \
+    && rm -f /tmp/packages-uv.txt
+
 RUN npm install -g @anthropic-ai/claude-code
 
 RUN groupadd -g "$GID" claude \
@@ -44,12 +54,15 @@ ENV HOME=/home/claude
 ENV npm_config_prefix=/home/claude/.npm-global
 ENV PATH="/home/claude/.local/bin:/home/claude/.npm-global/bin:${PATH}"
 
+# packages-npm.txt / tools-uv.txt — see packages-apt.txt above. Run as the
+# claude user (not root) so npm/uv-tool installs land under $HOME, per the
+# ENV block just above.
 COPY packages-npm.txt /tmp/packages-npm.txt
-COPY packages-uv.txt /tmp/packages-uv.txt
+COPY tools-uv.txt /tmp/tools-uv.txt
 RUN gosu claude bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
         && install_npm_packages /tmp/packages-npm.txt \
-        && install_uv_packages /tmp/packages-uv.txt' \
-    && rm -f /tmp/packages-npm.txt /tmp/packages-uv.txt
+        && install_uv_tools /tmp/tools-uv.txt' \
+    && rm -f /tmp/packages-npm.txt /tmp/tools-uv.txt
 
 COPY --from=shared egress-allowlist.sh /usr/local/lib/agent/egress-allowlist.sh
 COPY --from=shared workload-entrypoint.sh /usr/local/lib/agent/workload-entrypoint.sh
