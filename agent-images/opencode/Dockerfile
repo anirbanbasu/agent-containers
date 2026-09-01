@@ -1,7 +1,5 @@
-FROM python:3.14-slim-trixie
+FROM python:3.14-slim-trixie AS base
 
-ARG UID=1000
-ARG GID=1000
 ARG TARGETARCH
 
 # Shared Node.js, containment, gateway-client, and cloudflared baseline for
@@ -27,6 +25,15 @@ RUN bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
     && rm -f /tmp/packages-uv.txt
 
 RUN npm install -g opencode-ai
+
+# Everything above this line is UID/GID-independent and layer-cacheable
+# across hosts. From here down, the user identity is baked in, so operators
+# on a host where they aren't UID/GID 1000 rebuild only this stage with
+# --build-arg UID=$(id -u) --build-arg GID=$(id -g) — the base stage above
+# is reused unchanged from cache rather than rebuilt per host user.
+FROM base AS final
+ARG UID=1000
+ARG GID=1000
 
 RUN groupadd -g "$GID" opencode \
     && useradd -m -u "$UID" -g "$GID" -s /bin/bash opencode \

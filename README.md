@@ -38,6 +38,8 @@ docker run -it --rm \
 
 `/home/claude` is mounted from a named volume (`claude-home`) so plugins, settings, Claude's own project memory, and any Python/Node package state persist across container runs; each project is mounted under its own `/workspace/<project_name>` subdirectory to keep per-project state distinct within that shared volume. See `docs/container-images/claude-code.md` for the full flag-by-flag rationale, runtime package installation, plugin/model/egress configuration, and the opt-in `agent-gateway` tunnelling mode.
 
+The build above defaults to UID/GID `1000:1000`; if that doesn't match your host account, files the agent writes to the bind-mounted project directory or `claude-home` won't be owned by you on the host. Add `--build-arg UID=$(id -u) --build-arg GID=$(id -g)` to the `docker build` command to fix that — every workload image's Dockerfile supports it and only rebuilds a small final stage per UID, not the whole image. See each image's own docs page (e.g. `docs/container-images/claude-code.md#matching-your-host-users-uidgid`) for details.
+
 ## Local image verification
 
 With a running Docker daemon, run the local test matrix with:

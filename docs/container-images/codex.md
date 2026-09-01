@@ -36,6 +36,30 @@ docker build --build-context shared=agent-images/shared \
   -t codex agent-images/codex
 ```
 
+### Matching your host user's UID/GID
+
+The image defaults to UID/GID `1000:1000`. Everything the agent writes to
+the bind-mounted project directory or the persistent home volume is owned
+by whatever UID/GID the container ran as — if that doesn't match your host
+account, those files aren't owned by you on the host (permission errors,
+needing `sudo` to clean up). Rebuild with matching values instead:
+
+```sh
+docker build --build-context shared=agent-images/shared \
+  --build-arg UID=$(id -u) --build-arg GID=$(id -g) \
+  -t codex:$(whoami) agent-images/codex
+```
+
+`Dockerfile` splits into a `base` stage (apt/Node.js/`uv` baseline,
+`packages-apt.txt`/`packages-uv.txt`, the Codex CLI itself — none of it
+UID-dependent) and a `final` stage (user creation, `packages-npm.txt`/
+`tools-uv.txt` installs, which need `$HOME` to exist first). Only `final`
+depends on `UID`/`GID`, so Docker's build cache reuses `base` unchanged
+across every host user — rebuilding for a different UID after the first
+build is fast. On a host shared by multiple accounts, tag the image per
+user (`codex:alice`, `codex:bob`) rather than overwriting a shared `codex`
+tag.
+
 ## Run
 
 For API-key authentication, pass the key at runtime rather than baking it into

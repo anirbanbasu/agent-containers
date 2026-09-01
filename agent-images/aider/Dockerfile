@@ -1,7 +1,5 @@
-FROM python:3.12-slim-trixie
+FROM python:3.12-slim-trixie AS base
 
-ARG UID=1000
-ARG GID=1000
 ARG TARGETARCH
 
 # Reuse the hardened workload baseline: egress enforcement, gateway-client
@@ -32,6 +30,15 @@ RUN bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
 # package deliberately excludes browser/Playwright extras: installing browser
 # binaries at runtime is incompatible with the read-only-rootfs profile.
 RUN python -m pip install --no-cache-dir 'aider-chat==0.86.2'
+
+# Everything above this line is UID/GID-independent and layer-cacheable
+# across hosts. From here down, the user identity is baked in, so operators
+# on a host where they aren't UID/GID 1000 rebuild only this stage with
+# --build-arg UID=$(id -u) --build-arg GID=$(id -g) — the base stage above
+# is reused unchanged from cache rather than rebuilt per host user.
+FROM base AS final
+ARG UID=1000
+ARG GID=1000
 
 RUN groupadd -g "$GID" aider \
     && useradd -m -u "$UID" -g "$GID" -s /bin/bash aider \

@@ -83,7 +83,7 @@ contained_adal() {
     -v "$PWD":"/workspace/$(basename "$PWD")" \
     -w "/workspace/$(basename "$PWD")" \
     "${AGENT_DOCKER_ARGS[@]}" \
-    adal adal "${AGENT_CLI_ARGS[@]}"
+    "adal:${CONTAINED_ADAL_TAG:-latest}" adal "${AGENT_CLI_ARGS[@]}"
 }
 
 contained_aider() {
@@ -101,7 +101,7 @@ contained_aider() {
     -v "$PWD":"/workspace/$(basename "$PWD")" \
     -w "/workspace/$(basename "$PWD")" \
     "${AGENT_DOCKER_ARGS[@]}" \
-    aider aider "${AGENT_CLI_ARGS[@]}"
+    "aider:${CONTAINED_AIDER_TAG:-latest}" aider "${AGENT_CLI_ARGS[@]}"
 }
 
 contained_claude() {
@@ -116,7 +116,7 @@ contained_claude() {
     -v "$PWD":"/workspace/$(basename "$PWD")" \
     -w "/workspace/$(basename "$PWD")" \
     "${AGENT_DOCKER_ARGS[@]}" \
-    claude-code claude "${AGENT_CLI_ARGS[@]}"
+    "claude-code:${CONTAINED_CLAUDE_TAG:-latest}" claude "${AGENT_CLI_ARGS[@]}"
 }
 
 contained_codex() {
@@ -132,7 +132,7 @@ contained_codex() {
     -v "$PWD":"/workspace/$(basename "$PWD")" \
     -w "/workspace/$(basename "$PWD")" \
     "${AGENT_DOCKER_ARGS[@]}" \
-    codex codex "${AGENT_CLI_ARGS[@]}"
+    "codex:${CONTAINED_CODEX_TAG:-latest}" codex "${AGENT_CLI_ARGS[@]}"
 }
 
 contained_kilo() {
@@ -147,7 +147,7 @@ contained_kilo() {
     -v "$PWD":"/workspace/$(basename "$PWD")" \
     -w "/workspace/$(basename "$PWD")" \
     "${AGENT_DOCKER_ARGS[@]}" \
-    kilo-code kilo "${AGENT_CLI_ARGS[@]}"
+    "kilo-code:${CONTAINED_KILO_TAG:-latest}" kilo "${AGENT_CLI_ARGS[@]}"
 }
 
 contained_opencode() {
@@ -162,7 +162,7 @@ contained_opencode() {
     -v "$PWD":"/workspace/$(basename "$PWD")" \
     -w "/workspace/$(basename "$PWD")" \
     "${AGENT_DOCKER_ARGS[@]}" \
-    opencode opencode "${AGENT_CLI_ARGS[@]}"
+    "opencode:${CONTAINED_OPENCODE_TAG:-latest}" opencode "${AGENT_CLI_ARGS[@]}"
 }
 
 contained_qwen() {
@@ -180,7 +180,7 @@ contained_qwen() {
     -v "$PWD":"/workspace/$(basename "$PWD")" \
     -w "/workspace/$(basename "$PWD")" \
     "${AGENT_DOCKER_ARGS[@]}" \
-    qwen-code qwen "${AGENT_CLI_ARGS[@]}"
+    "qwen-code:${CONTAINED_QWEN_TAG:-latest}" qwen "${AGENT_CLI_ARGS[@]}"
 }
 
 contained_hermes() {
@@ -196,7 +196,7 @@ contained_hermes() {
     "${AGENT_EGRESS_ARGS[@]}" \
     -v hermes-data:/opt/data \
     "${AGENT_DOCKER_ARGS[@]}" \
-    hermes "${AGENT_CLI_ARGS[@]}"
+    "hermes:${CONTAINED_HERMES_TAG:-latest}" "${AGENT_CLI_ARGS[@]}"
 }
 ```
 
@@ -243,6 +243,17 @@ CLI command required after the image name.
 ```sh
 contained_codex login --device-auth
 ```
+
+Each function defaults to the `:latest` tag (e.g. `adal:latest`), matching a
+plain `docker build -t adal agent-images/adal` with no `--build-arg
+UID`/`GID` override — the common single-user-per-host case needs no further
+configuration. On a host shared by multiple accounts where each user built
+their own UID-matched tag (see [Matching your host user's
+UID/GID](../container-images/claude-code.md#matching-your-host-users-uidgid)),
+set the matching `CONTAINED_<IMAGE>_TAG` variable (e.g.
+`CONTAINED_ADAL_TAG=alice`) in that user's own shell profile before sourcing
+`shortcuts.sh`, so their invocation of `contained_adal` runs their own
+`adal:alice` rather than whatever happens to be tagged `adal:latest`.
 
 The functions deliberately do not set unrestricted egress. Override a
 specific image's `CONTAINED_<IMAGE>_EGRESS` variable only with the hosts its

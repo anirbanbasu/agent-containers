@@ -301,6 +301,17 @@ docker build --build-context shared=agent-images/shared \
   -t claude-code-ci ci-images/claude-code
 ```
 
+`Dockerfile` accepts the same `--build-arg UID=$(id -u) --build-arg GID=$(id -g)`
+as `claude-code` and splits into the same UID-agnostic `base` stage /
+UID-dependent `final` stage for the same build-cache reuse (see
+[`claude-code`'s build docs](../container-images/claude-code.md#matching-your-host-users-uidgid)
+for the mechanics). It matters less here than for the interactive image,
+though: the documented `docker run` below uses `--tmpfs /home/claude`
+(no persistent volume) and no `-v "$PWD":...` project mount — `run-agent-task.sh`
+clones the target repo itself, inside the container — so nothing this image
+writes reaches the host filesystem, and the default `1000:1000` is fine for
+most CI usage.
+
 ## Run
 
 ```sh

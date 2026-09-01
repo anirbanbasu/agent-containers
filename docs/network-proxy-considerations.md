@@ -88,7 +88,16 @@ public registry — Docker resolves `FROM` against the local image store
 first, and only attempts a registry pull if no local image with that
 name and tag exists. Since this repository does not publish images itself,
 only Dockerfiles, the base image has to be built and tagged locally before
-the downstream build can reference it, e.g.:
+the downstream build can reference it. `:local` below is this doc's own
+placeholder tag, not something the plain quickstart build produces — that
+one is untagged (`claude-code:latest`) unless you've already followed
+[Matching your host user's
+UID/GID](container-images/claude-code.md#matching-your-host-users-uidgid)
+and tagged it per user instead. Reuse whichever of those you already built,
+or build fresh here with the same `--build-arg UID=$(id -u) --build-arg
+GID=$(id -g)` if you want the org-patched image's file ownership to match
+your host account too — just keep the tag consistent between this build,
+`BASE_IMAGE` below, and `FROM`:
 
 ```sh
 docker build --build-context shared=agent-images/shared \
@@ -224,7 +233,12 @@ holding the Dockerfile), not in this one — like the Dockerfile itself, the
 proxy host and image tag are deployment-specific, not something a
 general-purpose image should default. `claude-home-myorg` is deliberately a
 separate volume from the stock `claude-home`, so switching between the
-vanilla and organisation-patched image doesn't mix state between them.
+vanilla and organisation-patched image doesn't mix state between them. On a
+host shared by multiple accounts, give each user's own copy of this
+function a distinct image tag and volume suffix (e.g.
+`claude-code-myorg:alice`, `claude-home-myorg-alice`), matching whatever
+tag they used to build the base and downstream images — same reasoning as
+tagging the plain images per user.
 
 ### Runtimes with their own certificate stores
 

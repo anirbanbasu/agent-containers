@@ -1,7 +1,5 @@
-FROM python:3.14-slim-trixie
+FROM python:3.14-slim-trixie AS base
 
-ARG UID=1000
-ARG GID=1000
 ARG TARGETARCH
 
 # Shared Node.js, containment, gateway-client, and cloudflared baseline for
@@ -36,6 +34,15 @@ RUN npm install -g @openai/codex \
 
 COPY codex-wrapper.sh /usr/local/bin/codex
 RUN chmod +x /usr/local/bin/codex
+
+# Everything above this line is UID/GID-independent and layer-cacheable
+# across hosts. From here down, the user identity is baked in, so operators
+# on a host where they aren't UID/GID 1000 rebuild only this stage with
+# --build-arg UID=$(id -u) --build-arg GID=$(id -g) — the base stage above
+# is reused unchanged from cache rather than rebuilt per host user.
+FROM base AS final
+ARG UID=1000
+ARG GID=1000
 
 RUN groupadd -g "$GID" codex \
     && useradd -m -u "$UID" -g "$GID" -s /bin/bash codex \
