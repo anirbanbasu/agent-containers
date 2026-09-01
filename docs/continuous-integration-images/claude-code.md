@@ -256,10 +256,11 @@ provider, it just execs `claude` and lets these env vars decide.
 Same four build-time package-list files as
 [`claude-code`](../container-images/claude-code.md#custom-configuration-and-optional-build-time-tools),
 and the same split between them: `packages-apt.txt` (`apt-get install`, prefilled
-with `gh`, `jq`, `ripgrep`, `fd-find`, `tree`, `unzip`, `less` — `gh` is what
-`CI_PROVIDER=github` actually needs, the rest is generically useful for a fix
-task) and `packages-npm.txt` (`npm install -g`) ship the same defaults as the
-interactive image. `tools-uv.txt` runs `uv tool install`, one isolated venv
+with `gh`, `jq`, `ripgrep`, `fd-find`, `tree`, `unzip`, `less`, `file`, `lsof`,
+`yq`, `miller` — `gh` is what `CI_PROVIDER=github` actually needs, the rest is
+generically useful for a fix task) and `packages-npm.txt` (`npm install -g`)
+ship the same defaults as the interactive image. `tools-uv.txt` runs
+`uv tool install`, one isolated venv
 per entry, for standalone Python CLI tools (e.g. `ruff`) — only that entry's
 own console-script ends up on `PATH`, nothing importable lands anywhere
 shared. `packages-uv.txt` runs `uv pip install --system` into the image's

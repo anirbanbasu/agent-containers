@@ -119,7 +119,8 @@ for the version-recorded custom-endpoint candidate.
   `packages-uv.txt`** — general (non-agent) software to install at build
   time, one package per line. `packages-apt.txt` (`apt-get install`) ships
   prefilled with common CLI tools (`gh`, `jq`, `ripgrep`, `fd-find`, `tree`,
-  `unzip`, `less`); the rest ship empty. `packages-npm.txt` runs
+  `unzip`, `less`, `file`, `lsof`, `yq`, `miller`); the rest ship empty.
+  `packages-npm.txt` runs
   `npm install -g`. `tools-uv.txt` runs `uv tool install`, one isolated venv
   per entry, for standalone Python CLI tools (e.g. `ruff`) — only that
   entry's own console-script ends up on `PATH`, nothing importable lands
