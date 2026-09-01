@@ -65,10 +65,14 @@ ARG GID=1000
 # placeholder baked into `base` above — usermod/groupmod plus a chown -R
 # walk over already-installed content is far cheaper than rerunning the
 # npm/uv-tool installs above, but it's skippable entirely for the common
-# case where the caller never overrides UID/GID.
+# case where the caller never overrides UID/GID. Deliberately no -o:
+# without it, usermod/groupmod refuse to reuse an ID already assigned to
+# another account, so a caller can never remap adal onto UID/GID 0 (root)
+# or collide it with another in-image identity — the build fails instead of
+# silently succeeding.
 RUN if [ "$UID" != "1000" ] || [ "$GID" != "1000" ]; then \
-        groupmod -o -g "$GID" adal \
-        && usermod -o -u "$UID" -g "$GID" adal \
+        groupmod -g "$GID" adal \
+        && usermod -u "$UID" -g "$GID" adal \
         && chown -R "$UID":"$GID" /home/adal /workspace; \
     fi
 

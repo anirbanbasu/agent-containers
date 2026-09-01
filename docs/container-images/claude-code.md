@@ -71,7 +71,11 @@ On a host shared by multiple accounts, tag the image per user
 (`claude-home-alice` rather than the shared `claude-home`), in the run
 command below. The [shell-shortcut
 functions](../customisation/shell-shortcuts.md) do both
-substitutions automatically from a single `CONTAINED_CLAUDE_TAG` variable.
+substitutions automatically from a single `CONTAINED_CLAUDE_TAG` variable;
+if invoking `docker run` directly instead, substitute your tag into both the
+`claude-home` volume name and the trailing `claude-code` image reference in
+the command below — copying it unchanged still runs the shared
+`claude-code:latest`.
 
 ## Run
 

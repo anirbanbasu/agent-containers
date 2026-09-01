@@ -51,7 +51,10 @@ On a host shared by multiple accounts, tag the image per user
 command below. The [shell-shortcut
 functions](../customisation/shell-shortcuts.md) do both
 substitutions automatically from a single `CONTAINED_OPENCODE_TAG`
-variable.
+variable; if invoking `docker run` directly instead, substitute your tag
+into both the `opencode-home` volume name and the trailing `opencode` image
+reference in the command below — copying it unchanged still runs the shared
+`opencode:latest`.
 
 ## Run
 

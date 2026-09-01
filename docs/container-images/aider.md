@@ -57,7 +57,10 @@ and use that same tag, plus a per-user home volume (`aider-home-alice`
 rather than the shared `aider-home`), in the run command below. The
 [shell-shortcut functions](../customisation/shell-shortcuts.md)
 do both substitutions automatically from a single `CONTAINED_AIDER_TAG`
-variable.
+variable; if invoking `docker run` directly instead, substitute your tag
+into both the `aider-home` volume name and the trailing `aider` image
+reference in the command below — copying it unchanged still runs the shared
+`aider:latest`.
 
 ## Run
 

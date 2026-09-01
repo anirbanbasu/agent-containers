@@ -103,10 +103,14 @@ ARG GID=1000
 # placeholder baked into `base` above — usermod/groupmod plus a chown -R
 # walk over already-installed content is far cheaper than rerunning the
 # npm/uv-tool/plugin installs above, but it's skippable entirely for the
-# common case where the caller never overrides UID/GID.
+# common case where the caller never overrides UID/GID. Deliberately no -o:
+# without it, usermod/groupmod refuse to reuse an ID already assigned to
+# another account, so a caller can never remap claude onto UID/GID 0 (root)
+# or collide it with another in-image identity — the build fails instead of
+# silently succeeding.
 RUN if [ "$UID" != "1000" ] || [ "$GID" != "1000" ]; then \
-        groupmod -o -g "$GID" claude \
-        && usermod -o -u "$UID" -g "$GID" claude \
+        groupmod -g "$GID" claude \
+        && usermod -u "$UID" -g "$GID" claude \
         && chown -R "$UID":"$GID" /home/claude /workspace; \
     fi
 

@@ -50,7 +50,10 @@ On a host shared by multiple accounts, tag the image per user (`adal:alice`,
 tag, plus a per-user home volume (`adal-home-alice` rather than the shared
 `adal-home`), in the run command below. The [shell-shortcut
 functions](../customisation/shell-shortcuts.md) do both
-substitutions automatically from a single `CONTAINED_ADAL_TAG` variable.
+substitutions automatically from a single `CONTAINED_ADAL_TAG` variable; if
+invoking `docker run` directly instead, substitute your tag into both the
+`adal-home` volume name and the trailing `adal` image reference in the
+command below — copying it unchanged still runs the shared `adal:latest`.
 
 ## Run
 

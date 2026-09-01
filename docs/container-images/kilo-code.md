@@ -50,7 +50,11 @@ On a host shared by multiple accounts, tag the image per user
 (`kilo-home-alice` rather than the shared `kilo-home`), in the run command
 below. The [shell-shortcut
 functions](../customisation/shell-shortcuts.md) do both
-substitutions automatically from a single `CONTAINED_KILO_TAG` variable.
+substitutions automatically from a single `CONTAINED_KILO_TAG` variable; if
+invoking `docker run` directly instead, substitute your tag into both the
+`kilo-home` volume name and the trailing `kilo-code` image reference in the
+command below — copying it unchanged still runs the shared
+`kilo-code:latest`.
 
 ## Run
 
