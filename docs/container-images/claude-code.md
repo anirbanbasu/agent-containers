@@ -54,15 +54,24 @@ docker build --build-context shared=agent-images/shared \
   -t claude-code:$(whoami) agent-images/claude-code
 ```
 
-`Dockerfile` splits into a `base` stage (apt/Node.js/`uv` baseline,
-`packages-apt.txt`/`packages-uv.txt`, Claude Code itself — none of it
-UID-dependent) and a `final` stage (user creation, `packages-npm.txt`/
-`tools-uv.txt`/plugin installs, all of which need `$HOME` to exist first).
-Only `final` depends on `UID`/`GID`, so Docker's build cache reuses `base`
-unchanged across every host user — rebuilding for a different UID after the
-first build is fast. On a host shared by multiple accounts, tag the image
-per user (`claude-code:alice`, `claude-code:bob`) rather than overwriting a
-shared `claude-code` tag.
+`Dockerfile` splits into a `base` stage that installs everything —
+apt/Node.js/`uv` baseline, `packages-apt.txt`/`packages-uv.txt`, Claude Code
+itself, and the account-scoped `packages-npm.txt`/`tools-uv.txt`/plugin-
+marketplace/plugin installs — under a fixed placeholder account (UID/GID
+`1000:1000`), and a `final` stage that only remaps that account to the
+`UID`/`GID` build args (`usermod`/`groupmod` plus a `chown -R` of what
+`base` already installed) when they differ from the placeholder. Nothing in
+`final` reinstalls packages or plugins, so rebuilding for a different UID
+after the first build is fast even though the default `plugins.txt` installs
+thirteen plugins.
+
+On a host shared by multiple accounts, tag the image per user
+(`claude-code:alice`, `claude-code:bob`) rather than overwriting a shared
+`claude-code` tag — and use that same tag, plus a per-user home volume
+(`claude-home-alice` rather than the shared `claude-home`), in the run
+command below. The [shell-shortcut
+functions](../customisation/shell-shortcuts.md) do both
+substitutions automatically from a single `CONTAINED_CLAUDE_TAG` variable.
 
 ## Run
 

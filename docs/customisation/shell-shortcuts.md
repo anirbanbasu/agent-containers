@@ -79,7 +79,7 @@ contained_adal() {
     --read-only --tmpfs /tmp --tmpfs /run \
     --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
     "${AGENT_EGRESS_ARGS[@]}" \
-    -v adal-home:/home/adal \
+    -v "adal-home${CONTAINED_ADAL_TAG:+-$CONTAINED_ADAL_TAG}":/home/adal \
     -v "$PWD":"/workspace/$(basename "$PWD")" \
     -w "/workspace/$(basename "$PWD")" \
     "${AGENT_DOCKER_ARGS[@]}" \
@@ -97,7 +97,7 @@ contained_aider() {
     --read-only --tmpfs /tmp --tmpfs /run \
     --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
     "${AGENT_EGRESS_ARGS[@]}" \
-    -v aider-home:/home/aider \
+    -v "aider-home${CONTAINED_AIDER_TAG:+-$CONTAINED_AIDER_TAG}":/home/aider \
     -v "$PWD":"/workspace/$(basename "$PWD")" \
     -w "/workspace/$(basename "$PWD")" \
     "${AGENT_DOCKER_ARGS[@]}" \
@@ -112,7 +112,7 @@ contained_claude() {
     --read-only --tmpfs /tmp --tmpfs /run \
     --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
     "${AGENT_EGRESS_ARGS[@]}" \
-    -v claude-home:/home/claude \
+    -v "claude-home${CONTAINED_CLAUDE_TAG:+-$CONTAINED_CLAUDE_TAG}":/home/claude \
     -v "$PWD":"/workspace/$(basename "$PWD")" \
     -w "/workspace/$(basename "$PWD")" \
     "${AGENT_DOCKER_ARGS[@]}" \
@@ -128,7 +128,7 @@ contained_codex() {
     --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
     -e OPENAI_API_KEY \
     "${AGENT_EGRESS_ARGS[@]}" \
-    -v codex-home:/home/codex \
+    -v "codex-home${CONTAINED_CODEX_TAG:+-$CONTAINED_CODEX_TAG}":/home/codex \
     -v "$PWD":"/workspace/$(basename "$PWD")" \
     -w "/workspace/$(basename "$PWD")" \
     "${AGENT_DOCKER_ARGS[@]}" \
@@ -143,7 +143,7 @@ contained_kilo() {
     --read-only --tmpfs /tmp:exec --tmpfs /run \
     --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
     "${AGENT_EGRESS_ARGS[@]}" \
-    -v kilo-home:/home/kilo \
+    -v "kilo-home${CONTAINED_KILO_TAG:+-$CONTAINED_KILO_TAG}":/home/kilo \
     -v "$PWD":"/workspace/$(basename "$PWD")" \
     -w "/workspace/$(basename "$PWD")" \
     "${AGENT_DOCKER_ARGS[@]}" \
@@ -158,7 +158,7 @@ contained_opencode() {
     --read-only --tmpfs /tmp:exec --tmpfs /run \
     --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
     "${AGENT_EGRESS_ARGS[@]}" \
-    -v opencode-home:/home/opencode \
+    -v "opencode-home${CONTAINED_OPENCODE_TAG:+-$CONTAINED_OPENCODE_TAG}":/home/opencode \
     -v "$PWD":"/workspace/$(basename "$PWD")" \
     -w "/workspace/$(basename "$PWD")" \
     "${AGENT_DOCKER_ARGS[@]}" \
@@ -176,7 +176,7 @@ contained_qwen() {
     -e "OPENAI_BASE_URL=${CONTAINED_QWEN_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}" \
     -e "OPENAI_MODEL=${CONTAINED_QWEN_MODEL:-qwen3-coder-plus}" \
     "${AGENT_EGRESS_ARGS[@]}" \
-    -v qwen-home:/home/qwen \
+    -v "qwen-home${CONTAINED_QWEN_TAG:+-$CONTAINED_QWEN_TAG}":/home/qwen \
     -v "$PWD":"/workspace/$(basename "$PWD")" \
     -w "/workspace/$(basename "$PWD")" \
     "${AGENT_DOCKER_ARGS[@]}" \
@@ -252,8 +252,16 @@ their own UID-matched tag (see [Matching your host user's
 UID/GID](../container-images/claude-code.md#matching-your-host-users-uidgid)),
 set the matching `CONTAINED_<IMAGE>_TAG` variable (e.g.
 `CONTAINED_ADAL_TAG=alice`) in that user's own shell profile before sourcing
-`shortcuts.sh`, so their invocation of `contained_adal` runs their own
-`adal:alice` rather than whatever happens to be tagged `adal:latest`.
+`shortcuts.sh`. For the seven workload images built from the shared
+UID/GID template (every function above except `contained_hermes`), setting
+that variable changes two things together: the function runs the matching
+`adal:alice` instead of whatever happens to be tagged `adal:latest`, *and*
+it mounts a per-user home volume (`adal-home-alice` instead of the shared
+`adal-home`) — each affected function suffixes its home volume's name with
+the same tag, so two UID-tagged images on the same host never collide over
+one account's persistent state. `hermes` has no build-time UID/GID and
+always keeps the single shared `hermes-data` volume regardless of
+`CONTAINED_HERMES_TAG`.
 
 The functions deliberately do not set unrestricted egress. Override a
 specific image's `CONTAINED_<IMAGE>_EGRESS` variable only with the hosts its

@@ -28,17 +28,14 @@ RUN bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
 # optional dependency. Pin it so rebuilding does not silently change the CLI.
 RUN npm install -g @sylphai/adal-cli@1.7.1
 
-# Everything above this line is UID/GID-independent and layer-cacheable
-# across hosts. From here down, the user identity is baked in, so operators
-# on a host where they aren't UID/GID 1000 rebuild only this stage with
-# --build-arg UID=$(id -u) --build-arg GID=$(id -g) — the base stage above
-# is reused unchanged from cache rather than rebuilt per host user.
-FROM base AS final
-ARG UID=1000
-ARG GID=1000
-
-RUN groupadd -g "$GID" adal \
-    && useradd -m -u "$UID" -g "$GID" -s /bin/bash adal \
+# The adal account is created here, at a fixed placeholder UID/GID
+# (1000:1000), purely so the root-only installers below (npm, uv tool) have
+# a real non-root account to run as. `final` remaps this account to the
+# operator's actual host UID/GID instead of recreating it, so a rebuild for
+# a different host user reuses everything installed below unchanged rather
+# than reinstalling it over the network.
+RUN groupadd -g 1000 adal \
+    && useradd -m -u 1000 -g 1000 -s /bin/bash adal \
     && mkdir -p /home/adal/.adal /workspace \
     && chown -R adal:adal /home/adal /workspace
 
@@ -52,6 +49,28 @@ RUN gosu adal bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
         && install_npm_packages /tmp/packages-npm.txt \
         && install_uv_tools /tmp/tools-uv.txt' \
     && rm -f /tmp/packages-npm.txt /tmp/tools-uv.txt
+
+# Everything above this line is UID/GID-independent and layer-cacheable
+# across hosts: the adal account exists at the fixed placeholder UID/GID
+# only so the installers above have a non-root account to run as. From here
+# down, `final` remaps that account to the operator's actual host UID/GID
+# with --build-arg UID=$(id -u) --build-arg GID=$(id -g) — the base stage
+# above is reused unchanged from cache, and nothing installed above is
+# reinstalled, rather than rebuilding per host user.
+FROM base AS final
+ARG UID=1000
+ARG GID=1000
+
+# Only remap when the caller supplied a different UID/GID than the fixed
+# placeholder baked into `base` above — usermod/groupmod plus a chown -R
+# walk over already-installed content is far cheaper than rerunning the
+# npm/uv-tool installs above, but it's skippable entirely for the common
+# case where the caller never overrides UID/GID.
+RUN if [ "$UID" != "1000" ] || [ "$GID" != "1000" ]; then \
+        groupmod -o -g "$GID" adal \
+        && usermod -o -u "$UID" -g "$GID" adal \
+        && chown -R "$UID":"$GID" /home/adal /workspace; \
+    fi
 
 COPY --from=shared egress-allowlist.sh /usr/local/lib/agent/egress-allowlist.sh
 COPY --from=shared workload-entrypoint.sh /usr/local/lib/agent/workload-entrypoint.sh
