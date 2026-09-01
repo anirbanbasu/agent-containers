@@ -1,2 +1,6 @@
-# Optional Python CLI tools installed at build time via `uv tool install`, one
-# per line. Blank lines and lines starting with '#' are ignored.
+# Optional Python libraries installed into the system Python at build time
+# via `uv pip install --system`, one per line. Blank lines and lines
+# starting with '#' are ignored. Unlike tools-uv.txt, these land in the one
+# shared system Python rather than an isolated venv, so they're importable
+# by whatever runs inside the image — a CLI-only package with no importable
+# module of its own belongs in tools-uv.txt instead.

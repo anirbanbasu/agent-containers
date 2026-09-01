@@ -31,9 +31,11 @@ Workload images in `agent-images/<name>/` normally:
 - use the shared `egress-allowlist.sh` and support the `AGENT_*` gateway
   contract;
 - provide a persistent home volume and a `/workspace` work directory;
-- install optional user-selected tools through `packages-apt.txt`,
-  `packages-npm.txt`, and `packages-uv.txt` rather than editing the required
-  infrastructure package list.
+- install optional user-selected software through `packages-apt.txt`,
+  `packages-npm.txt`, `tools-uv.txt` (isolated Python CLI tools, via
+  `uv tool install`), and `packages-uv.txt` (importable Python libraries, via
+  `uv pip install --system`) rather than editing the required infrastructure
+  package list.
 
 Use `claude-code` as the template for a first-party CLI image and `hermes`
 when evaluating an image built on an upstream vendor base image. Do not seed

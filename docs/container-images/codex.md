@@ -36,6 +36,40 @@ docker build --build-context shared=agent-images/shared \
   -t codex agent-images/codex
 ```
 
+### Matching your host user's UID/GID
+
+The image defaults to UID/GID `1000:1000`. Everything the agent writes to
+the bind-mounted project directory or the persistent home volume is owned
+by whatever UID/GID the container ran as — if that doesn't match your host
+account, those files aren't owned by you on the host (permission errors,
+needing `sudo` to clean up). Rebuild with matching values instead:
+
+```sh
+docker build --build-context shared=agent-images/shared \
+  --build-arg UID=$(id -u) --build-arg GID=$(id -g) \
+  -t codex:$(whoami) agent-images/codex
+```
+
+`Dockerfile` splits into a `base` stage that installs everything —
+apt/Node.js/`uv` baseline, `packages-apt.txt`/`packages-uv.txt`, the Codex
+CLI itself, and the account-scoped `packages-npm.txt`/`tools-uv.txt` —
+under a fixed placeholder account (UID/GID `1000:1000`), and a `final`
+stage that only remaps that account to the `UID`/`GID` build args
+(`usermod`/`groupmod` plus a `chown -R` of what `base` already installed)
+when they differ from the placeholder. Nothing in `final` reinstalls
+packages, so rebuilding for a different UID after the first build is fast.
+
+On a host shared by multiple accounts, tag the image per user
+(`codex:alice`, `codex:bob`) rather than overwriting a shared `codex` tag —
+and use that same tag, plus a per-user home volume (`codex-home-alice`
+rather than the shared `codex-home`), in the run command below. The
+[shell-shortcut functions](../customisation/shell-shortcuts.md)
+do both substitutions automatically from a single `CONTAINED_CODEX_TAG`
+variable; if invoking `docker run` directly instead, substitute your tag
+into both the `codex-home` volume name and the trailing `codex` image
+reference in the command below — copying it unchanged still runs the shared
+`codex:latest`.
+
 ## Run
 
 For API-key authentication, pass the key at runtime rather than baking it into
@@ -160,7 +194,11 @@ settings use the same contract documented in
 
 ## Optional build-time tools
 
-Edit `packages-apt.txt`, `packages-npm.txt`, or `packages-uv.txt` and rebuild
-to add general-purpose tools. They are installed separately from the image's
-required infrastructure, so edits cannot remove egress enforcement or the
-privilege-drop tooling.
+Edit `packages-apt.txt`, `packages-npm.txt`, `tools-uv.txt`, or
+`packages-uv.txt` and rebuild to add general-purpose tools. `tools-uv.txt`
+(`uv tool install`) is for standalone Python CLI tools, each in its own
+isolated venv; `packages-uv.txt` (`uv pip install --system`) is for plain
+importable libraries with no console-script of their own, installed into the
+image's system Python instead. They are installed separately from the
+image's required infrastructure, so edits cannot remove egress enforcement
+or the privilege-drop tooling.

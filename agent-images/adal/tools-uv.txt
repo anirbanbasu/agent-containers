@@ -1,0 +1,4 @@
+# Optional Python CLI tools installed at build time via `uv tool install`,
+# each into its own isolated venv, one per line. Blank lines and lines
+# starting with '#' are ignored. A plain importable library (no
+# console-script entry point of its own) belongs in packages-uv.txt instead.

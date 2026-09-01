@@ -79,11 +79,11 @@ contained_adal() {
     --read-only --tmpfs /tmp --tmpfs /run \
     --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
     "${AGENT_EGRESS_ARGS[@]}" \
-    -v adal-home:/home/adal \
+    -v "adal-home${CONTAINED_ADAL_TAG:+-$CONTAINED_ADAL_TAG}":/home/adal \
     -v "$PWD":"/workspace/$(basename "$PWD")" \
     -w "/workspace/$(basename "$PWD")" \
     "${AGENT_DOCKER_ARGS[@]}" \
-    adal adal "${AGENT_CLI_ARGS[@]}"
+    "adal:${CONTAINED_ADAL_TAG:-latest}" adal "${AGENT_CLI_ARGS[@]}"
 }
 
 contained_aider() {
@@ -97,11 +97,11 @@ contained_aider() {
     --read-only --tmpfs /tmp --tmpfs /run \
     --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
     "${AGENT_EGRESS_ARGS[@]}" \
-    -v aider-home:/home/aider \
+    -v "aider-home${CONTAINED_AIDER_TAG:+-$CONTAINED_AIDER_TAG}":/home/aider \
     -v "$PWD":"/workspace/$(basename "$PWD")" \
     -w "/workspace/$(basename "$PWD")" \
     "${AGENT_DOCKER_ARGS[@]}" \
-    aider aider "${AGENT_CLI_ARGS[@]}"
+    "aider:${CONTAINED_AIDER_TAG:-latest}" aider "${AGENT_CLI_ARGS[@]}"
 }
 
 contained_claude() {
@@ -112,11 +112,11 @@ contained_claude() {
     --read-only --tmpfs /tmp --tmpfs /run \
     --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
     "${AGENT_EGRESS_ARGS[@]}" \
-    -v claude-home:/home/claude \
+    -v "claude-home${CONTAINED_CLAUDE_TAG:+-$CONTAINED_CLAUDE_TAG}":/home/claude \
     -v "$PWD":"/workspace/$(basename "$PWD")" \
     -w "/workspace/$(basename "$PWD")" \
     "${AGENT_DOCKER_ARGS[@]}" \
-    claude-code claude "${AGENT_CLI_ARGS[@]}"
+    "claude-code:${CONTAINED_CLAUDE_TAG:-latest}" claude "${AGENT_CLI_ARGS[@]}"
 }
 
 contained_codex() {
@@ -128,11 +128,11 @@ contained_codex() {
     --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
     -e OPENAI_API_KEY \
     "${AGENT_EGRESS_ARGS[@]}" \
-    -v codex-home:/home/codex \
+    -v "codex-home${CONTAINED_CODEX_TAG:+-$CONTAINED_CODEX_TAG}":/home/codex \
     -v "$PWD":"/workspace/$(basename "$PWD")" \
     -w "/workspace/$(basename "$PWD")" \
     "${AGENT_DOCKER_ARGS[@]}" \
-    codex codex "${AGENT_CLI_ARGS[@]}"
+    "codex:${CONTAINED_CODEX_TAG:-latest}" codex "${AGENT_CLI_ARGS[@]}"
 }
 
 contained_kilo() {
@@ -143,11 +143,11 @@ contained_kilo() {
     --read-only --tmpfs /tmp:exec --tmpfs /run \
     --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
     "${AGENT_EGRESS_ARGS[@]}" \
-    -v kilo-home:/home/kilo \
+    -v "kilo-home${CONTAINED_KILO_TAG:+-$CONTAINED_KILO_TAG}":/home/kilo \
     -v "$PWD":"/workspace/$(basename "$PWD")" \
     -w "/workspace/$(basename "$PWD")" \
     "${AGENT_DOCKER_ARGS[@]}" \
-    kilo-code kilo "${AGENT_CLI_ARGS[@]}"
+    "kilo-code:${CONTAINED_KILO_TAG:-latest}" kilo "${AGENT_CLI_ARGS[@]}"
 }
 
 contained_opencode() {
@@ -158,11 +158,11 @@ contained_opencode() {
     --read-only --tmpfs /tmp:exec --tmpfs /run \
     --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
     "${AGENT_EGRESS_ARGS[@]}" \
-    -v opencode-home:/home/opencode \
+    -v "opencode-home${CONTAINED_OPENCODE_TAG:+-$CONTAINED_OPENCODE_TAG}":/home/opencode \
     -v "$PWD":"/workspace/$(basename "$PWD")" \
     -w "/workspace/$(basename "$PWD")" \
     "${AGENT_DOCKER_ARGS[@]}" \
-    opencode opencode "${AGENT_CLI_ARGS[@]}"
+    "opencode:${CONTAINED_OPENCODE_TAG:-latest}" opencode "${AGENT_CLI_ARGS[@]}"
 }
 
 contained_qwen() {
@@ -176,11 +176,11 @@ contained_qwen() {
     -e "OPENAI_BASE_URL=${CONTAINED_QWEN_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}" \
     -e "OPENAI_MODEL=${CONTAINED_QWEN_MODEL:-qwen3-coder-plus}" \
     "${AGENT_EGRESS_ARGS[@]}" \
-    -v qwen-home:/home/qwen \
+    -v "qwen-home${CONTAINED_QWEN_TAG:+-$CONTAINED_QWEN_TAG}":/home/qwen \
     -v "$PWD":"/workspace/$(basename "$PWD")" \
     -w "/workspace/$(basename "$PWD")" \
     "${AGENT_DOCKER_ARGS[@]}" \
-    qwen-code qwen "${AGENT_CLI_ARGS[@]}"
+    "qwen-code:${CONTAINED_QWEN_TAG:-latest}" qwen "${AGENT_CLI_ARGS[@]}"
 }
 
 contained_hermes() {
@@ -196,7 +196,7 @@ contained_hermes() {
     "${AGENT_EGRESS_ARGS[@]}" \
     -v hermes-data:/opt/data \
     "${AGENT_DOCKER_ARGS[@]}" \
-    hermes "${AGENT_CLI_ARGS[@]}"
+    "hermes:${CONTAINED_HERMES_TAG:-latest}" "${AGENT_CLI_ARGS[@]}"
 }
 ```
 
@@ -243,6 +243,25 @@ CLI command required after the image name.
 ```sh
 contained_codex login --device-auth
 ```
+
+Each function defaults to the `:latest` tag (e.g. `adal:latest`), matching a
+plain `docker build -t adal agent-images/adal` with no `--build-arg
+UID`/`GID` override — the common single-user-per-host case needs no further
+configuration. On a host shared by multiple accounts where each user built
+their own UID-matched tag (see [Matching your host user's
+UID/GID](../container-images/claude-code.md#matching-your-host-users-uidgid)),
+set the matching `CONTAINED_<IMAGE>_TAG` variable (e.g.
+`CONTAINED_ADAL_TAG=alice`) in that user's own shell profile before sourcing
+`shortcuts.sh`. For the seven workload images built from the shared
+UID/GID template (every function above except `contained_hermes`), setting
+that variable changes two things together: the function runs the matching
+`adal:alice` instead of whatever happens to be tagged `adal:latest`, *and*
+it mounts a per-user home volume (`adal-home-alice` instead of the shared
+`adal-home`) — each affected function suffixes its home volume's name with
+the same tag, so two UID-tagged images on the same host never collide over
+one account's persistent state. `hermes` has no build-time UID/GID and
+always keeps the single shared `hermes-data` volume regardless of
+`CONTAINED_HERMES_TAG`.
 
 The functions deliberately do not set unrestricted egress. Override a
 specific image's `CONTAINED_<IMAGE>_EGRESS` variable only with the hosts its

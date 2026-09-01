@@ -1,0 +1,4 @@
+# One uv CLI tool specifier per line. These optional tools install at build
+# time via `uv tool install`, each into its own isolated venv. A plain
+# importable library (no console-script entry point of its own) belongs in
+# packages-uv.txt instead.

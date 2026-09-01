@@ -1,1 +1,4 @@
-# One uv tool/package specifier per line. These optional packages install at build time.
+# One uv package specifier per line. These optional Python libraries install
+# at build time via `uv pip install --system` into the system Python, so
+# they're importable by whatever runs inside the image — a CLI-only package
+# with no importable module of its own belongs in tools-uv.txt instead.

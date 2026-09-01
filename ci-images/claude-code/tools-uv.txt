@@ -1,0 +1,9 @@
+# Optional Python CLI tools installed at build time (via `uv tool install`),
+# one per line, each into its own isolated venv. Blank lines and lines
+# starting with '#' are ignored. Empty by default — there's no "everyone
+# wants this" uv-installed CLI the way there is for apt utilities. A plain
+# importable library (no console-script entry point of its own) belongs in
+# packages-uv.txt instead.
+#
+# Example:
+# ruff

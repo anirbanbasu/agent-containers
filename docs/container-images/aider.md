@@ -28,6 +28,40 @@ docker build --build-context shared=agent-images/shared \
   -t aider agent-images/aider
 ```
 
+### Matching your host user's UID/GID
+
+The image defaults to UID/GID `1000:1000`. Everything the agent writes to
+the bind-mounted project directory or the persistent home volume is owned
+by whatever UID/GID the container ran as — if that doesn't match your host
+account, those files aren't owned by you on the host (permission errors,
+needing `sudo` to clean up). Rebuild with matching values instead:
+
+```sh
+docker build --build-context shared=agent-images/shared \
+  --build-arg UID=$(id -u) --build-arg GID=$(id -g) \
+  -t aider:$(whoami) agent-images/aider
+```
+
+`Dockerfile` splits into a `base` stage that installs everything —
+apt/Node.js/`uv` baseline, `packages-apt.txt`/`packages-uv.txt`, Aider
+itself, and the account-scoped `packages-npm.txt`/`tools-uv.txt` — under a
+fixed placeholder account (UID/GID `1000:1000`), and a `final` stage that
+only remaps that account to the `UID`/`GID` build args (`usermod`/`groupmod`
+plus a `chown -R` of what `base` already installed) when they differ from
+the placeholder. Nothing in `final` reinstalls packages, so rebuilding for a
+different UID after the first build is fast.
+
+On a host shared by multiple accounts, tag the image per user
+(`aider:alice`, `aider:bob`) rather than overwriting a shared `aider` tag —
+and use that same tag, plus a per-user home volume (`aider-home-alice`
+rather than the shared `aider-home`), in the run command below. The
+[shell-shortcut functions](../customisation/shell-shortcuts.md)
+do both substitutions automatically from a single `CONTAINED_AIDER_TAG`
+variable; if invoking `docker run` directly instead, substitute your tag
+into both the `aider-home` volume name and the trailing `aider` image
+reference in the command below — copying it unchanged still runs the shared
+`aider:latest`.
+
 ## Run
 
 Choose one model provider and allow only its API hostname. For example, this
@@ -154,7 +188,11 @@ configuration.
 
 ## Optional build-time tools
 
-Edit `packages-apt.txt`, `packages-npm.txt`, or `packages-uv.txt` and rebuild
-to add general-purpose tools. `packages-apt.txt` starts with the common CLI
-utilities used by the other first-party images. Do not seed API keys, provider
+Edit `packages-apt.txt`, `packages-npm.txt`, `tools-uv.txt`, or
+`packages-uv.txt` and rebuild to add general-purpose tools. `packages-apt.txt`
+starts with the common CLI utilities used by the other first-party images.
+`tools-uv.txt` (`uv tool install`) is for standalone Python CLI tools, each in
+its own isolated venv; `packages-uv.txt` (`uv pip install --system`) is for
+plain importable libraries with no console-script of their own, installed
+into the image's system Python instead. Do not seed API keys, provider
 configuration, plugins, a browser, or a local-model runtime in the image.

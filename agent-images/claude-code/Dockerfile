@@ -1,7 +1,5 @@
-FROM python:3.14-slim-trixie
+FROM python:3.14-slim-trixie AS base
 
-ARG UID=1000
-ARG GID=1000
 ARG TARGETARCH
 
 # Shared Node.js, containment, gateway-client, and cloudflared baseline for
@@ -24,10 +22,25 @@ RUN bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
 # the apt/Node.js setup above.
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
+# packages-uv.txt — general Python libraries (not CLI tools; see
+# tools-uv.txt below), installed via `uv pip install --system` into this
+# system Python. Runs as root, before the claude user exists, since it
+# writes into the image's system site-packages rather than $HOME.
+COPY packages-uv.txt /tmp/packages-uv.txt
+RUN bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
+        && install_uv_packages /tmp/packages-uv.txt' \
+    && rm -f /tmp/packages-uv.txt
+
 RUN npm install -g @anthropic-ai/claude-code
 
-RUN groupadd -g "$GID" claude \
-    && useradd -m -u "$UID" -g "$GID" -s /bin/bash claude \
+# The claude account is created here, at a fixed placeholder UID/GID
+# (1000:1000), purely so the root-only installers below (npm, uv tool,
+# claude plugin) have a real non-root account to run as. `final` remaps
+# this account to the operator's actual host UID/GID instead of recreating
+# it, so a rebuild for a different host user reuses everything installed
+# below unchanged rather than reinstalling it over the network.
+RUN groupadd -g 1000 claude \
+    && useradd -m -u 1000 -g 1000 -s /bin/bash claude \
     && mkdir -p /home/claude/.claude /workspace \
     && chown -R claude:claude /home/claude /workspace
 
@@ -48,18 +61,15 @@ ENV HOME=/home/claude
 ENV npm_config_prefix=/home/claude/.npm-global
 ENV PATH="/home/claude/.local/bin:/home/claude/.npm-global/bin:${PATH}"
 
-# packages-npm.txt / packages-uv.txt — see packages-apt.txt above. Run as the
-# claude user (not root) so npm/uv installs land under $HOME, per the ENV
-# block just above.
+# packages-npm.txt / tools-uv.txt — see packages-apt.txt above. Run as the
+# claude user (not root) so npm/uv-tool installs land under $HOME, per the
+# ENV block just above.
 COPY packages-npm.txt /tmp/packages-npm.txt
-COPY packages-uv.txt /tmp/packages-uv.txt
+COPY tools-uv.txt /tmp/tools-uv.txt
 RUN gosu claude bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
         && install_npm_packages /tmp/packages-npm.txt \
-        && install_uv_packages /tmp/packages-uv.txt' \
-    && rm -f /tmp/packages-npm.txt /tmp/packages-uv.txt
-
-COPY --from=shared egress-allowlist.sh /usr/local/lib/agent/egress-allowlist.sh
-COPY --from=shared workload-entrypoint.sh /usr/local/lib/agent/workload-entrypoint.sh
+        && install_uv_tools /tmp/tools-uv.txt' \
+    && rm -f /tmp/packages-npm.txt /tmp/tools-uv.txt
 
 COPY plugin-marketplaces.txt /tmp/plugin-marketplaces.txt
 COPY plugins.txt /tmp/plugins.txt
@@ -78,18 +88,47 @@ RUN gosu claude claude plugin marketplace add anthropics/claude-plugins-official
     done < /tmp/plugins.txt \
     && rm /tmp/plugin-marketplaces.txt /tmp/plugins.txt
 
+# Everything above this line is UID/GID-independent and layer-cacheable
+# across hosts: the claude account exists at the fixed placeholder UID/GID
+# only so the installers above have a non-root account to run as. From here
+# down, `final` remaps that account to the operator's actual host UID/GID
+# with --build-arg UID=$(id -u) --build-arg GID=$(id -g) — the base stage
+# above is reused unchanged from cache, and nothing installed above is
+# reinstalled, rather than rebuilding per host user.
+FROM base AS final
+ARG UID=1000
+ARG GID=1000
+
+# Only remap when the caller supplied a different UID/GID than the fixed
+# placeholder baked into `base` above — usermod/groupmod plus a chown -R
+# walk over already-installed content is far cheaper than rerunning the
+# npm/uv-tool/plugin installs above, but it's skippable entirely for the
+# common case where the caller never overrides UID/GID. Deliberately no -o:
+# without it, usermod/groupmod refuse to reuse an ID already assigned to
+# another account, so a caller can never remap claude onto UID/GID 0 (root)
+# or collide it with another in-image identity — the build fails instead of
+# silently succeeding.
+RUN if [ "$UID" != "1000" ] || [ "$GID" != "1000" ]; then \
+        groupmod -g "$GID" claude \
+        && usermod -u "$UID" -g "$GID" claude \
+        && chown -R "$UID":"$GID" /home/claude /workspace; \
+    fi
+
+COPY --from=shared egress-allowlist.sh /usr/local/lib/agent/egress-allowlist.sh
+COPY --from=shared workload-entrypoint.sh /usr/local/lib/agent/workload-entrypoint.sh
+
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/lib/agent/workload-entrypoint.sh
 
 # Strip setuid/setgid bits from the base image and every package installed
 # above — required infra (install-workload-base.sh), packages-apt.txt,
-# packages-npm.txt, packages-uv.txt, and installed plugins — run last so
-# nothing installed by any of those is missed. NoNewPrivs=1 (set by every
-# documented run invocation) already makes these bits inert on execve, but
-# that's an argument for stripping them, not against: if any single control
-# ever regresses, a setuid-root `mount` becomes a live escalation primitive.
-# None of these binaries are needed at runtime, so none should ship
-# exploitable-shaped.
+# packages-npm.txt, packages-uv.txt, tools-uv.txt, and installed plugins —
+# run last so nothing installed by any of those is missed. NoNewPrivs=1 (set
+# by every documented run invocation) already makes these bits inert on
+# execve, but that's an argument for stripping them, not against: if any
+# single control ever regresses, a setuid-root `mount` becomes a live
+# escalation primitive. None of these binaries are needed at runtime, so
+# none should ship exploitable-shaped.
 RUN find / -xdev -perm /6000 -type f -exec chmod a-s {} + || true
 
 WORKDIR /workspace

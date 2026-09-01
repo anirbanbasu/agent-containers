@@ -7,6 +7,16 @@
 # entry per line, '#' comments, blank lines ignored) — same convention as
 # plugins.txt. Each function no-ops if its file is missing or has no
 # non-comment entries, so an image can ship empty lists at zero cost.
+#
+# Two distinct uv-backed installers exist because `uv tool install` and
+# `uv pip install --system` put packages in fundamentally incompatible
+# places: install_uv_tools gives each entry its own isolated venv (only that
+# entry's own console-script wrapper ends up on PATH — nothing importable
+# lands anywhere shared), while install_uv_packages installs into the one
+# shared system Python so entries can `import` each other and whatever else
+# runs in that interpreter. A library with no console-script entry point
+# (e.g. a plain SDK) has no wrapper to run in isolation, so it belongs in
+# packages-uv.txt/install_uv_packages, not tools-uv.txt/install_uv_tools.
 
 # Inherited by whatever sources this file, so a failed apt-get/npm/uv install
 # aborts the build immediately instead of being masked by a later command
@@ -40,7 +50,7 @@ install_npm_packages() {
     done < "$file"
 }
 
-install_uv_packages() {
+install_uv_tools() {
     local file="$1"
     [ -s "$file" ] || return 0
     local line package
@@ -51,4 +61,19 @@ install_uv_packages() {
         case "$package" in ''|'#'*) continue ;; esac
         uv tool install "$package"
     done < "$file"
+}
+
+install_uv_packages() {
+    local file="$1"
+    [ -s "$file" ] || return 0
+    local -a packages
+    mapfile -t packages < <(grep -v '^[[:space:]]*#' "$file" \
+        | grep -v '^[[:space:]]*$' \
+        | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+    [ "${#packages[@]}" -eq 0 ] && return 0
+    # --system, unlike uv tool install: lands in the one shared system Python
+    # so entries can import each other and whatever else runs in that
+    # interpreter. Batched in one resolve/install, same as apt/npm, since
+    # there's no per-entry isolation to force one-call-per-line here.
+    uv pip install --system "${packages[@]}"
 }

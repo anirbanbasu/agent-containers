@@ -1,0 +1,7 @@
+# Optional global npm packages installed at build time (via `npm install -g`),
+# one per line. Blank lines and lines starting with '#' are ignored. Empty by
+# default — there's no "everyone wants this" global npm CLI the way there is
+# for apt utilities.
+#
+# Example:
+# @some-scope/some-cli

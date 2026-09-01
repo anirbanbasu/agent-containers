@@ -10,3 +10,7 @@ fd-find
 tree
 unzip
 less
+file
+lsof
+yq
+miller
