@@ -2,12 +2,12 @@
 icon: lucide/git-pull-request-arrow
 ---
 
-# The `claude-code-ci` container (sketch)
+# The `claude-code-ci` container (experimental)
 
 !!! warning "Not integrated yet"
 
-    This page documents `ci-images/claude-code/`, a sketch built during
-    design discussion — not yet wired into the required-integration
+    This page documents `ci-images/claude-code/`, an experimental image built
+    during design discussion — not yet wired into the required-integration
     checklist in `AGENTS.md` (docs index, `README.md`/`SECURITY.md`,
     `just update-issue-templates`). Treat everything below as a candidate,
     same spirit as `docs/customisation/local-models.md`.
@@ -95,7 +95,7 @@ What this deliberately does **not** attempt:
   under interactive "ask" modes), and whether the `Bash(git push --force
   *)`-style glob matches the way the pattern's shape suggests, is
   unverified. Confirm both before relying on this file for anything that
-  matters; see [What is left before this stops being a sketch](#what-is-left-before-this-stops-being-a-sketch).
+  matters; see [What is left before this stops being experimental](#what-is-left-before-this-stops-being-experimental).
 
 ## The three independent axes
 
@@ -192,7 +192,7 @@ documentation for the command shapes below:
   list as the same kind of blanket escape hatch.
 
 The `glab mr create`/`api` command shapes above have not themselves been
-run against a live GitLab project — see [What is left before this stops being a sketch](#what-is-left-before-this-stops-being-a-sketch).
+run against a live GitLab project — see [What is left before this stops being experimental](#what-is-left-before-this-stops-being-experimental).
 
 ## Model provider configuration
 
@@ -574,7 +574,7 @@ Testing the actual clone/push/PR-or-MR path (`CI_OUTPUT_MODE=pr`, either
 and a token scoped to it — there is currently no mock provider. Don't point
 this at `agent-containers` itself for a real end-to-end test.
 
-## What is left before this stops being a sketch
+## What is left before this stops being experimental
 
 - **Partially smoke-tested.** `docker build` succeeds; `glab --version`
   reports `1.114.0` and `gh --version` runs; the container drops to the

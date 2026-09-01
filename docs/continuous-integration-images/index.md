@@ -4,7 +4,7 @@ icon: lucide/git-pull-request-arrow
 
 # Continuous integration images
 
-!!! warning "Sketch, not integrated yet"
+!!! warning "Experimental, not integrated yet"
 
     This section documents `ci-images/`, work-in-progress designs — not yet
     wired into the required-integration checklist in `AGENTS.md` (docs
