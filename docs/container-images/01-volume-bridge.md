@@ -151,7 +151,15 @@ unset webdav_password
 The following example exports the Claude Code and Codex home volumes. They are
 available below the WebDAV root as `/claude` and `/codex`. The bridge UID/GID
 defaults to `1000:1000`; build with `--build-arg UID=… --build-arg GID=…` when
-the source volume's owner uses different numeric IDs.
+the source volume's owner uses different numeric IDs. Workload images such as
+`claude-code` are normally themselves built with
+`--build-arg UID=$(id -u) --build-arg GID=$(id -g)`, remapping their account to
+the operator's host UID/GID rather than the placeholder `1000:1000` (see that
+image's Dockerfile) — so build `volume-bridge` the same way,
+`--build-arg UID=$(id -u) --build-arg GID=$(id -g)`, unless you know the
+source volume was built with different, fixed IDs. A mismatch here does not
+always fail loudly; see
+[Password rotation and troubleshooting](#password-rotation-and-troubleshooting).
 
 ```sh
 docker run -d --name volume-bridge \
@@ -361,6 +369,24 @@ access to those paths through Docker Desktop's sharing mechanism.
   initialize its ownership through the trusted Docker administration process.
 - If source paths are unreadable, rebuild the image with the agent volume's
   numeric UID/GID. Do not solve this by adding `DAC_OVERRIDE`.
+- A UID/GID mismatch does not always surface as a permission error: it can
+  instead mount successfully but show an empty (or partially empty) directory
+  on the client, with nothing wrong-looking in the container logs. rclone's
+  WebDAV server is built on Go's `golang.org/x/net/webdav`, which has a
+  long-standing bug where hitting a permission-denied file partway through
+  building a directory's PROPFIND response emits a truncated response instead
+  of a clean error ([golang/go#43782](https://github.com/golang/go/issues/43782)) —
+  `davfs2`'s `neon`-based client then renders that as an empty listing rather
+  than a mount failure. If a mount looks empty despite a non-empty source
+  volume, check ownership before assuming a client-side problem:
+  ```sh
+  docker run --rm -v <source-volume>:/data:ro debian:trixie-slim \
+    find /data -not -user <bridge-uid> -o -not -group <bridge-gid>
+  ```
+  Any output identifies files the bridge user can't read. A raw `curl -u
+  bridge -X PROPFIND -H "Depth: 1" http://127.0.0.1:16080/<export>/` bypasses
+  the client entirely and helps confirm whether the response looks truncated
+  before rebuilding the image with matching `UID`/`GID` build args.
 - If Windows does not show a credentials prompt, check that WebClient is running
   and that its `BasicAuthLevel` policy permits loopback HTTP Basic auth.
 - Verify the security properties in the target Docker/Desktop environment:
