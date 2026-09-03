@@ -313,15 +313,49 @@ natively (via `npx`, an npm global install, or Homebrew) or as a Docker
 container; the Docker form mounts the relevant `.claude`/`.codex` directories
 from ordinary host paths.
 
-Decant illustrates the delegation this image is for. Whoever launches a
-containerized Decant *could* mount `claude-home`/`codex-home` directly — but
-only if they already hold Docker daemon access, and a direct volume mount
-exposes the entire home directory, not just the session-bearing subdirectories
-Decant needs. `volume-bridge` lets the Docker administrator publish read-only,
-WebDAV-authenticated access instead: whoever runs Decant needs only a host
-filesystem path and the bridge credential, never Docker or root access, and
-the final host-side mount step below narrows exposure to `.claude` and
-`.codex` specifically.
+Which setup applies depends on who runs Decant:
+
+- **The Decant operator already has Docker daemon access** — the common case
+  for a local, single-user tool: mount `claude-home`/`codex-home` directly,
+  narrowed to the session-bearing subdirectory with
+  `--mount ...,volume-subpath=.claude` (Docker Engine 25+). No `volume-bridge`
+  needed.
+- **The Decant operator must not receive Docker or root access** — a
+  teammate, a non-Docker-aware host tool, or any consumer kept out of the
+  Docker group: publish read-only, WebDAV-authenticated access through
+  `volume-bridge` instead, and mount the resulting host WebDAV paths into
+  Decant.
+
+### Direct mount (Decant operator has Docker access)
+
+Decant's image runs as a fixed non-root user (currently `999:999`), which will
+not generally match the UID/GID that owns `claude-home`/`codex-home` (commonly
+the invoking host user's own UID/GID, e.g. `1000:1000`). Because the mount
+into Decant is already `readonly`, resolve that mismatch with a one-time
+`chmod -R o+rX` on the source volumes rather than trying to run Decant as a
+matching UID: Decant's own `/var/lib/decant` SQLite state must stay owned by
+its built-in user, so overriding `--user` to match `claude-home`/`codex-home`
+breaks Decant's database instead (`unable to open database file`).
+
+```sh
+docker run --rm -v claude-home:/vol alpine chmod -R o+rX /vol
+docker run --rm -v codex-home:/vol alpine chmod -R o+rX /vol
+```
+
+```sh
+docker run --rm \
+  -p 127.0.0.1:3000:3000 \
+  -v decant-data:/var/lib/decant \
+  --mount type=volume,source=claude-home,target=/sources/claude,readonly,volume-subpath=.claude \
+  --mount type=volume,source=codex-home,target=/sources/codex,readonly,volume-subpath=.codex \
+  ghcr.io/dosu-ai/decant:latest
+```
+
+This is also the option that has tested best: Decant's sync and in-UI update
+both work reliably against the named volumes directly, which was not
+consistently true of the WebDAV-mounted host paths below.
+
+### Delegated mount via `volume-bridge` (Decant operator has no Docker access)
 
 Mount the relevant session-bearing exports on the host first. Decant expects
 the whole `.claude` directory (it resolves `projects` beneath it itself, so do
@@ -341,18 +375,18 @@ The preceding commands create the `$HOME/agent-sessions/claude` and
 `$HOME/agent-sessions/codex` mount paths. A containerized consumer needs
 access to those paths through Docker Desktop's sharing mechanism.
 
-!!! note "Alternatives evaluated and not recommended"
+!!! note "Earlier testing notes"
 
-    Two other ways of getting this data into Decant were tried and rejected.
-    Mounting `claude-home`/`codex-home` directly into a Decant container,
-    narrowed with `--mount ...,volume-subpath=.claude` (Docker Engine 25+)
-    instead of using `volume-bridge`, needs Docker daemon access — already
-    host-root-equivalent — just to read session logs, and failed Decant's sync
-    outright in testing. Running Decant natively (`npx @dosu/decant@latest
-    serve --claude-dir ... --codex-dir ...`) against the same WebDAV mounts
-    avoids Docker entirely, but on Linux took an impractically long time to
-    sync and load the web UI. The containerized option above was the only one
-    that worked well.
+    Mounting `claude-home`/`codex-home` directly, narrowed with
+    `--mount ...,volume-subpath=.claude`, first failed Decant's sync outright.
+    That turned out to be a UID mismatch between Decant's fixed `999:999` user
+    and the volumes' `1000:1000` ownership, not a limitation of
+    `volume-subpath` mounts themselves — the `chmod -R o+rX` step above
+    resolves it, which is why the direct-mount option is now recommended when
+    the operator already has Docker access. Running Decant natively (`npx
+    @dosu/decant@latest serve --claude-dir ... --codex-dir ...`) against the
+    WebDAV-mounted host paths avoids Docker entirely, but on Linux took an
+    impractically long time to sync and load the web UI.
 
 ## Password rotation and troubleshooting
 
