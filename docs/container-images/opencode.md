@@ -132,3 +132,6 @@ isolated venv; `packages-uv.txt` (`uv pip install --system`) is for plain
 importable libraries with no console-script of their own, installed into the
 image's system Python instead. No plugins or skills are seeded in v1; all
 OpenCode state lives under the persisted home volume.
+
+The image also sets `UV_LINK_MODE=copy` — see [`claude-code`'s uv cache
+notes](claude-code.md#installing-python-and-node-packages-at-runtime) for why.

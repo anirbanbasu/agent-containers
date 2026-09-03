@@ -144,3 +144,6 @@ importable libraries with no console-script of their own, installed into the
 image's system Python instead. No credentials, plugins, skills, or provider
 configuration are seeded in the image; Kilo stores user-selected state in
 the persisted home volume.
+
+The image also sets `UV_LINK_MODE=copy` — see [`claude-code`'s uv cache
+notes](claude-code.md#installing-python-and-node-packages-at-runtime) for why.

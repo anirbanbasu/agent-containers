@@ -130,6 +130,9 @@ for the version-recorded custom-endpoint candidate.
   by whatever runs inside the image. Edit any of the four and rebuild the
   image to change what's installed.
 
+The image also sets `UV_LINK_MODE=copy` — see [`claude-code`'s uv cache
+notes](claude-code.md#installing-python-and-node-packages-at-runtime) for why.
+
 ## Egress control
 
 ### In-container allowlist

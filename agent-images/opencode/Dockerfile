@@ -41,6 +41,12 @@ ENV HOME=/home/opencode
 ENV npm_config_prefix=/home/opencode/.npm-global
 ENV PATH="/home/opencode/.local/bin:/home/opencode/.npm-global/bin:${PATH}"
 
+# $HOME (uv's default cache location) and /workspace are deliberately
+# separate mounts in this containment model, so uv's hardlink/reflink
+# optimisation can never apply between them — declare the copy fallback
+# explicit rather than have uv warn about it on every install.
+ENV UV_LINK_MODE=copy
+
 COPY packages-npm.txt /tmp/packages-npm.txt
 COPY tools-uv.txt /tmp/tools-uv.txt
 RUN gosu opencode bash -c '. /usr/local/lib/agent/install-additional-packages.sh \

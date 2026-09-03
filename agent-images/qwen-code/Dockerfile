@@ -40,6 +40,12 @@ RUN groupadd -g 1000 qwen \
 ENV HOME=/home/qwen
 ENV npm_config_prefix=/home/qwen/.npm-global
 ENV PATH="/home/qwen/.local/bin:/home/qwen/.npm-global/bin:${PATH}"
+
+# $HOME (uv's default cache location) and /workspace are deliberately
+# separate mounts in this containment model, so uv's hardlink/reflink
+# optimisation can never apply between them — declare the copy fallback
+# explicit rather than have uv warn about it on every install.
+ENV UV_LINK_MODE=copy
 # The outer container is the sandbox. Never let Qwen Code start a nested
 # Docker/Podman sandbox, which would require access to a container runtime.
 ENV QWEN_SANDBOX=false

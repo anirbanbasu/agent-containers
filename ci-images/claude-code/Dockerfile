@@ -61,6 +61,12 @@ ENV HOME=/home/claude
 ENV npm_config_prefix=/home/claude/.npm-global
 ENV PATH="/home/claude/.local/bin:/home/claude/.npm-global/bin:${PATH}"
 
+# $HOME (uv's default cache location) and /workspace are deliberately
+# separate mounts in this containment model, so uv's hardlink/reflink
+# optimisation can never apply between them — declare the copy fallback
+# explicit rather than have uv warn about it on every install.
+ENV UV_LINK_MODE=copy
+
 # packages-npm.txt / tools-uv.txt — see packages-apt.txt above. Run as the
 # claude user (not root) so npm/uv-tool installs land under $HOME, per the
 # ENV block just above.
