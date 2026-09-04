@@ -328,32 +328,125 @@ Which setup applies depends on who runs Decant:
 
 ### Direct mount (Decant operator has Docker access)
 
-Decant's image runs as a fixed non-root user (currently `999:999`), which will
-not generally match the UID/GID that owns `claude-home`/`codex-home` (commonly
-the invoking host user's own UID/GID, e.g. `1000:1000`). Because the mount
-into Decant is already `readonly`, resolve that mismatch with a one-time
-`chmod -R o+rX` on the source volumes rather than trying to run Decant as a
-matching UID: Decant's own `/var/lib/decant` SQLite state must stay owned by
-its built-in user, so overriding `--user` to match `claude-home`/`codex-home`
-breaks Decant's database instead (`unable to open database file`).
+Decant's own Dockerfile does not hard-code its `999:999` user: it just runs
+`useradd --system`, and `999` is where that lands on top of a fresh
+`debian:bookworm-slim` layer (Debian's default system-UID range in
+`/etc/login.defs` is `100`–`999`, and `decant` is the first system account
+the image creates). That UID/GID generally won't match `claude-home`/
+`codex-home` (commonly the invoking host user's own UID/GID, e.g.
+`1000:1000`). Fix that at the source with a small downstream image that
+renumbers Decant's `decant` account, at container start, to whatever UID/GID
+actually owns the mounted volumes, rather than loosening permissions on the
+volumes themselves. Its `/var/lib/decant` SQLite state is re-owned to the
+same account on every start, so — unlike overriding `--user` directly against
+the upstream image — Decant's database stays writable by whichever account
+ends up running it (`unable to open database file` otherwise).
 
-```sh
-docker run --rm -v claude-home:/vol alpine chmod -R o+rX /vol
-docker run --rm -v codex-home:/vol alpine chmod -R o+rX /vol
+This avoids a `chmod -R o+rX` on the source volumes entirely. `chmod` is a
+one-time snapshot: it does not cover directories an agent creates *after* it
+runs, such as a new `~/.claude/sessions` entry on a later Claude Code
+startup, so the mismatch silently comes back as new files accumulate. A
+derived image that instead makes Decant run *as* the volume's actual owning
+UID reads those new paths correctly the moment they appear, with nothing to
+re-run.
+
+Save the following as `Dockerfile` and `entrypoint.sh` in an empty directory:
+
+```dockerfile
+FROM ghcr.io/dosu-ai/decant:latest
+
+USER root
+COPY entrypoint.sh /usr/local/bin/decant-entrypoint.sh
+RUN chmod +x /usr/local/bin/decant-entrypoint.sh
+
+ENTRYPOINT ["/usr/local/bin/decant-entrypoint.sh"]
+CMD ["serve", "--host", "0.0.0.0", "--port", "3000", "--no-fs-watch", "--interval-ms", "45000"]
 ```
 
 ```sh
-docker run --rm \
+#!/bin/sh
+set -eu
+
+if [ -n "${DECANT_UID:-}" ] && [ -n "${DECANT_GID:-}" ]; then
+  uid="$DECANT_UID"
+  gid="$DECANT_GID"
+elif [ -d /sources/claude ]; then
+  uid=$(stat -c '%u' /sources/claude)
+  gid=$(stat -c '%g' /sources/claude)
+elif [ -d /sources/codex ]; then
+  uid=$(stat -c '%u' /sources/codex)
+  gid=$(stat -c '%g' /sources/codex)
+else
+  echo "entrypoint: no /sources/claude or /sources/codex mounted, and no DECANT_UID/DECANT_GID set" >&2
+  exit 1
+fi
+
+current_uid=$(id -u decant)
+current_gid=$(id -g decant)
+
+if [ "$uid" != "$current_uid" ] || [ "$gid" != "$current_gid" ]; then
+  groupmod -g "$gid" decant
+  usermod -u "$uid" -g "$gid" decant
+fi
+
+chown -R decant:decant /var/lib/decant
+
+exec setpriv --reuid decant --regid decant --init-groups /usr/local/bin/decant "$@"
+```
+
+The entrypoint runs as root only long enough to renumber the `decant` account
+and re-own its state directory, then uses `setpriv` — already present in the
+upstream `debian:bookworm-slim` base, so nothing extra to install — to `exec`
+into the real `decant` binary as that account. That's a true process
+replacement, not a forked wrapper, so PID 1 still receives and handles
+signals normally. No `--build-arg` is needed: the UID/GID are read from
+whichever volumes are mounted at `/sources/claude` or `/sources/codex` when
+the container starts, so the same built image works for any operator without
+a rebuild. Set `DECANT_UID`/`DECANT_GID` explicitly to skip auto-detection.
+
+```sh
+docker build -t decant-matched:local .
+```
+
+```sh
+docker run -d \
   -p 127.0.0.1:3000:3000 \
   -v decant-data:/var/lib/decant \
   --mount type=volume,source=claude-home,target=/sources/claude,readonly,volume-subpath=.claude \
   --mount type=volume,source=codex-home,target=/sources/codex,readonly,volume-subpath=.codex \
-  ghcr.io/dosu-ai/decant:latest
+  decant-matched:local
 ```
 
 This is also the option that has tested best: Decant's sync and in-UI update
 both work reliably against the named volumes directly, which was not
 consistently true of the WebDAV-mounted host paths below.
+
+!!! note "If `claude-home` and `codex-home` have different owners"
+
+    The entrypoint above assumes both volumes share one UID/GID pair — the
+    common case for a single operator's own agent homes. `decant` is one
+    account, so it can only be renumbered to match one owner; if the two
+    volumes are genuinely owned by different UID/GID pairs, renumbering to
+    match one of them still leaves the other unreadable. Prefer a POSIX
+    *default* ACL over a `chmod -R o+rX` on the mismatched volume, granting
+    read access to the UID `decant` was renumbered to (i.e. the *other*
+    volume's owner — `claude-home`'s UID/GID in this example, if
+    `codex-home` is the mismatched one):
+
+    ```sh
+    docker run --rm -v codex-home:/vol debian:bookworm-slim \
+      sh -c 'apt-get update -qq && apt-get install -qq -y acl >/dev/null &&
+             setfacl -R -d -m u:<claude-home-uid>:rX -m u:<claude-home-uid>:rX /vol'
+    ```
+
+    Unlike `chmod`, a default ACL is inherited by files and directories
+    created after it is set, so it does not silently stop covering new
+    session directories the way a one-time `chmod` does. This needs the `acl`
+    package and a volume backend that supports POSIX ACLs (true for ordinary
+    ext4/xfs; confirm this holds under Docker Desktop's VM before relying on
+    it there). Running two separate Decant containers, one per volume, is the
+    alternative, but was ruled out: Decant correlates Claude and Codex data
+    together, so splitting them into separate instances defeats the point.
 
 ### Delegated mount via `volume-bridge` (Decant operator has no Docker access)
 
@@ -381,12 +474,19 @@ access to those paths through Docker Desktop's sharing mechanism.
     `--mount ...,volume-subpath=.claude`, first failed Decant's sync outright.
     That turned out to be a UID mismatch between Decant's fixed `999:999` user
     and the volumes' `1000:1000` ownership, not a limitation of
-    `volume-subpath` mounts themselves — the `chmod -R o+rX` step above
-    resolves it, which is why the direct-mount option is now recommended when
-    the operator already has Docker access. Running Decant natively (`npx
-    @dosu/decant@latest serve --claude-dir ... --codex-dir ...`) against the
-    WebDAV-mounted host paths avoids Docker entirely, but on Linux took an
-    impractically long time to sync and load the web UI.
+    `volume-subpath` mounts themselves — the downstream image above resolves
+    it by renumbering Decant's account instead, which is why the direct-mount
+    option is now recommended when the operator already has Docker access.
+    An earlier revision of this doc used a one-time `chmod -R o+rX` on the
+    source volumes instead; that worked for existing files but silently
+    stopped covering directories created after the `chmod` ran (e.g. a new
+    `~/.claude/sessions` entry on a later Claude Code startup), so it was
+    replaced with the account-renumbering approach above.
+
+    Running Decant natively (`npx @dosu/decant@latest serve --claude-dir ...
+    --codex-dir ...`) against the WebDAV-mounted host paths avoids Docker
+    entirely, but on Linux took an impractically long time to sync and load
+    the web UI.
 
 ## Password rotation and troubleshooting
 
