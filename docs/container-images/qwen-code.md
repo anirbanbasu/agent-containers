@@ -153,3 +153,6 @@ importable libraries with no console-script of their own, installed into the
 image's system Python instead. No credentials, extensions, skills, or
 plugins are seeded in the image; Qwen Code stores user-selected state in the
 persisted home volume.
+
+The image also sets `UV_LINK_MODE=copy` — see [`claude-code`'s uv cache
+notes](claude-code.md#installing-python-and-node-packages-at-runtime) for why.

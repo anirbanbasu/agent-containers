@@ -270,6 +270,14 @@ inside the image. `glab`, unlike `gh`, is baked in rather than
 user-editable — see [Provider support](#provider-support) above. Edit any of
 the four and rebuild the image to change what's installed.
 
+The image also sets `UV_LINK_MODE=copy`, same as the interactive image — see
+[`claude-code`'s uv cache
+notes](../container-images/claude-code.md#installing-python-and-node-packages-at-runtime)
+for why. This still applies here even without a persistent `$HOME` volume:
+`--tmpfs /home/claude` and `/workspace` are separate mounts regardless, so if
+`uv` runs against `/workspace` at task runtime (e.g. the agent running
+`uv sync` in a cloned Python project) the same cross-mount fallback applies.
+
 ## Scoping what the token can reach
 
 `run-agent-task.sh` never calls `gh pr merge` — merging stays a human

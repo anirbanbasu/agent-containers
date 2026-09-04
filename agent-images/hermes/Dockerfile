@@ -51,6 +51,12 @@ ENV HOME=/opt/data
 ENV npm_config_prefix=/opt/data/.npm-global
 ENV PATH="/opt/data/.local/bin:/opt/data/.npm-global/bin:${PATH}"
 
+# $HOME (uv's default cache location) and /workspace are deliberately
+# separate mounts in this containment model, so uv's hardlink/reflink
+# optimisation can never apply between them — declare the copy fallback
+# explicit rather than have uv warn about it on every install.
+ENV UV_LINK_MODE=copy
+
 # packages-npm.txt / tools-uv.txt — see packages-apt.txt above.
 COPY packages-npm.txt /tmp/packages-npm.txt
 COPY tools-uv.txt /tmp/tools-uv.txt

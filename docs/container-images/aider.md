@@ -196,3 +196,6 @@ its own isolated venv; `packages-uv.txt` (`uv pip install --system`) is for
 plain importable libraries with no console-script of their own, installed
 into the image's system Python instead. Do not seed API keys, provider
 configuration, plugins, a browser, or a local-model runtime in the image.
+
+The image also sets `UV_LINK_MODE=copy` — see [`claude-code`'s uv cache
+notes](claude-code.md#installing-python-and-node-packages-at-runtime) for why.

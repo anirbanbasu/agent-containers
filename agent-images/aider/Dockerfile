@@ -46,6 +46,12 @@ ENV HOME=/home/aider
 ENV npm_config_prefix=/home/aider/.npm-global
 ENV PATH="/home/aider/.local/bin:/home/aider/.npm-global/bin:${PATH}"
 
+# $HOME (uv's default cache location) and /workspace are deliberately
+# separate mounts in this containment model, so uv's hardlink/reflink
+# optimisation can never apply between them — declare the copy fallback
+# explicit rather than have uv warn about it on every install.
+ENV UV_LINK_MODE=copy
+
 # Aider would otherwise check for updates at startup and may offer to install
 # Playwright dynamically. Both expand egress/write requirements without being
 # necessary for the core terminal workflow. Analytics is disabled explicitly,

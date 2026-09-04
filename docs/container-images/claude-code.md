@@ -157,6 +157,11 @@ depend on conflicting versions of the same package without interfering with
 each other, since environments (venvs, `node_modules`) are never shared —
 only the cache is.
 
+Because that cache (under `/home/claude`) and a project's venv (under
+`/workspace`) sit on different mounts, `uv` can never hardlink between them —
+the image sets `UV_LINK_MODE=copy` so it performs that copy directly instead
+of warning about a hardlink fallback on every install.
+
 ## Custom configuration and optional build-time tools
 
 - **`plugins.txt`** — plugins to install at build time, one per line, as

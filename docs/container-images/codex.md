@@ -202,3 +202,6 @@ importable libraries with no console-script of their own, installed into the
 image's system Python instead. They are installed separately from the
 image's required infrastructure, so edits cannot remove egress enforcement
 or the privilege-drop tooling.
+
+The image also sets `UV_LINK_MODE=copy` — see [`claude-code`'s uv cache
+notes](claude-code.md#installing-python-and-node-packages-at-runtime) for why.
