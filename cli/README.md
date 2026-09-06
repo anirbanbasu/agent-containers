@@ -84,6 +84,12 @@ The private implementation handoff is maintained in
 
 ## Current commands
 
+`agent-containers create PROFILE.toml` interactively prompts for every profile
+section, validates the resulting model, and writes a new TOML file atomically.
+It refuses to replace an existing file and never contacts Docker. Secrets are
+never prompted for; provider authentication is represented only by an
+environment-variable name.
+
 `agent-containers validate PROFILE.toml` parses and validates a profile without
 contacting Docker or changing files.
 

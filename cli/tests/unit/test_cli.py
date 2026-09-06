@@ -11,7 +11,9 @@ import pytest
 from typer.testing import CliRunner
 
 from agent_containers.cli import _LOGO, app
+from agent_containers.creation import ProfileCreationError
 from agent_containers.lifecycle import DoctorReport, LifecycleError
+from agent_containers.profile import Profile
 from agent_containers.state import DeploymentRecord
 
 
@@ -52,6 +54,32 @@ def test_validate_rejects_invalid_profile(tmp_path: Path) -> None:
     result = CliRunner().invoke(app, ["validate", str(profile)])
     assert result.exit_code != 0
     assert "name" in result.output
+
+
+def test_create_writes_profile_without_docker(tmp_path: Path) -> None:
+    """Create delegates prompting and writing without spawning Docker."""
+    profile_path = tmp_path / "new.toml"
+    document = Profile(name="new", agent="codex")
+    with (
+        patch("agent_containers.cli.prompt_profile", return_value=document),
+        patch("agent_containers.cli.write_profile"),
+    ):
+        result = CliRunner().invoke(app, ["create", str(profile_path)])
+    assert result.exit_code == 0, result.output
+    assert "Created profile" in result.output
+
+
+def test_create_reports_existing_profile(tmp_path: Path) -> None:
+    """Create reports refusal rather than replacing an existing profile."""
+    profile_path = tmp_path / "new.toml"
+    profile_path.write_text("name = 'old'\n", encoding="utf-8")
+    with (
+        patch("agent_containers.cli.prompt_profile", return_value=Profile(name="new", agent="codex")),
+        patch("agent_containers.cli.write_profile", side_effect=ProfileCreationError("already exists")),
+    ):
+        result = CliRunner().invoke(app, ["create", str(profile_path)])
+    assert result.exit_code != 0
+    assert "already exists" in result.output
 
 
 def test_plan_without_state_is_read_only(tmp_path: Path) -> None:

@@ -11,6 +11,7 @@ import typer
 from pydantic import ValidationError
 from typer.core import TyperGroup
 
+from agent_containers.creation import ProfileCreationError, prompt_profile, write_profile
 from agent_containers.docker import DockerCommandError
 from agent_containers.lifecycle import (
     DoctorReport,
@@ -83,6 +84,22 @@ def validate(
     except (OSError, tomllib.TOMLDecodeError, ValidationError) as exc:
         raise typer.BadParameter(str(exc), param_hint="profile") from exc
     typer.echo(f"Valid profile: {document.name} ({document.agent.value})")
+
+
+@app.command()
+def create(
+    profile: Annotated[
+        Path,
+        typer.Argument(dir_okay=False, help="New TOML profile path to create interactively."),
+    ],
+) -> None:
+    """Interactively create a validated TOML profile without contacting Docker."""
+    try:
+        document = prompt_profile(profile)
+        write_profile(profile, document)
+    except (OSError, ProfileCreationError, ValidationError, ValueError) as exc:
+        raise typer.BadParameter(str(exc), param_hint="profile") from exc
+    typer.echo(f"Created profile: {profile.expanduser().resolve()} ({document.name}/{document.agent.value})")
 
 
 @app.command()
