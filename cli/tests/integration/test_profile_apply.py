@@ -75,11 +75,21 @@ def test_apply_builds_selects_and_launches_profile(tmp_path: Path) -> None:
             "-ceu",
             (
                 f'test "$(id -u)" = "{os.getuid()}"\n'
+                'test -w "$HOME"\n'
                 'grep -Eq "^[^ ]+ / [^ ]+ ro[, ]" /proc/mounts\n'
                 'grep -Eq "^CapEff:[[:space:]]*0{16}$" /proc/self/status'
             ),
         ]
         subprocess.run(security_launch, check=True, capture_output=True, text=True)
+
+        persistence_launch = list(security_launch)
+        persistence_launch[-1] = (
+            'test ! -e "$HOME/.agent-containers-integration-sentinel"\n'
+            'touch "$HOME/.agent-containers-integration-sentinel"'
+        )
+        subprocess.run(persistence_launch, check=True, capture_output=True, text=True)
+        persistence_launch[-1] = 'test -f "$HOME/.agent-containers-integration-sentinel"'
+        subprocess.run(persistence_launch, check=True, capture_output=True, text=True)
     finally:
         if record is not None and record.home_volume is not None:
             subprocess.run(["docker", "volume", "rm", "-f", record.home_volume], check=False, capture_output=True)
