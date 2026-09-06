@@ -97,7 +97,9 @@ egress policy, and gateway inputs.
 ## Inspect, rollback, and failure safety
 
 `doctor` checks Docker availability, recorded state, and the selected image
-without changing them:
+without changing them. It also reports whether the selected profile-specific
+home volume already exists; an absent volume is reported as not created yet
+because Docker can create it lazily at the first launch:
 
 ```sh
 agent-containers doctor ~/.config/agent-containers/profiles/work.toml

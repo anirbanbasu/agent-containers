@@ -234,10 +234,11 @@ def test_doctor_reports_absent_state_and_selected_image(tmp_path: Path) -> None:
     assert "Selected deployment: absent" in unselected.lines
     state_path = tmp_path / "state.json"
     save_state(state_path, DeploymentState(profile_name="work", deployments=[_new_record(profile, "image")]))
-    with patch("agent_containers.lifecycle._probe", side_effect=[True, True]):
+    with patch("agent_containers.lifecycle._probe", side_effect=[True, True, True]):
         available = doctor_profile(profile, state_path)
     assert available.healthy
     assert "Selected image: available" in available.lines
+    assert "Home volume:" in "\n".join(available.lines)
 
 
 def test_doctor_reports_unavailable_docker_and_rejects_mismatched_state(tmp_path: Path) -> None:
@@ -249,6 +250,7 @@ def test_doctor_reports_unavailable_docker_and_rejects_mismatched_state(tmp_path
         unavailable = doctor_profile(profile, state_path)
     assert not unavailable.healthy
     assert "Selected image: unavailable" in unavailable.lines
+    assert "Home volume:" in "\n".join(unavailable.lines)
     mismatch = tmp_path / "mismatch.json"
     save_state(mismatch, DeploymentState(profile_name="other"))
     with pytest.raises(LifecycleError, match="belongs"):

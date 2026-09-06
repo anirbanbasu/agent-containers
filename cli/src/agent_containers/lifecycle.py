@@ -11,7 +11,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from agent_containers.build_context import prepare_build_contexts
-from agent_containers.docker import build_image_argv, build_seed_argv, default_home_volume, default_image_tag
+from agent_containers.docker import (
+    build_image_argv,
+    build_seed_argv,
+    default_home_volume,
+    default_image_tag,
+    legacy_home_volume,
+)
 from agent_containers.planner import PlanAction, build_plan
 from agent_containers.profile import MountType, Profile
 from agent_containers.shortcuts import render_shortcut, update_shortcuts
@@ -152,8 +158,11 @@ def doctor_profile(profile: Profile, state_path: Path | None = None) -> DoctorRe
         lines.append("Selected deployment: absent")
         return DoctorReport(tuple(lines), healthy=False)
     image_available = docker_available and _probe("docker", "image", "inspect", selected.image)
+    home_volume = selected.home_volume or legacy_home_volume(profile)
+    volume_available = docker_available and _probe("docker", "volume", "inspect", home_volume)
     lines.append(f"Selected deployment: {selected.deployment_id} ({selected.image})")
     lines.append(f"Selected image: {'available' if image_available else 'unavailable'}")
+    lines.append(f"Home volume: {home_volume} ({'present' if volume_available else 'not created yet'})")
     return DoctorReport(tuple(lines), healthy=docker_available and image_available)
 
 
