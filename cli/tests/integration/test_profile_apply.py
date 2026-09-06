@@ -56,6 +56,30 @@ def test_apply_builds_selects_and_launches_profile(tmp_path: Path) -> None:
         launch.remove("-it")
         launch.insert(2, "--network=none")
         subprocess.run(launch, check=True, capture_output=True, text=True)
+
+        security_launch = list(
+            build_run_argv(
+                profile,
+                tmp_path,
+                profile_path,
+                image=record.image,
+                home_volume=record.home_volume,
+            )
+        )
+        security_launch.remove("-it")
+        security_launch.insert(2, "--network=none")
+        image_index = security_launch.index(record.image)
+        security_launch[image_index:] = [
+            record.image,
+            "sh",
+            "-ceu",
+            (
+                f'test "$(id -u)" = "{os.getuid()}"\n'
+                'grep -Eq "^[^ ]+ / [^ ]+ ro[, ]" /proc/mounts\n'
+                'grep -Eq "^CapEff:[[:space:]]*0{16}$" /proc/self/status'
+            ),
+        ]
+        subprocess.run(security_launch, check=True, capture_output=True, text=True)
     finally:
         if record is not None and record.home_volume is not None:
             subprocess.run(["docker", "volume", "rm", "-f", record.home_volume], check=False, capture_output=True)
