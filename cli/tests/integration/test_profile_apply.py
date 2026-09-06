@@ -173,3 +173,40 @@ def test_launch_only_update_can_be_rolled_back(tmp_path: Path) -> None:
         if record is not None and record.home_volume is not None:
             subprocess.run(["docker", "volume", "rm", "-f", record.home_volume], check=False, capture_output=True)
             subprocess.run(["docker", "image", "rm", "-f", record.image], check=False, capture_output=True)
+
+
+def test_image_update_retains_previous_build_for_rollback(tmp_path: Path) -> None:
+    """An image-changing profile update retains and can restore the old image."""
+    if os.environ.get("AGENT_CONTAINERS_RUN_INTEGRATION") != "1":
+        pytest.skip("set AGENT_CONTAINERS_RUN_INTEGRATION=1 to run Docker integration tests")
+    if shutil.which("docker") is None:
+        pytest.skip("Docker is not installed")
+    subprocess.run(["docker", "info"], check=True, capture_output=True)
+
+    profile_path = tmp_path / "integration-image-update.toml"
+    state_path = tmp_path / "state.json"
+    initial = Profile(
+        name="integration-image-update",
+        agent="codex",
+        packages={"apt": ["jq"]},
+        egress={"hosts": ["127.0.0.1"]},
+    )
+    updated = Profile.model_validate({**initial.model_dump(), "packages": {"apt": ["jq", "tree"]}})
+    records = []
+    try:
+        records.append(apply_profile(initial, profile_path, state_path))
+        records.append(apply_profile(updated, profile_path, state_path))
+        assert records[1].image != records[0].image
+        state = load_state(state_path)
+        assert state.selected_deployment == records[1]
+        assert len(state.deployments) == 2
+
+        restored = rollback_profile(updated, state_path)
+        assert restored == records[0]
+        assert load_state(state_path).selected_deployment == records[0]
+    finally:
+        volume = records[0].home_volume if records and records[0].home_volume is not None else None
+        if volume is not None:
+            subprocess.run(["docker", "volume", "rm", "-f", volume], check=False, capture_output=True)
+        for record in records:
+            subprocess.run(["docker", "image", "rm", "-f", record.image], check=False, capture_output=True)

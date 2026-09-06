@@ -9,8 +9,9 @@ unprivileged execution, populated persistent homes, home-tool precedence warning
 proxy/CA and gateway routing, Decant access, and update/rollback failure recovery.
 Do not use real account logins or weaken containment to make tests pass.
 
-The profile apply/update/rollback, CA, and OpenCode provider integration tests
-can be run explicitly after the local Docker daemon is available:
+The profile apply/update/rollback, CA, OpenCode provider, and opt-in Langfuse
+integration tests can be run explicitly after the local Docker daemon is
+available:
 
 ```sh
 AGENT_CONTAINERS_RUN_INTEGRATION=1 \
@@ -22,9 +23,9 @@ volume, launches `codex --version` with the profile's read-only and unprivileged
 flags, verifies home ownership/writability and persistence across a second run,
 and removes both resources afterward. The same test module exercises a
 launch-only update followed by rollback and verifies the retained image,
-selected state, and generated shortcut. The CA test creates only a one-day
-self-signed test certificate and removes its image afterward; the OpenCode
-provider test likewise builds and removes a disposable image without
-credentials. Langfuse-enabled image builds have also been validated manually,
-but no integration test sends telemetry or uses real credentials. The normal
-`just test-cli` suite remains Docker-free.
+selected state, and generated shortcut. The image-update test builds two
+disposable profile images and confirms rollback restores the first. The CA test
+creates only a one-day self-signed test certificate and removes its image
+afterward; the OpenCode provider and Langfuse tests likewise build disposable
+images without credentials. No integration test sends telemetry or uses real
+credentials. The normal `just test-cli` suite remains Docker-free.

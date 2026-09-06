@@ -83,3 +83,49 @@ def test_opencode_provider_config_is_ephemeral(tmp_path: Path) -> None:
         )
     finally:
         subprocess.run(["docker", "image", "rm", "-f", image], check=False, capture_output=True)
+
+
+def test_opencode_langfuse_plugin_is_profile_opt_in(tmp_path: Path) -> None:
+    """An opted-in Langfuse profile installs its plugin without credentials."""
+    if os.environ.get("AGENT_CONTAINERS_RUN_INTEGRATION") != "1":
+        pytest.skip("set AGENT_CONTAINERS_RUN_INTEGRATION=1 to run Docker integration tests")
+    if shutil.which("docker") is None:
+        pytest.skip("Docker is not installed")
+    subprocess.run(["docker", "info"], check=True, capture_output=True)
+
+    profile_path = tmp_path / "integration-langfuse.toml"
+    profile = Profile(
+        name="integration-opencode-langfuse",
+        agent="opencode",
+        langfuse={"enabled": True, "base_url": "https://langfuse.example.test"},
+        egress={"hosts": ["langfuse.example.test"]},
+    )
+    contexts = prepare_build_contexts(profile, tmp_path / "context", profile_path)
+    image = "agent-containers/integration-opencode-langfuse:profile"
+    launch = list(build_run_argv(profile, tmp_path, profile_path, image=image))
+    assert "LANGFUSE_PUBLIC_KEY" in launch
+    assert "LANGFUSE_SECRET_KEY" in launch
+    image_index = launch.index(image)
+    launch[image_index:] = [
+        image,
+        "sh",
+        "-ceu",
+        (
+            "test -s /tmp/agent-containers-opencode.json\n"
+            "find /opt/agent-tools/npm -path '*langfuse*' -print -quit | grep -q .\n"
+            "grep -F '@langfuse/opencode-observability-plugin' /tmp/agent-containers-opencode.json\n"
+            "opencode --version"
+        ),
+    ]
+    launch.remove("-it")
+    launch.insert(2, "--network=none")
+    try:
+        subprocess.run(
+            ["docker", "build", "--build-context", f"shared={contexts.shared}", "--tag", image, str(contexts.image)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        subprocess.run(launch, check=True, capture_output=True, text=True)
+    finally:
+        subprocess.run(["docker", "image", "rm", "-f", image], check=False, capture_output=True)

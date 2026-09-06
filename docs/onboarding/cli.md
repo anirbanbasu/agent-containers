@@ -99,7 +99,10 @@ egress policy, and gateway inputs.
 `doctor` checks Docker availability, recorded state, and the selected image
 without changing them. It also reports whether the selected profile-specific
 home volume already exists; an absent volume is reported as not created yet
-because Docker can create it lazily at the first launch:
+because Docker can create it lazily at the first launch. When the volume is
+available, it compares executable names in the writable home tool directories
+with the image-managed tool directories and warns about overlaps; it never
+reads or prints file contents:
 
 ```sh
 agent-containers doctor ~/.config/agent-containers/profiles/work.toml
@@ -136,6 +139,19 @@ profile.
 
 Decant is experimental, disabled by default, and currently limited to Claude
 Code and Codex. The user must opt in; there is no automatic fallback setup.
+When enabled, `source_profiles` names the deployed Claude/Codex profiles whose
+`.claude` and `.codex` subdirectories are mounted directly read-only into an
+account-matched Decant image. The generated `profiles.sh` includes an
+`agent_containers_decant_<profile>` function alongside the agent shortcut;
+it does not use `volume-bridge` and therefore requires the operator to have
+Docker access. Build the account-renumbering image described in
+[`01-volume-bridge.md`](../container-images/01-volume-bridge.md). By default,
+the CLI expects the user-scoped
+`agent-containers/decant:<user>-<uid>-<profile>` tag and matching
+`agent-containers-decant-<user>-<uid>-<profile>` container name; set
+`decant.image` for an explicit prebuilt image override. Decant's writable
+database uses a user-scoped volume by default and can reuse an existing named
+volume with `decant.data_volume`.
 
 Langfuse is experimental, disabled by default, and currently available for
 Claude Code, Codex, and OpenCode. The CLI installs the vendor-supported agent

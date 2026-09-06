@@ -131,6 +131,8 @@ def _prompt_decant() -> DecantConfig:
     return DecantConfig(
         enabled=True,
         source_profiles=_csv_prompt("Decant source profiles (comma-separated)"),
+        image=_optional_prompt("Decant account-matched image override (blank uses a user-scoped default)"),
+        data_volume=_optional_prompt("Decant data Docker volume (blank uses a user-scoped default)"),
         bind_address=typer.prompt("Decant bind address", default="127.0.0.1"),
         port=typer.prompt("Decant port", default=8787, type=int),
     )

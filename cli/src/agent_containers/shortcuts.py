@@ -5,10 +5,16 @@ from __future__ import annotations
 import os
 import shlex
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
 
-from agent_containers.docker import DockerCommandError, build_run_argv, legacy_home_volume
-from agent_containers.profile import Profile
+from agent_containers.docker import (
+    DockerCommandError,
+    build_decant_run_argv,
+    build_run_argv,
+    legacy_home_volume,
+)
+from agent_containers.profile import AgentName, Profile
 from agent_containers.state import DeploymentRecord
 
 _WORKSPACE_MOUNT = object()
@@ -29,6 +35,11 @@ def default_shortcuts_path() -> Path:
 def shortcut_function_name(profile: Profile) -> str:
     """Return the reserved, namespaced shell function name for a profile."""
     return f"agent_containers_{profile.name.replace('-', '_')}"
+
+
+def decant_shortcut_function_name(profile: Profile) -> str:
+    """Return the reserved function name for an experimental Decant launch."""
+    return f"agent_containers_decant_{profile.name.replace('-', '_')}"
 
 
 def render_shortcut(profile: Profile, record: DeploymentRecord, profile_path: Path) -> str:
@@ -58,19 +69,60 @@ def render_shortcut(profile: Profile, record: DeploymentRecord, profile_path: Pa
     return f'# BEGIN agent-containers profile {profile.name}\n{name}() {{\n  {rendered} "$@"\n}}\n# END agent-containers profile {profile.name}\n'
 
 
-def update_shortcuts(path: Path, profile: Profile, record: DeploymentRecord, profile_path: Path) -> None:
+def render_decant_shortcut(profile: Profile, source_records: Mapping[str, DeploymentRecord]) -> str:
+    """Render a direct-mount Decant function from selected agent deployments."""
+    volumes: dict[AgentName, str] = {}
+    for source_name in profile.decant.source_profiles:
+        record = source_records.get(source_name)
+        if record is None:
+            raise ShortcutError(f"Decant source profile state is unavailable: {source_name}")
+        try:
+            source_profile = Profile.model_validate(record.profile_snapshot)
+        except ValueError as exc:
+            raise ShortcutError(f"Decant source profile state is invalid: {source_name}") from exc
+        if source_profile.agent not in {AgentName.CLAUDE_CODE, AgentName.CODEX}:
+            raise ShortcutError(f"Decant source profile must use Claude Code or Codex: {source_name}")
+        if source_profile.agent in volumes:
+            raise ShortcutError(f"Decant has multiple {source_profile.agent.value} source profiles")
+        volumes[source_profile.agent] = record.home_volume or legacy_home_volume(source_profile)
+    try:
+        argv = build_decant_run_argv(
+            profile,
+            claude_volume=volumes.get(AgentName.CLAUDE_CODE),
+            codex_volume=volumes.get(AgentName.CODEX),
+        )
+    except DockerCommandError as exc:
+        raise ShortcutError(str(exc)) from exc
+    rendered = " \\\n    ".join(shlex.quote(token) for token in argv)
+    name = decant_shortcut_function_name(profile)
+    return (
+        f"# BEGIN agent-containers decant {profile.name}\n"
+        f"{name}() {{\n"
+        f'  {rendered} "$@"\n'
+        f"}}\n"
+        f"# END agent-containers decant {profile.name}\n"
+    )
+
+
+def update_shortcuts(
+    path: Path,
+    profile: Profile,
+    record: DeploymentRecord,
+    profile_path: Path,
+    decant_sources: Mapping[str, DeploymentRecord] | None = None,
+) -> None:
     """Atomically replace one generated profile block in the managed shortcuts file."""
     path = path.expanduser().resolve()
     existing = path.read_text(encoding="utf-8") if path.exists() else ""
     block = render_shortcut(profile, record, profile_path)
-    begin = f"# BEGIN agent-containers profile {profile.name}\n"
-    end = f"# END agent-containers profile {profile.name}\n"
-    if begin in existing:
-        start = existing.index(begin)
-        finish = existing.index(end, start) + len(end)
-        content = existing[:start] + block + existing[finish:]
+    content = _replace_block(existing, f"profile {profile.name}", block)
+    decant_begin = f"decant {profile.name}"
+    if profile.decant.enabled:
+        if decant_sources is None:
+            raise ShortcutError("Decant source deployments are required when Decant is enabled")
+        content = _replace_block(content, decant_begin, render_decant_shortcut(profile, decant_sources))
     else:
-        content = existing.rstrip() + ("\n\n" if existing.strip() else "") + block
+        content = _replace_block(content, decant_begin, "")
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent, text=True)
     temporary_path = Path(temporary)
@@ -83,6 +135,20 @@ def update_shortcuts(path: Path, profile: Profile, record: DeploymentRecord, pro
         temporary_path.replace(path)
     finally:
         temporary_path.unlink(missing_ok=True)
+
+
+def _replace_block(existing: str, key: str, block: str) -> str:
+    """Replace or remove one generated block while preserving user shell text."""
+    begin = f"# BEGIN agent-containers {key}\n"
+    end = f"# END agent-containers {key}\n"
+    if begin in existing:
+        start = existing.index(begin)
+        finish = existing.index(end, start) + len(end)
+        replacement = block
+        return existing[:start] + replacement + existing[finish:]
+    if not block:
+        return existing
+    return existing.rstrip() + ("\n\n" if existing.strip() else "") + block
 
 
 def _render_token(token: str | object) -> str:

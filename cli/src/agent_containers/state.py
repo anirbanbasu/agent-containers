@@ -68,6 +68,12 @@ def profile_snapshot(profile: Profile) -> dict[str, Any]:
     # same user-scoped default, so it must not force a spurious image rebuild.
     if profile.home_volume is None:
         snapshot.pop("home_volume", None)
+    decant = snapshot.get("decant")
+    if isinstance(decant, dict):
+        if decant.get("image") is None:
+            decant.pop("image", None)
+        if decant.get("data_volume") is None:
+            decant.pop("data_volume", None)
     return snapshot
 
 
@@ -93,9 +99,14 @@ def load_state(path: Path) -> DeploymentState:
 
 def default_state_path(profile: Profile) -> Path:
     """Return the XDG-style per-user state path for one named profile."""
+    return default_state_path_for_name(profile.name)
+
+
+def default_state_path_for_name(name: str) -> Path:
+    """Return the XDG-style state path for a validated profile name."""
     state_home = os.environ.get("XDG_STATE_HOME")
     root = Path(state_home).expanduser() if state_home else Path.home() / ".local" / "state"
-    return (root / "agent-containers" / f"{profile.name}.json").resolve()
+    return (root / "agent-containers" / f"{name}.json").resolve()
 
 
 def save_state(path: Path, state: DeploymentState) -> None:

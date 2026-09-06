@@ -79,6 +79,8 @@ def test_default_home_volume_field_is_compatible_with_older_state() -> None:
     profile = make_profile()
     snapshot = profile_snapshot(profile)
     assert "home_volume" not in snapshot
+    assert "image" not in snapshot["decant"]
+    assert "data_volume" not in snapshot["decant"]
     assert build_plan(profile, make_state(profile)).is_noop
 
 

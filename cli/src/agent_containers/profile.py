@@ -183,6 +183,8 @@ class DecantConfig(BaseModel):
 
     enabled: bool = False
     source_profiles: list[str] = Field(default_factory=list)
+    image: str | None = Field(default=None, min_length=1)
+    data_volume: str | None = Field(default=None, min_length=1)
     bind_address: str = "127.0.0.1"
     port: Annotated[int, Field(default=8787, ge=1, le=65535)] = 8787
 
@@ -193,7 +195,47 @@ class DecantConfig(BaseModel):
         cleaned = [value.strip() for value in values]
         if any(not value for value in cleaned):
             raise ValueError("Decant source profile names must not be blank")
+        if any(not _NAME_PATTERN.fullmatch(value) for value in cleaned):
+            raise ValueError("Decant source profile names must be valid profile names")
         return cleaned
+
+    @field_validator("image")
+    @classmethod
+    def image_is_single_line(cls, value: str | None) -> str | None:
+        """Keep the derived Decant image reference safe for argv rendering."""
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not cleaned or any(character.isspace() or ord(character) < 32 for character in cleaned):
+            raise ValueError("Decant image must be a single-line image reference")
+        return cleaned
+
+    @field_validator("data_volume")
+    @classmethod
+    def data_volume_is_safe(cls, value: str | None) -> str | None:
+        """Allow an optional reusable Docker named volume for Decant state."""
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not _VOLUME_NAME_PATTERN.fullmatch(cleaned):
+            raise ValueError("Decant data_volume must be a Docker named-volume name")
+        return cleaned
+
+    @field_validator("bind_address")
+    @classmethod
+    def bind_address_is_single_line(cls, value: str) -> str:
+        """Reject shell-like bind-address values before Docker sees them."""
+        cleaned = value.strip()
+        if not cleaned or any(character.isspace() or ord(character) < 32 for character in cleaned):
+            raise ValueError("Decant bind_address must be a single-line host address")
+        return cleaned
+
+    @model_validator(mode="after")
+    def enabled_requires_sources(self) -> Self:
+        """Require explicit source profiles when Decant is opted in."""
+        if self.enabled and not self.source_profiles:
+            raise ValueError("Decant support requires source_profiles when enabled")
+        return self
 
 
 class LangfuseConfig(BaseModel):

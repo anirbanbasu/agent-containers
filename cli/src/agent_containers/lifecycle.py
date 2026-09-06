@@ -20,17 +20,40 @@ from agent_containers.docker import (
 )
 from agent_containers.planner import PlanAction, build_plan
 from agent_containers.profile import MountType, Profile
-from agent_containers.shortcuts import render_shortcut, update_shortcuts
+from agent_containers.shortcuts import render_decant_shortcut, render_shortcut, update_shortcuts
 from agent_containers.state import (
     DeploymentRecord,
     DeploymentState,
     default_state_path,
+    default_state_path_for_name,
     load_state,
     new_deployment_id,
     profile_digest,
     profile_snapshot,
     save_state,
 )
+
+_DOCTOR_HOME_PATHS = {
+    "claude-code": "/home/claude",
+    "opencode": "/home/opencode",
+    "codex": "/home/codex",
+    "hermes": "/opt/data",
+}
+_TOOL_SHADOW_SCRIPT = """set -eu
+list_tools() {
+    kind="$1"
+    directory="$2"
+    [ -d "$directory" ] || return 0
+    for path in "$directory"/*; do
+        [ -f "$path" ] || [ -L "$path" ] || continue
+        printf '%s\\t%s\\n' "$kind" "${path##*/}"
+    done
+}
+list_tools home "$HOME/.local/bin"
+list_tools home "$HOME/.npm-global/bin"
+list_tools managed /opt/agent-tools/bin
+list_tools managed /opt/agent-tools/npm/bin
+"""
 
 
 class LifecycleError(ValueError):
@@ -78,16 +101,24 @@ def apply_profile(
             # deployment visible. The later atomic write still refreshes the
             # generated file after state selection succeeds.
             render_shortcut(profile, record, profile_path)
+            decant_sources = _resolve_decant_sources(profile, record, target_state_path)
+            if profile.decant.enabled:
+                render_decant_shortcut(profile, decant_sources)
+        else:
+            decant_sources = None
         _apply_seeds(profile, profile_path, image)
         state.deployments = [item.model_copy(update={"selected": False}) for item in state.deployments]
         state.deployments.append(record)
         save_state(target_state_path, state)
         if shortcuts_path is not None:
-            update_shortcuts(shortcuts_path, profile, record, profile_path)
+            update_shortcuts(shortcuts_path, profile, record, profile_path, decant_sources)
         return record
     assert selected is not None
     if shortcuts_path is not None:
-        update_shortcuts(shortcuts_path, profile, selected, profile_path)
+        decant_sources = _resolve_decant_sources(profile, selected, target_state_path)
+        if profile.decant.enabled:
+            render_decant_shortcut(profile, decant_sources)
+        update_shortcuts(shortcuts_path, profile, selected, profile_path, decant_sources)
     return selected
 
 
@@ -115,12 +146,17 @@ def rollback_profile(
         # A historical profile may reference an input that no longer exists;
         # refuse before changing state so rollback cannot strand the shortcut.
         render_shortcut(restored_profile, target, shortcut_profile_path)
+        decant_sources = _resolve_decant_sources(restored_profile, target, target_state_path)
+        if restored_profile.decant.enabled:
+            render_decant_shortcut(restored_profile, decant_sources)
+    else:
+        decant_sources = None
     state.deployments = [
         item.model_copy(update={"selected": item.deployment_id == target.deployment_id}) for item in state.deployments
     ]
     save_state(target_state_path, state)
     if shortcuts_path is not None:
-        update_shortcuts(shortcuts_path, restored_profile, target, shortcut_profile_path)
+        update_shortcuts(shortcuts_path, restored_profile, target, shortcut_profile_path, decant_sources)
     return state.selected_deployment or target
 
 
@@ -163,7 +199,60 @@ def doctor_profile(profile: Profile, state_path: Path | None = None) -> DoctorRe
     lines.append(f"Selected deployment: {selected.deployment_id} ({selected.image})")
     lines.append(f"Selected image: {'available' if image_available else 'unavailable'}")
     lines.append(f"Home volume: {home_volume} ({'present' if volume_available else 'not created yet'})")
+    if not volume_available:
+        lines.append("Tool shadowing: skipped (home volume is not available)")
+    else:
+        shadows = _inspect_tool_shadows(selected.image, home_volume, profile.agent.value)
+        if shadows is None:
+            lines.append("Tool shadowing: unavailable (could not inspect the home volume)")
+        elif shadows:
+            lines.append(f"Tool shadowing: {', '.join(shadows)}")
+        else:
+            lines.append("Tool shadowing: none detected")
     return DoctorReport(tuple(lines), healthy=docker_available and image_available)
+
+
+def _inspect_tool_shadows(image: str, home_volume: str, agent: str) -> tuple[str, ...] | None:
+    """Compare writable home tool names with image-managed tool names."""
+    home_path = _DOCTOR_HOME_PATHS.get(agent)
+    if home_path is None:
+        return None
+    try:
+        result = subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--network=none",
+                "--read-only",
+                "--cap-drop=ALL",
+                "--mount",
+                f"type=volume,src={home_volume},dst={home_path},readonly",
+                "--entrypoint",
+                "/bin/sh",
+                image,
+                "-ceu",
+                _TOOL_SHADOW_SCRIPT,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
+        return None
+    if result.returncode != 0:
+        return None
+    home_tools: set[str] = set()
+    managed_tools: set[str] = set()
+    for line in result.stdout.splitlines():
+        kind, separator, name = line.partition("\t")
+        if not separator or not name:
+            continue
+        if kind == "home":
+            home_tools.add(name)
+        elif kind == "managed":
+            managed_tools.add(name)
+    return tuple(sorted(home_tools & managed_tools))
 
 
 def _build_image(profile: Profile, profile_path: Path) -> str:
@@ -174,6 +263,34 @@ def _build_image(profile: Profile, profile_path: Path) -> str:
         uid, gid = build_user_ids()
         _docker(*build_image_argv(profile, contexts, image=image, uid=uid, gid=gid))
     return image
+
+
+def _resolve_decant_sources(
+    profile: Profile,
+    current_record: DeploymentRecord,
+    current_state_path: Path,
+) -> dict[str, DeploymentRecord]:
+    """Load selected source deployments needed by an opted-in Decant shortcut."""
+    if not profile.decant.enabled:
+        return {}
+    sources: dict[str, DeploymentRecord] = {}
+    for source_name in profile.decant.source_profiles:
+        source_path = current_state_path if source_name == profile.name else default_state_path_for_name(source_name)
+        if source_name == profile.name:
+            source_record = current_record
+        elif not source_path.exists():
+            raise LifecycleError(f"Decant source profile state is unavailable: {source_name}")
+        else:
+            source_state = load_state(source_path)
+            if source_state.profile_name != source_name:
+                raise LifecycleError(
+                    f"Decant source state belongs to profile {source_state.profile_name!r}, not {source_name!r}"
+                )
+            source_record = source_state.selected_deployment
+            if source_record is None:
+                raise LifecycleError(f"Decant source profile has no selected deployment: {source_name}")
+        sources[source_name] = source_record
+    return sources
 
 
 def _apply_seeds(profile: Profile, profile_path: Path, image: str) -> None:

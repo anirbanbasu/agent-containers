@@ -84,6 +84,11 @@ def test_unknown_profile_fields_are_rejected() -> None:
         ({"name": "work", "agent": "codex", "egress": {"mode": "open"}}, "network mode"),
         ({"name": "work", "agent": "codex", "egress": {"hosts": ["  "]}}, "egress hosts"),
         ({"name": "work", "agent": "codex", "decant": {"source_profiles": ["  "]}}, "Decant"),
+        ({"name": "work", "agent": "codex", "decant": {"source_profiles": ["../outside"]}}, "valid profile names"),
+        ({"name": "work", "agent": "codex", "decant": {"image": "bad image"}}, "single-line image"),
+        ({"name": "work", "agent": "codex", "decant": {"data_volume": "../shared"}}, "data_volume"),
+        ({"name": "work", "agent": "codex", "decant": {"bind_address": "  "}}, "bind_address"),
+        ({"name": "work", "agent": "codex", "decant": {"enabled": True}}, "Decant support"),
         ({"name": "work", "agent": "codex", "mounts": [{"source": "  ", "target": "/x"}]}, "mount paths"),
         ({"name": "work", "agent": "codex", "mounts": [{"source": "x", "target": "settings.json"}]}, "absolute"),
         (
@@ -125,7 +130,10 @@ def test_unknown_profile_fields_are_rejected() -> None:
             {"name": "work", "agent": "codex", "egress": {"gateway_bootstrap_allow": ["gateway.example.test"]}},
             "IP addresses or CIDRs",
         ),
-        ({"name": "work", "agent": "hermes", "decant": {"enabled": True}}, "Decant support"),
+        (
+            {"name": "work", "agent": "hermes", "decant": {"enabled": True, "source_profiles": ["work"]}},
+            "Decant support",
+        ),
         (
             {"name": "work", "agent": "hermes", "langfuse": {"enabled": True, "base_url": "https://lf.example"}},
             "Langfuse support",

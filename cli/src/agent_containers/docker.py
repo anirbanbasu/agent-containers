@@ -76,6 +76,76 @@ def legacy_home_volume(profile: Profile) -> str:
     return f"{_IMAGE_NAMES[profile.agent]}-home-{profile.name}"
 
 
+def default_decant_data_volume(profile: Profile) -> str:
+    """Return the user-scoped default volume for Decant's writable database."""
+    return f"decant-data-{_resource_owner()}-{profile.name}"
+
+
+def default_decant_image_tag(profile: Profile) -> str:
+    """Return the user-scoped tag for an account-matched Decant image."""
+    return f"agent-containers/decant:{_resource_owner()}-{profile.name}"
+
+
+def default_decant_container_name(profile: Profile) -> str:
+    """Return the user-scoped name for the managed Decant container."""
+    return f"agent-containers-decant-{_resource_owner()}-{profile.name}"
+
+
+def build_decant_run_argv(
+    profile: Profile,
+    *,
+    claude_volume: str | None = None,
+    codex_volume: str | None = None,
+) -> tuple[str, ...]:
+    """Build the documented direct-mount Decant launch for selected agent homes."""
+    if not profile.decant.enabled:
+        raise DockerCommandError("Decant is not enabled for this profile")
+    if claude_volume is None and codex_volume is None:
+        raise DockerCommandError("Decant requires at least one selected Claude Code or Codex home volume")
+    config = profile.decant
+    data_volume = config.data_volume or default_decant_data_volume(profile)
+    argv = [
+        "docker",
+        "run",
+        "--rm",
+        "-it",
+        "--name",
+        default_decant_container_name(profile),
+        "--publish",
+        f"{config.bind_address}:{config.port}:3000",
+        "--mount",
+        f"type=volume,source={data_volume},target=/var/lib/decant",
+    ]
+    if claude_volume is not None:
+        argv.extend(
+            [
+                "--mount",
+                f"type=volume,source={claude_volume},target=/sources/claude,readonly,volume-subpath=.claude",
+            ]
+        )
+    if codex_volume is not None:
+        argv.extend(
+            [
+                "--mount",
+                f"type=volume,source={codex_volume},target=/sources/codex,readonly,volume-subpath=.codex",
+            ]
+        )
+    argv.extend(
+        [
+            config.image or default_decant_image_tag(profile),
+            "serve",
+            "--host",
+            "0.0.0.0",
+            "--port",
+            "3000",
+            "--no-fs-watch",
+            "--interval-ms",
+            "45000",
+        ]
+    )
+    return tuple(argv)
+
+
 def build_image_argv(
     profile: Profile,
     contexts: BuildContexts,

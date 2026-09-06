@@ -24,7 +24,10 @@ package will be `agent_containers`.
 - Composable hosted/local/custom model endpoints, HTTP(S) proxies, CA trust,
   egress gateways, and experimental observability integrations. Decant is
   experimental and currently limited to Claude Code and Codex; it is disabled
-  unless a profile opts in. Local inference engine installation and model
+  unless a profile opts in. Opted-in Decant launches use user-scoped image,
+  container, and data-volume names and mount selected agent collection
+  subdirectories directly; the delegated volume bridge remains a separate
+  manual setup. Local inference engine installation and model
   downloads are outside the agreed initial scope.
 - Explicit application and updates, retained prior deployments, and rollback of
   the selected image and managed launch configuration. Rollback does not restore

@@ -8,9 +8,13 @@ import pytest
 from agent_containers.build_context import BuildContexts
 from agent_containers.docker import (
     DockerCommandError,
+    build_decant_run_argv,
     build_image_argv,
     build_run_argv,
     build_seed_argv,
+    default_decant_container_name,
+    default_decant_data_volume,
+    default_decant_image_tag,
     default_home_volume,
     default_image_tag,
     shell_command,
@@ -57,6 +61,63 @@ def test_resources_are_user_scoped_and_home_volume_can_be_selected(
     assert "codex-home-alice-smith-501-work:/home/codex" in default
     selected = build_run_argv(make_profile(home_volume="existing-codex-home"), tmp_path, tmp_path / "work.toml")
     assert "existing-codex-home:/home/codex" in selected
+
+
+def test_decant_direct_mount_command_is_user_scoped_and_subpath_limited(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Decant mounts only the agent collections directly, never a volume bridge."""
+    monkeypatch.setattr("agent_containers.docker.getpass.getuser", lambda: "Alice Smith")
+    monkeypatch.setattr("agent_containers.docker.os.getuid", lambda: 501)
+    profile = make_profile(
+        decant={
+            "enabled": True,
+            "source_profiles": ["claude", "codex"],
+            "data_volume": "existing-decant-data",
+            "bind_address": "127.0.0.1",
+            "port": 9090,
+        }
+    )
+    argv = build_decant_run_argv(profile, claude_volume="claude-home", codex_volume="codex-home")
+    assert argv[:4] == ("docker", "run", "--rm", "-it")
+    assert "type=volume,source=existing-decant-data,target=/var/lib/decant" in argv
+    assert "--name" in argv
+    assert "agent-containers-decant-alice-smith-501-work" in argv
+    assert "type=volume,source=claude-home,target=/sources/claude,readonly,volume-subpath=.claude" in argv
+    assert "type=volume,source=codex-home,target=/sources/codex,readonly,volume-subpath=.codex" in argv
+    assert "volume-bridge" not in " ".join(argv)
+    assert argv[-9:] == (
+        "agent-containers/decant:alice-smith-501-work",
+        "serve",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "3000",
+        "--no-fs-watch",
+        "--interval-ms",
+        "45000",
+    )
+    assert default_decant_data_volume(profile) == "decant-data-alice-smith-501-work"
+    assert default_decant_image_tag(profile) == "agent-containers/decant:alice-smith-501-work"
+    assert default_decant_container_name(profile) == "agent-containers-decant-alice-smith-501-work"
+
+
+def test_decant_direct_mount_command_rejects_disabled_or_empty_sources() -> None:
+    """The experimental launch refuses implicit or bridge-based source selection."""
+    with pytest.raises(DockerCommandError, match="not enabled"):
+        build_decant_run_argv(make_profile())
+    profile = make_profile(decant={"enabled": True, "source_profiles": ["codex"]})
+    with pytest.raises(DockerCommandError, match="at least one"):
+        build_decant_run_argv(profile)
+
+
+def test_decant_allows_explicit_prebuilt_image_override() -> None:
+    """An operator may point an opted-in profile at a separately built image."""
+    profile = make_profile(
+        decant={"enabled": True, "source_profiles": ["codex"], "image": "registry.example.test/decant:matched"}
+    )
+    argv = build_decant_run_argv(profile, codex_volume="codex-home")
+    assert "registry.example.test/decant:matched" in argv
 
 
 def test_resource_names_fall_back_when_host_username_is_unavailable(

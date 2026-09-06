@@ -10,6 +10,7 @@ from agent_containers.build_context import BuildContexts
 from agent_containers.lifecycle import (
     LifecycleError,
     _new_record,
+    _resolve_decant_sources,
     apply_profile,
     build_user_ids,
     doctor_profile,
@@ -110,6 +111,74 @@ def test_apply_updates_shortcuts_for_new_and_noop_deployments(tmp_path: Path) ->
     assert shortcuts_path.exists()
 
 
+def test_apply_renders_direct_decant_shortcut_for_current_source(tmp_path: Path) -> None:
+    """An opted-in profile can expose its own Claude/Codex collection directly to Decant."""
+    profile = make_profile(decant={"enabled": True, "source_profiles": ["work"]})
+    state_path = tmp_path / "state.json"
+    shortcuts_path = tmp_path / "profiles.sh"
+    contexts = BuildContexts(tmp_path / "image", tmp_path / "shared")
+    contexts.image.mkdir()
+    contexts.shared.mkdir()
+    with (
+        patch("agent_containers.lifecycle.prepare_build_contexts", return_value=contexts),
+        patch("agent_containers.lifecycle.os.getuid", return_value=501),
+        patch("agent_containers.lifecycle.subprocess.run"),
+    ):
+        apply_profile(profile, tmp_path / "work.toml", state_path, shortcuts_path)
+    text = shortcuts_path.read_text(encoding="utf-8")
+    assert "agent_containers_decant_work()" in text
+    assert "target=/sources/codex,readonly,volume-subpath=.codex" in text
+    with patch("agent_containers.lifecycle.subprocess.run"):
+        apply_profile(profile, tmp_path / "work.toml", state_path, shortcuts_path)
+
+
+def test_apply_requires_selected_external_decant_source(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Decant setup refuses to create a shortcut when another profile is not deployed."""
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "xdg-state"))
+    profile = make_profile(decant={"enabled": True, "source_profiles": ["claude"]})
+    with (
+        patch("agent_containers.lifecycle.prepare_build_contexts"),
+        patch("agent_containers.lifecycle.subprocess.run"),
+        pytest.raises(LifecycleError, match="unavailable"),
+    ):
+        apply_profile(profile, tmp_path / "work.toml", tmp_path / "work-state.json", tmp_path / "profiles.sh")
+
+
+def test_apply_loads_external_decant_source_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Decant source profile names resolve through the standard per-user state directory."""
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "xdg-state"))
+    claude = Profile(name="claude", agent="claude-code")
+    source_path = tmp_path / "xdg-state/agent-containers/claude.json"
+    save_state(source_path, DeploymentState(profile_name="claude", deployments=[_new_record(claude, "claude:image")]))
+    profile = make_profile(decant={"enabled": True, "source_profiles": ["claude"]})
+    contexts = BuildContexts(tmp_path / "image", tmp_path / "shared")
+    contexts.image.mkdir()
+    contexts.shared.mkdir()
+    shortcuts_path = tmp_path / "profiles.sh"
+    with (
+        patch("agent_containers.lifecycle.prepare_build_contexts", return_value=contexts),
+        patch("agent_containers.lifecycle.subprocess.run"),
+    ):
+        apply_profile(profile, tmp_path / "work.toml", tmp_path / "work-state.json", shortcuts_path)
+    text = shortcuts_path.read_text(encoding="utf-8")
+    assert "target=/sources/claude,readonly,volume-subpath=.claude" in text
+
+
+def test_resolve_decant_sources_rejects_mismatched_or_unselected_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Source state must name the requested profile and have an active deployment."""
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "xdg-state"))
+    profile = make_profile(decant={"enabled": True, "source_profiles": ["claude"]})
+    source_path = tmp_path / "xdg-state/agent-containers/claude.json"
+    save_state(source_path, DeploymentState(profile_name="other"))
+    with pytest.raises(LifecycleError, match="belongs"):
+        _resolve_decant_sources(profile, _new_record(profile, "image"), tmp_path / "work-state.json")
+    save_state(source_path, DeploymentState(profile_name="claude"))
+    with pytest.raises(LifecycleError, match="no selected"):
+        _resolve_decant_sources(profile, _new_record(profile, "image"), tmp_path / "work-state.json")
+
+
 def test_apply_rejects_state_for_another_profile(tmp_path: Path) -> None:
     """An explicit override cannot accidentally cross deployment identities."""
     state_path = tmp_path / "state.json"
@@ -173,6 +242,21 @@ def test_rollback_updates_profile_shortcut(tmp_path: Path) -> None:
     assert "agent-containers/codex:previous" in shortcuts_path.read_text(encoding="utf-8")
 
 
+def test_rollback_refreshes_direct_decant_shortcut(tmp_path: Path) -> None:
+    """Rollback preflights and restores the Decant direct-mount function too."""
+    profile = make_profile(decant={"enabled": True, "source_profiles": ["work"]})
+    state_path = tmp_path / "state.json"
+    shortcuts_path = tmp_path / "profiles.sh"
+    previous = _new_record(profile, "agent-containers/codex:previous").model_copy(update={"selected": False})
+    current = _new_record(profile, "agent-containers/codex:current")
+    save_state(state_path, DeploymentState(profile_name="work", deployments=[previous, current]))
+    with patch("agent_containers.lifecycle.subprocess.run"):
+        rollback_profile(profile, state_path, shortcuts_path, tmp_path / "work.toml")
+    text = shortcuts_path.read_text(encoding="utf-8")
+    assert "agent_containers_decant_work()" in text
+    assert "agent-containers/codex:previous" in text
+
+
 def test_rollback_preflights_shortcut_before_state_change(tmp_path: Path) -> None:
     """Invalid historical launch inputs cannot leave rollback partially selected."""
     profile = make_profile()
@@ -234,11 +318,15 @@ def test_doctor_reports_absent_state_and_selected_image(tmp_path: Path) -> None:
     assert "Selected deployment: absent" in unselected.lines
     state_path = tmp_path / "state.json"
     save_state(state_path, DeploymentState(profile_name="work", deployments=[_new_record(profile, "image")]))
-    with patch("agent_containers.lifecycle._probe", side_effect=[True, True, True]):
+    with (
+        patch("agent_containers.lifecycle._probe", side_effect=[True, True, True]),
+        patch("agent_containers.lifecycle._inspect_tool_shadows", return_value=()),
+    ):
         available = doctor_profile(profile, state_path)
     assert available.healthy
     assert "Selected image: available" in available.lines
     assert "Home volume:" in "\n".join(available.lines)
+    assert "Tool shadowing: none detected" in available.lines
 
 
 def test_doctor_reports_unavailable_docker_and_rejects_mismatched_state(tmp_path: Path) -> None:
@@ -251,10 +339,32 @@ def test_doctor_reports_unavailable_docker_and_rejects_mismatched_state(tmp_path
     assert not unavailable.healthy
     assert "Selected image: unavailable" in unavailable.lines
     assert "Home volume:" in "\n".join(unavailable.lines)
+    assert "Tool shadowing: skipped" in "\n".join(unavailable.lines)
     mismatch = tmp_path / "mismatch.json"
     save_state(mismatch, DeploymentState(profile_name="other"))
     with pytest.raises(LifecycleError, match="belongs"):
         doctor_profile(profile, mismatch)
+
+
+def test_doctor_reports_tool_shadowing_and_inspection_failure(tmp_path: Path) -> None:
+    """Doctor exposes executable-name overlaps without making them fatal."""
+    profile = make_profile()
+    state_path = tmp_path / "state.json"
+    save_state(state_path, DeploymentState(profile_name="work", deployments=[_new_record(profile, "image")]))
+    with (
+        patch("agent_containers.lifecycle._probe", side_effect=[True, True, True]),
+        patch("agent_containers.lifecycle._inspect_tool_shadows", return_value=("codex",)),
+    ):
+        shadowed = doctor_profile(profile, state_path)
+    assert shadowed.healthy
+    assert "Tool shadowing: codex" in shadowed.lines
+    with (
+        patch("agent_containers.lifecycle._probe", side_effect=[True, True, True]),
+        patch("agent_containers.lifecycle._inspect_tool_shadows", return_value=None),
+    ):
+        unavailable = doctor_profile(profile, state_path)
+    assert unavailable.healthy
+    assert "Tool shadowing: unavailable" in "\n".join(unavailable.lines)
 
 
 def test_doctor_probe_reports_failed_subprocess() -> None:
@@ -264,3 +374,22 @@ def test_doctor_probe_reports_failed_subprocess() -> None:
     completed = subprocess.CompletedProcess(("docker", "version"), returncode=1)
     with patch("agent_containers.lifecycle.subprocess.run", return_value=completed):
         assert not _probe("docker", "version")
+
+
+def test_inspect_tool_shadows_returns_overlaps_and_handles_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Doctor reports only executable-name overlaps and degrades on Docker errors."""
+    from agent_containers.lifecycle import _inspect_tool_shadows
+
+    completed = subprocess.CompletedProcess(
+        ("docker", "run"),
+        returncode=0,
+        stdout="home\truff\nhome\tcustom\nmanaged\truff\nmanaged\tother\ninvalid\n",
+    )
+    with patch("agent_containers.lifecycle.subprocess.run", return_value=completed):
+        assert _inspect_tool_shadows("image", "volume", "codex") == ("ruff",)
+    failed = subprocess.CompletedProcess(("docker", "run"), returncode=1, stdout="")
+    with patch("agent_containers.lifecycle.subprocess.run", return_value=failed):
+        assert _inspect_tool_shadows("image", "volume", "codex") is None
+    with patch("agent_containers.lifecycle.subprocess.run", side_effect=OSError):
+        assert _inspect_tool_shadows("image", "volume", "codex") is None
+    assert _inspect_tool_shadows("image", "volume", "unknown") is None

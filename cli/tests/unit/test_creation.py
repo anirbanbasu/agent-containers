@@ -37,6 +37,8 @@ def test_prompt_profile_collects_all_sections(monkeypatch: pytest.MonkeyPatch, t
         "Gateway SSH key path": "gateway-key",
         "Gateway known-hosts path": "gateway-known-hosts",
         "Decant source profiles (comma-separated)": "base, tools",
+        "Decant account-matched image override (blank uses a user-scoped default)": "",
+        "Decant data Docker volume (blank uses a user-scoped default)": "",
         "Decant bind address": "127.0.0.1",
         "Decant port": 8787,
         "Langfuse base URL": "https://langfuse.example.test",
