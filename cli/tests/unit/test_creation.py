@@ -23,6 +23,7 @@ def test_prompt_profile_collects_all_sections(monkeypatch: pytest.MonkeyPatch, t
         "API-key environment variable": "MODEL_KEY",
         "HTTP proxy URL": "http://proxy.example.test:8080",
         "HTTPS proxy URL": "https://proxy.example.test:8443",
+        "Proxy bypass hosts (comma-separated)": "localhost, 127.0.0.1",
         "CA file path": "corp-ca.pem",
         "Egress mode (deny/allowlist/unrestricted)": "allowlist",
         "Egress hosts (comma-separated)": "model.example.test, registry.npmjs.org",
@@ -44,6 +45,7 @@ def test_prompt_profile_collects_all_sections(monkeypatch: pytest.MonkeyPatch, t
     assert profile.packages.apt == ["git", "jq"]
     assert profile.provider is not None and profile.provider.endpoint is not None
     assert profile.proxy is not None and profile.proxy.ca_file == "corp-ca.pem"
+    assert profile.proxy.no_proxy == ["localhost", "127.0.0.1"]
     assert profile.egress.gateway_port == 2222
     assert profile.decant.enabled and profile.decant.source_profiles == ["base", "tools"]
     assert profile.mounts[0].target == "/home/codex/settings.json"

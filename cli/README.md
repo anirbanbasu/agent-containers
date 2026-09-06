@@ -37,6 +37,15 @@ Preserve the repository's containment contract. Package selection must not
 silently expand runtime egress. Credentials must not appear in profiles, build
 arguments, images, logs, or command output; profiles reference runtime inputs.
 
+When a profile declares a proxy, its generated Docker launch exports both
+uppercase and lowercase `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` variables,
+and enables Node's environment proxy support. A profile `proxy.ca_file` is
+mounted read-only and exposed through `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`,
+and `NODE_EXTRA_CA_CERTS`. This supplies runtime trust to clients that honor
+those variables; it does not install the CA into the image's system trust
+store. For system-wide trust, bake the deployment CA into the selected image
+as described in `docs/network-proxy-considerations.md`.
+
 Unit and distribution tests must run without Docker. Integration tests require
 Docker and disposable resources, without real account logins. Offline plans and
 diagnostics must distinguish recorded state from inspected live state and mark
@@ -117,6 +126,13 @@ directory when invoked, selects the profile's retained image and home volume,
 and forwards arguments to the agent. It does not accept arbitrary Docker
 options; use the documented generic shortcuts when an intentional one-off
 override is needed.
+
+Provider launch mappings are agent-specific: Claude Code uses its endpoint and
+model environment variables, Codex uses per-run configuration overrides, and
+Hermes uses per-run `--provider`/`--model` flags plus the documented base-URL
+environment for supported `custom`, `openai`, and `anthropic` routes. OpenCode
+endpoint/model fields still fail explicitly until its project-configuration
+merge behavior has Docker integration coverage.
 
 `agent-containers rollback PROFILE.toml` verifies and selects the immediately
 previous retained image and launch record. It previews restored egress,

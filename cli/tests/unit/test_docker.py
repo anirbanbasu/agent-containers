@@ -77,13 +77,22 @@ def test_command_handles_proxy_ca_mount_and_custom_mount(tmp_path: Path) -> None
         proxy={
             "http": "http://proxy.example.test:8080",
             "https": "https://proxy.example.test:8443",
+            "no_proxy": ["localhost", "127.0.0.1"],
             "ca_file": "corp-ca.pem",
         },
         mounts=[{"source": "settings.json", "target": "/home/codex/settings.json"}],
     )
     argv = build_run_argv(profile, tmp_path, profile_path)
     assert "HTTP_PROXY=http://proxy.example.test:8080" in argv
+    assert "http_proxy=http://proxy.example.test:8080" in argv
     assert "HTTPS_PROXY=https://proxy.example.test:8443" in argv
+    assert "https_proxy=https://proxy.example.test:8443" in argv
+    assert "NO_PROXY=localhost,127.0.0.1" in argv
+    assert "no_proxy=localhost,127.0.0.1" in argv
+    assert "NODE_USE_ENV_PROXY=1" in argv
+    assert "SSL_CERT_FILE=/etc/ssl/certs/agent-containers-custom-ca.pem" in argv
+    assert "REQUESTS_CA_BUNDLE=/etc/ssl/certs/agent-containers-custom-ca.pem" in argv
+    assert "NODE_EXTRA_CA_CERTS=/etc/ssl/certs/agent-containers-custom-ca.pem" in argv
     assert "CUSTOM_API_KEY" in argv
     assert any(str(ca) in item and item.endswith(":ro") for item in argv)
     assert any(str(settings) in item and item.endswith(":ro") for item in argv)
@@ -121,10 +130,34 @@ def test_provider_overrides_use_agent_surfaces(tmp_path: Path) -> None:
 
 
 def test_provider_endpoint_mapping_rejects_unimplemented_agents(tmp_path: Path) -> None:
-    """A provider field never disappears silently for OpenCode or Hermes."""
+    """A provider field never disappears silently for OpenCode."""
     with pytest.raises(DockerCommandError, match="not implemented"):
         build_run_argv(
             make_profile(agent="opencode", provider={"kind": "custom", "endpoint": "https://model.example.test"}),
+            tmp_path,
+            tmp_path / "work.toml",
+        )
+
+
+def test_hermes_provider_uses_per_run_flags_and_endpoint_environment(tmp_path: Path) -> None:
+    """Hermes provider selection does not rewrite its persistent config file."""
+    argv = build_run_argv(
+        make_profile(
+            agent="hermes",
+            provider={"kind": "custom", "endpoint": "http://model.example.test/v1", "model": "local-model"},
+        ),
+        tmp_path,
+        tmp_path / "work.toml",
+    )
+    assert "OPENAI_BASE_URL=http://model.example.test/v1" in argv
+    assert argv[-4:] == ("--provider", "custom", "--model", "local-model")
+
+
+def test_hermes_rejects_unknown_endpoint_provider_mapping(tmp_path: Path) -> None:
+    """Unknown Hermes endpoint conventions fail rather than route incorrectly."""
+    with pytest.raises(DockerCommandError, match="Hermes provider"):
+        build_run_argv(
+            make_profile(agent="hermes", provider={"kind": "openrouter", "endpoint": "https://router.example.test/v1"}),
             tmp_path,
             tmp_path / "work.toml",
         )
@@ -163,6 +196,7 @@ def test_command_handles_gateway_and_explicit_unrestricted_mode(tmp_path: Path) 
 
 def test_command_rejects_workspace_and_seed_conflicts(tmp_path: Path) -> None:
     """Run refuses missing workspaces and copy-once seeds."""
+    (tmp_path / "corp-ca.pem").write_text("CA", encoding="utf-8")
     missing = tmp_path / "missing"
     with pytest.raises(DockerCommandError, match="workspace"):
         build_run_argv(make_profile(), missing, tmp_path / "work.toml")
@@ -183,6 +217,16 @@ def test_command_rejects_workspace_and_seed_conflicts(tmp_path: Path) -> None:
                     }
                 ],
             ),
+            tmp_path,
+            tmp_path / "work.toml",
+        )
+
+
+def test_command_rejects_missing_proxy_ca(tmp_path: Path) -> None:
+    """A generated launch cannot reference a missing CA input."""
+    with pytest.raises(DockerCommandError, match="CA file does not exist"):
+        build_run_argv(
+            make_profile(proxy={"ca_file": "missing-ca.pem"}),
             tmp_path,
             tmp_path / "work.toml",
         )

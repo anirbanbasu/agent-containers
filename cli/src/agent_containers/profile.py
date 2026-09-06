@@ -80,13 +80,23 @@ class ProviderConfig(BaseModel):
 
 
 class ProxyConfig(BaseModel):
-    """HTTP(S) proxy and trust inputs; routing and CA trust are separate."""
+    """HTTP(S) proxy, bypass and runtime trust inputs."""
 
     model_config = ConfigDict(extra="forbid")
 
     http: AnyHttpUrl | None = None
     https: AnyHttpUrl | None = None
+    no_proxy: list[str] = Field(default_factory=list)
     ca_file: str | None = Field(default=None, min_length=1)
+
+    @field_validator("no_proxy")
+    @classmethod
+    def no_proxy_entries_are_nonempty(cls, values: list[str]) -> list[str]:
+        """Reject accidental blank proxy bypass entries."""
+        cleaned = [value.strip() for value in values]
+        if any(not value for value in cleaned):
+            raise ValueError("no_proxy entries must not be blank")
+        return cleaned
 
 
 class EgressConfig(BaseModel):

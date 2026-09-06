@@ -31,6 +31,7 @@ api_key_env = "ANTHROPIC_API_KEY"
 
 [proxy]
 https = "https://proxy.example.test:8443"
+no_proxy = ["localhost", " 127.0.0.1 "]
 ca_file = "./corp-ca.pem"
 
 [egress]
@@ -55,6 +56,8 @@ read_only = true
     profile = load_profile(profile_path)
     assert profile.agent.value == "claude-code"
     assert profile.packages.uv_tools == ["ruff"]
+    assert profile.proxy is not None
+    assert profile.proxy.no_proxy == ["localhost", "127.0.0.1"]
     assert resolve_mount_source(profile, profile.mounts[0], profile_path) == tmp_path / "claude-settings.json"
 
 
@@ -89,6 +92,7 @@ def test_unknown_profile_fields_are_rejected() -> None:
         ),
         ({"name": "work", "agent": "codex", "egress": {"gateway_host": "gateway"}}, "together"),
         ({"name": "work", "agent": "codex", "provider": {"api_key_env": "secret-value"}}, "uppercase"),
+        ({"name": "work", "agent": "codex", "proxy": {"no_proxy": ["localhost", "  "]}}, "no_proxy entries"),
     ],
 )
 def test_profile_rejects_unsafe_values(payload: dict[str, object], message: str) -> None:

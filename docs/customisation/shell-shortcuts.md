@@ -251,7 +251,13 @@ It contains one namespaced function for each profile that has been applied, such
 as `agent_containers_work_codex` or `agent_containers_local_codex`. These
 functions evaluate `$PWD` at invocation time but select the profile's retained
 image, home volume, egress policy, proxy/CA mounts, and other managed launch
-settings. `apply` and `rollback` refresh the matching function atomically; the
+settings. Profile proxy launches provide both uppercase and lowercase proxy and
+bypass variables, plus the runtime CA pointers used by common Node.js and
+Python clients. A mounted CA is not automatically added to the image-wide
+system trust store; bake it into a deployment-specific image when system-wide
+trust is required, as described in
+[`network-proxy-considerations.md`](../network-proxy-considerations.md).
+`apply` and `rollback` refresh the matching function atomically; the
 CLI does not overwrite this generic `shortcuts.sh` file.
 
 Generated functions do not expose the generic shortcut's `--docker` escape

@@ -337,7 +337,7 @@ test Qwen's `modelProviders` settings separately. See the upstream
 | Tested agent version | Not yet tested — record `contained_hermes --version` |
 | Expected protocol | OpenAI-compatible `/v1/chat/completions` endpoint |
 | Shared state | `hermes-data` remains mounted; config, auth, memories, sessions, and skills remain shared |
-| Candidate mechanism | Let Hermes persist a named custom provider in its volume-backed `config.yaml` |
+| Candidate mechanism | CLI-managed runs can use Hermes' per-run provider/model flags; persistent custom endpoints remain a volume-backed `config.yaml` concern |
 
 Candidate interactive setup:
 

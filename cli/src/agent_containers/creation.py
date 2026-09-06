@@ -90,6 +90,7 @@ def _prompt_proxy() -> ProxyConfig | None:
     return ProxyConfig(
         http=_optional_prompt("HTTP proxy URL"),
         https=_optional_prompt("HTTPS proxy URL"),
+        no_proxy=_csv_prompt("Proxy bypass hosts (comma-separated)"),
         ca_file=_optional_prompt("CA file path"),
     )
 

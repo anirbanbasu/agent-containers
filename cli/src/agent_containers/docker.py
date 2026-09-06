@@ -47,6 +47,11 @@ mkdir -p "$(dirname "$SEED_TARGET")"
 cp -a /tmp/agent-seed "$SEED_TARGET"
 chown -R "$SEED_UID:$SEED_UID" "$SEED_TARGET"
 """
+_HERMES_BASE_URL_ENV = {
+    "anthropic": "ANTHROPIC_BASE_URL",
+    "custom": "OPENAI_BASE_URL",
+    "openai": "OPENAI_BASE_URL",
+}
 
 
 def default_image_tag(profile: Profile) -> str:
@@ -208,6 +213,13 @@ def _append_network_args(argv: list[str], profile: Profile) -> None:
             argv.extend(["-e", f"ANTHROPIC_BASE_URL={_url_value(profile.provider.endpoint)}"])
         if profile.provider.model is not None:
             argv.extend(["-e", f"ANTHROPIC_MODEL={profile.provider.model}"])
+    if profile.provider and profile.agent == AgentName.HERMES and profile.provider.endpoint is not None:
+        environment = _HERMES_BASE_URL_ENV.get(profile.provider.kind)
+        if environment is None:
+            raise DockerCommandError(
+                f"provider endpoint mapping is not implemented for Hermes provider {profile.provider.kind!r}"
+            )
+        argv.extend(["-e", f"{environment}={_url_value(profile.provider.endpoint)}"])
 
 
 def _provider_agent_args(profile: Profile) -> list[str]:
@@ -239,23 +251,50 @@ def _provider_agent_args(profile: Profile) -> list[str]:
                     ]
                 )
         return args
+    if profile.agent == AgentName.HERMES:
+        args = []
+        if provider.kind:
+            args.extend(["--provider", provider.kind])
+        if provider.model is not None:
+            args.extend(["--model", provider.model])
+        return args
     if provider.endpoint is not None or provider.model is not None:
         raise DockerCommandError(f"provider endpoint/model mapping is not implemented for {profile.agent.value}")
     return []
 
 
 def _append_proxy_args(argv: list[str], profile: Profile, profile_path: Path) -> None:
-    """Append proxy environment and a read-only CA mount."""
+    """Append proxy environment, runtime trust pointers and a read-only CA mount."""
     if profile.proxy is None:
         return
     if profile.proxy.http is not None:
-        argv.extend(["-e", f"HTTP_PROXY={_url_value(profile.proxy.http)}"])
+        value = _url_value(profile.proxy.http)
+        argv.extend(["-e", f"HTTP_PROXY={value}", "-e", f"http_proxy={value}"])
     if profile.proxy.https is not None:
-        argv.extend(["-e", f"HTTPS_PROXY={_url_value(profile.proxy.https)}"])
+        value = _url_value(profile.proxy.https)
+        argv.extend(["-e", f"HTTPS_PROXY={value}", "-e", f"https_proxy={value}"])
+    if profile.proxy.no_proxy:
+        value = ",".join(profile.proxy.no_proxy)
+        argv.extend(["-e", f"NO_PROXY={value}", "-e", f"no_proxy={value}"])
+    if profile.proxy.http is not None or profile.proxy.https is not None:
+        argv.extend(["-e", "NODE_USE_ENV_PROXY=1"])
     if profile.proxy.ca_file is not None:
         ca_source = (profile_path.parent / profile.proxy.ca_file).resolve()
+        if not ca_source.is_file():
+            raise DockerCommandError(f"proxy CA file does not exist: {ca_source}")
         target = "/etc/ssl/certs/agent-containers-custom-ca.pem"
-        argv.extend(["-v", f"{ca_source}:{target}:ro", "-e", f"SSL_CERT_FILE={target}"])
+        argv.extend(
+            [
+                "-v",
+                f"{ca_source}:{target}:ro",
+                "-e",
+                f"SSL_CERT_FILE={target}",
+                "-e",
+                f"REQUESTS_CA_BUNDLE={target}",
+                "-e",
+                f"NODE_EXTRA_CA_CERTS={target}",
+            ]
+        )
 
 
 def _url_value(value: object) -> str:
