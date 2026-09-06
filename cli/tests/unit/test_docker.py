@@ -524,6 +524,7 @@ def test_seed_command_is_networkless_create_only_and_home_scoped(tmp_path: Path)
     assert "--network=none" in argv
     assert "--read-only" in argv
     assert "--cap-add=CHOWN" in argv
+    assert "--cap-add=DAC_OVERRIDE" in argv
     assert "SEED_TARGET=/home/codex/.codex/settings.json" in argv
     assert "test ! -e" in argv[-1]
     with pytest.raises(DockerCommandError, match="not configured"):

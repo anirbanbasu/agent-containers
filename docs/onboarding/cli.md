@@ -69,6 +69,12 @@ shortcut:
 agent-containers apply ~/.config/agent-containers/profiles/work.toml
 ```
 
+Copy-once seeds run in a short-lived, networkless helper with only the
+capabilities needed to inspect and chown the mounted home volume. This includes
+`DAC_OVERRIDE` so a remapped host UID cannot block a seed targeted inside a
+mode-0700 home directory; the workload container itself still starts with all
+capabilities dropped.
+
 The default deployment record is stored under
 `$XDG_STATE_HOME/agent-containers/` or `~/.local/state/agent-containers/`.
 Use `--state PATH` to select another JSON state file. A profile's generated

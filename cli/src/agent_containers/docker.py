@@ -140,6 +140,11 @@ def build_seed_argv(
         "/run",
         "--cap-drop=ALL",
         "--cap-add=CHOWN",
+        # A populated home directory may be mode 0700 and owned by the
+        # remapped host UID. The short-lived root seed helper needs DAC
+        # override to inspect/create the target, while the workload itself
+        # never receives this capability.
+        "--cap-add=DAC_OVERRIDE",
         "--mount",
         f"type=volume,src={home},dst={home_path}",
         "--mount",
