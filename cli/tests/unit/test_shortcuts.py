@@ -67,12 +67,15 @@ def test_update_shortcuts_replaces_only_matching_profile_block(tmp_path: Path) -
     assert text.count("# BEGIN agent-containers profile local-codex") == 1
 
 
-def test_render_shortcut_reports_unsupported_provider(tmp_path: Path) -> None:
-    """Shortcut generation propagates unsupported adapter mappings clearly."""
+def test_render_shortcut_includes_opencode_provider_config(tmp_path: Path) -> None:
+    """Shortcut generation carries the ephemeral OpenCode adapter config."""
     profile = make_profile(agent="opencode", provider={"kind": "custom", "endpoint": "https://model.example.test"})
-    try:
+    text = render_shortcut(profile, make_record(profile), tmp_path / "work.toml")
+    assert "AGENT_OPENCODE_CONFIG_JSON=" in text
+
+
+def test_render_shortcut_reports_invalid_gateway_inputs(tmp_path: Path) -> None:
+    """Shortcut generation preserves safe Docker validation failures."""
+    profile = make_profile(egress={"gateway_host": "gateway", "gateway_port": 2222})
+    with pytest.raises(ShortcutError, match="gateway key input is required"):
         render_shortcut(profile, make_record(profile), tmp_path / "work.toml")
-    except ShortcutError as exc:
-        assert "not implemented" in str(exc)
-    else:
-        raise AssertionError("unsupported provider should fail")

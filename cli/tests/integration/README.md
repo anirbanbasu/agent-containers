@@ -18,4 +18,5 @@ AGENT_CONTAINERS_RUN_INTEGRATION=1 \
 ```
 
 It creates only a one-day self-signed test certificate and removes its image
-afterward. The normal `just test-cli` suite remains Docker-free.
+afterward; the OpenCode provider test likewise builds and removes a disposable
+image without credentials. The normal `just test-cli` suite remains Docker-free.

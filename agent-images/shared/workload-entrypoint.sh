@@ -11,6 +11,12 @@ agent_command="$1"
 agent_user="$2"
 shift 2
 
+if [ "$agent_command" = "opencode" ] && [ -n "${AGENT_OPENCODE_CONFIG_JSON:-}" ]; then
+    printf '%s\n' "$AGENT_OPENCODE_CONFIG_JSON" > /tmp/agent-containers-opencode.json
+    chmod 0644 /tmp/agent-containers-opencode.json
+    export OPENCODE_CONFIG=/tmp/agent-containers-opencode.json
+fi
+
 if [ -n "${AGENT_GATEWAY_HOST:-}" ]; then
     echo "[entrypoint] AGENT_GATEWAY_HOST=$AGENT_GATEWAY_HOST — tunneling all egress through the gateway." >&2
     if [ -n "${AGENT_ALLOWED_EGRESS:-}" ] || [ -f /etc/agent/egress-allowlist.txt ]; then

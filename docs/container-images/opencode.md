@@ -90,12 +90,13 @@ including its XDG locations under `~/.config/opencode` and
 
 ## Custom configuration
 
-OpenCode loads global and project configuration layers, but the global file's
-single-file bind-mount and mutation behavior has not yet been verified for
-this image. See [custom configuration files](../customisation/custom-configuration.md)
-for the state-preservation constraints and [local
-models](../customisation/local-models.md#opencode) for a version-recorded
-candidate project layer.
+OpenCode loads global and project configuration layers. The onboarding CLI can
+also render a per-run provider configuration from a profile's endpoint, model,
+and API-key environment-variable name; it writes this JSON to the ephemeral
+`/tmp` mount and sets `OPENCODE_CONFIG`, leaving the persistent home unchanged.
+See [custom configuration files](../customisation/custom-configuration.md) for
+state-preservation constraints and [local models](../customisation/local-models.md#opencode)
+for a version-recorded candidate configuration.
 
 ## Providers and egress control
 

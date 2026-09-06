@@ -1,5 +1,6 @@
 """Tests for direct-Docker command construction without Docker."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -147,14 +148,34 @@ def test_provider_overrides_use_agent_surfaces(tmp_path: Path) -> None:
     )
 
 
-def test_provider_endpoint_mapping_rejects_unimplemented_agents(tmp_path: Path) -> None:
-    """A provider field never disappears silently for OpenCode."""
-    with pytest.raises(DockerCommandError, match="not implemented"):
-        build_run_argv(
-            make_profile(agent="opencode", provider={"kind": "custom", "endpoint": "https://model.example.test"}),
-            tmp_path,
-            tmp_path / "work.toml",
+def test_opencode_provider_uses_secret_free_per_run_config(tmp_path: Path) -> None:
+    """OpenCode receives an ephemeral config without embedding credential values."""
+    argv = build_run_argv(
+        make_profile(
+            agent="opencode",
+            provider={
+                "kind": "custom",
+                "endpoint": "https://model.example.test/v1",
+                "model": "local-model",
+                "api_key_env": "MODEL_API_KEY",
+            },
+        ),
+        tmp_path,
+        tmp_path / "work.toml",
+    )
+    config = json.loads(
+        next(
+            item.removeprefix("AGENT_OPENCODE_CONFIG_JSON=")
+            for item in argv
+            if item.startswith("AGENT_OPENCODE_CONFIG_JSON=")
         )
+    )
+    assert config["model"] == "agent_containers/local-model"
+    assert config["provider"]["agent_containers"]["options"] == {
+        "baseURL": "https://model.example.test/v1",
+        "apiKey": "{env:MODEL_API_KEY}",
+    }
+    assert "MODEL_API_KEY" in argv
 
 
 def test_hermes_provider_uses_per_run_flags_and_endpoint_environment(tmp_path: Path) -> None:

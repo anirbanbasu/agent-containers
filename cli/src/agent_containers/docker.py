@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shlex
 from collections.abc import Iterable
 from pathlib import Path
@@ -226,6 +227,12 @@ def _append_network_args(argv: list[str], profile: Profile) -> None:
                 f"provider endpoint mapping is not implemented for Hermes provider {profile.provider.kind!r}"
             )
         argv.extend(["-e", f"{environment}={_url_value(profile.provider.endpoint)}"])
+    if (
+        profile.provider
+        and profile.agent == AgentName.OPENCODE
+        and (profile.provider.endpoint is not None or profile.provider.model is not None)
+    ):
+        argv.extend(["-e", f"AGENT_OPENCODE_CONFIG_JSON={_opencode_config(profile)}"])
 
 
 def _provider_agent_args(profile: Profile) -> list[str]:
@@ -264,8 +271,6 @@ def _provider_agent_args(profile: Profile) -> list[str]:
         if provider.model is not None:
             args.extend(["--model", provider.model])
         return args
-    if provider.endpoint is not None or provider.model is not None:
-        raise DockerCommandError(f"provider endpoint/model mapping is not implemented for {profile.agent.value}")
     return []
 
 
@@ -310,6 +315,32 @@ def _url_value(value: object) -> str:
 def _toml_string(value: str) -> str:
     """Escape a value embedded in a Codex TOML string override."""
     return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _opencode_config(profile: Profile) -> str:
+    """Render a secret-free, per-run OpenCode provider configuration."""
+    provider = profile.provider
+    assert provider is not None
+    options: dict[str, str] = {}
+    if provider.endpoint is not None:
+        options["baseURL"] = _url_value(provider.endpoint)
+    if provider.api_key_env is not None:
+        options["apiKey"] = "{env:" + provider.api_key_env + "}"
+    provider_config: dict[str, object] = {
+        "npm": "@ai-sdk/openai-compatible",
+        "name": provider.kind,
+        "options": options,
+        "models": {},
+    }
+    if provider.model is not None:
+        provider_config["models"] = {provider.model: {"name": provider.model}}
+    document: dict[str, object] = {
+        "$schema": "https://opencode.ai/config.json",
+        "provider": {"agent_containers": provider_config},
+    }
+    if provider.model is not None:
+        document["model"] = f"agent_containers/{provider.model}"
+    return json.dumps(document, separators=(",", ":"))
 
 
 def _append_mount_args(argv: list[str], profile: Profile, profile_path: Path) -> None:

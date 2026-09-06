@@ -54,7 +54,7 @@ from the container as well as allowlisted.
 | Claude Code | `/home/claude/.claude/settings.json` | Other Claude state remains below `/home/claude` | Candidate only; prefer environment variables for temporary provider routing |
 | Codex | `/home/codex/.codex/config.toml` | Configuration, trust, authentication, and sessions share `/home/codex/.codex` | Do not mount the mutable primary file; Codex may replace it while saving trust |
 | Kilo Code | `/home/kilo/.config/kilo/kilo.json` or `kilo.jsonc` | Configuration and session state persist in `kilo-home` | Candidate only; prefer `KILO_CONFIG` with a separate read-only input for testing |
-| OpenCode | `/home/opencode/.config/opencode/opencode.json` or `.jsonc` | Configuration and credentials use multiple XDG paths in `opencode-home` | Candidate only; a project configuration layer avoids shadowing the global file |
+| OpenCode | `/home/opencode/.config/opencode/opencode.json` or `.jsonc` | Configuration and credentials use multiple XDG paths in `opencode-home` | The onboarding CLI uses an ephemeral per-run `OPENCODE_CONFIG` file for profile provider overrides |
 | Qwen Code | `/home/qwen/.qwen/settings.json` | Settings, authentication, and MCP state share `qwen-home` | Candidate only; prefer runtime provider environment variables for temporary routing |
 | Hermes | `/opt/data/config.yaml` | Configuration, auth, memories, sessions, and skills share `hermes-data` | Do not assume it is input-only; Hermes persists model/provider changes to it |
 

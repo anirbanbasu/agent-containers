@@ -253,54 +253,43 @@ to rewrite the selected file. See Kilo's upstream
 | Tested agent version | Not yet tested — record `contained_opencode --version` |
 | Expected protocol | Candidate uses an OpenAI-compatible provider package |
 | Shared state | `opencode-home` remains mounted; global credentials and XDG data remain shared |
-| Candidate mechanism | Read-only project configuration layer; verify merge and persistence behavior |
+| Candidate mechanism | The onboarding CLI writes an ephemeral per-run `OPENCODE_CONFIG`; verify the selected OpenCode version accepts the generated provider schema |
 
-Candidate `opencode.local.json`:
+The onboarding CLI maps a profile provider to a temporary configuration like
+the following (the API key is referenced by environment-variable name, never
+embedded as a value):
 
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
   "model": "local-compatible/local-model",
-  "providers": {
-    "local-compatible": {
-      "name": "Local compatible server",
-      "package": "@opencode-ai/ai/providers/openai-compatible",
-      "settings": {
-        "baseURL": "http://LOCAL_MODEL_HOST:LOCAL_MODEL_PORT/v1"
+  "provider": {
+    "agent_containers": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "custom",
+      "options": {
+        "baseURL": "http://LOCAL_MODEL_HOST:LOCAL_MODEL_PORT/v1",
+        "apiKey": "{env:MODEL_API_KEY}"
       },
       "models": {
-        "local-model": {
-          "modelID": "LOCAL_MODEL_ID",
-          "name": "Local model",
-          "capabilities": {
-            "tools": true,
-            "input": ["text"],
-            "output": ["text"]
-          },
-          "limit": {
-            "context": 32768,
-            "output": 8192
-          }
-        }
+        "local-model": {"name": "local-model"}
       }
     }
   }
 }
 ```
 
-Candidate invocation:
+The generated file is passed to OpenCode only for that run. Candidate
+invocation (with a profile named `local-opencode`) is:
 
 ```sh
-CONTAINED_OPENCODE_EGRESS=LOCAL_MODEL_HOST \
-contained_opencode --docker \
-  -v "$PWD/opencode.local.json:/workspace/$(basename "$PWD")/opencode.json:ro" \
-  --
+agent_containers_local_opencode
 ```
 
-The provider intentionally omits an authentication environment variable for a
-keyless endpoint. Verify that the project layer is accepted and does not
-redirect unrelated future projects. See OpenCode's upstream
-[provider documentation](https://opencode.ai/v2/docs/providers).
+Verify that the selected OpenCode version accepts the generated provider
+schema and that the endpoint is included in the profile's egress policy. See
+OpenCode's upstream [configuration](https://opencode.ai/docs/config) and
+[provider documentation](https://opencode.ai/docs/providers).
 
 ## Qwen Code
 

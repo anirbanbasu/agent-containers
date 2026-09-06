@@ -138,8 +138,10 @@ Provider launch mappings are agent-specific: Claude Code uses its endpoint and
 model environment variables, Codex uses per-run configuration overrides, and
 Hermes uses per-run `--provider`/`--model` flags plus the documented base-URL
 environment for supported `custom`, `openai`, and `anthropic` routes. OpenCode
-endpoint/model fields still fail explicitly until its project-configuration
-merge behavior has Docker integration coverage.
+endpoint/model fields are rendered into a secret-free JSON provider
+configuration for that invocation. The shared entrypoint writes it under
+`/tmp` and sets `OPENCODE_CONFIG`, so the profile does not modify the
+persistent OpenCode home.
 
 `agent-containers rollback PROFILE.toml` verifies and selects the immediately
 previous retained image and launch record. It previews restored egress,
