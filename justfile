@@ -1,3 +1,5 @@
+set dotenv-load := true
+
 # Run Python unit and packaging tests (no Docker required).
 test-cli:
     cd cli && uv run --group test coverage run -m pytest tests/unit tests/packaging
