@@ -79,6 +79,26 @@ def test_apply_noop_inspects_existing_image_without_rewriting_state(tmp_path: Pa
     assert run.call_args.args[0] == ("docker", "image", "inspect", "agent-containers/codex:test")
 
 
+def test_apply_updates_shortcuts_for_new_and_noop_deployments(tmp_path: Path) -> None:
+    """Apply refreshes the generated profile function after successful selection."""
+    profile = make_profile()
+    state_path = tmp_path / "state.json"
+    shortcuts_path = tmp_path / "profiles.sh"
+    contexts = BuildContexts(tmp_path / "image", tmp_path / "shared")
+    contexts.image.mkdir()
+    contexts.shared.mkdir()
+    with (
+        patch("agent_containers.lifecycle.prepare_build_contexts", return_value=contexts),
+        patch("agent_containers.lifecycle.os.getuid", return_value=501),
+        patch("agent_containers.lifecycle.subprocess.run"),
+    ):
+        apply_profile(profile, tmp_path / "work.toml", state_path, shortcuts_path)
+    assert "agent_containers_work" in shortcuts_path.read_text(encoding="utf-8")
+    with patch("agent_containers.lifecycle.subprocess.run"):
+        apply_profile(profile, tmp_path / "work.toml", state_path, shortcuts_path)
+    assert shortcuts_path.exists()
+
+
 def test_apply_rejects_state_for_another_profile(tmp_path: Path) -> None:
     """An explicit override cannot accidentally cross deployment identities."""
     state_path = tmp_path / "state.json"
@@ -123,6 +143,20 @@ def test_rollback_inspects_previous_image_and_warns_about_home_data(tmp_path: Pa
     assert "api.example.test" in preview
     assert "home-volume" in preview
     assert load_state(state_path).selected_deployment == restored
+
+
+def test_rollback_updates_profile_shortcut(tmp_path: Path) -> None:
+    """Rollback refreshes the generated wrapper to point at the restored record."""
+    profile = make_profile()
+    state_path = tmp_path / "state.json"
+    shortcuts_path = tmp_path / "profiles.sh"
+    previous = _new_record(profile, "agent-containers/codex:previous")
+    current = _new_record(make_profile(egress={"mode": "deny"}), "agent-containers/codex:current")
+    state = DeploymentState(profile_name="work", deployments=[previous.model_copy(update={"selected": False}), current])
+    save_state(state_path, state)
+    with patch("agent_containers.lifecycle.subprocess.run"):
+        rollback_profile(profile, state_path, shortcuts_path, tmp_path / "work.toml")
+    assert "agent-containers/codex:previous" in shortcuts_path.read_text(encoding="utf-8")
 
 
 def test_rollback_refuses_missing_prior_deployment(tmp_path: Path) -> None:

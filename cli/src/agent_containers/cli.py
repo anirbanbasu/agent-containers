@@ -22,6 +22,7 @@ from agent_containers.lifecycle import (
 )
 from agent_containers.planner import build_plan
 from agent_containers.profile import load_profile
+from agent_containers.shortcuts import ShortcutError, default_shortcuts_path
 from agent_containers.state import load_state
 
 _LOGO = """░█▀█░█▀▀░█▀▀░█▀█░▀█▀░░░█▀▀░█▀█░█▀█░▀█▀░█▀█░▀█▀░█▀█░█▀▀░█▀▄░█▀▀
@@ -123,10 +124,11 @@ def apply(
             typer.echo(
                 "Note: macOS Docker Desktop builds retain the host UID and use image GID 1000 to avoid collisions."
             )
-        record = apply_profile(document, profile, state)
+        record = apply_profile(document, profile, state, default_shortcuts_path())
     except (
         DockerCommandError,
         LifecycleError,
+        ShortcutError,
         OSError,
         subprocess.CalledProcessError,
         tomllib.TOMLDecodeError,
@@ -155,9 +157,10 @@ def rollback(
     """Restore the immediately previous retained image and managed launch record."""
     try:
         document = load_profile(profile)
-        record = rollback_profile(document, state)
+        record = rollback_profile(document, state, default_shortcuts_path(), profile)
     except (
         LifecycleError,
+        ShortcutError,
         OSError,
         subprocess.CalledProcessError,
         tomllib.TOMLDecodeError,

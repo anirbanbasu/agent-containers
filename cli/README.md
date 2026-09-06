@@ -95,12 +95,27 @@ changes and always discloses that live Docker state was not inspected.
 build context, builds or verifies its retained image, copies any new seed only
 when its target is absent, and atomically selects deployment state. State is
 written to the standard per-user location unless `--state STATE.json` overrides
-it. `apply` does not launch an agent or terminate an existing session.
+it. `apply` does not launch an agent or terminate an existing session. After a
+successful apply it also refreshes the CLI-managed
+`$XDG_CONFIG_HOME/agent-containers/profiles.sh` (or
+`~/.config/agent-containers/profiles.sh`) with a namespaced shortcut for the
+profile. Source that file once from your shell startup file:
+
+```sh
+source "$HOME/.config/agent-containers/profiles.sh"
+```
+
+For example, a profile named `work-codex` becomes
+`agent_containers_work_codex`. The generated function evaluates the current
+directory when invoked, selects the profile's retained image and home volume,
+and forwards arguments to the agent. It does not accept arbitrary Docker
+options; use the documented generic shortcuts when an intentional one-off
+override is needed.
 
 `agent-containers rollback PROFILE.toml` verifies and selects the immediately
 previous retained image and launch record. It previews restored egress,
 proxy/CA, and endpoint choices. It never restores persistent-home data or stops
-an existing agent session.
+an existing agent session, and refreshes that profile's generated shortcut.
 
 `agent-containers doctor PROFILE.toml` is read-only. It reports Docker-daemon
 availability, the expected deployment-state file, and whether the selected

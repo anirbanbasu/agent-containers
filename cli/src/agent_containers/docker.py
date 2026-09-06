@@ -183,6 +183,7 @@ def build_run_argv(
     command = _AGENT_COMMANDS[profile.agent]
     if command is not None:
         argv.append(command)
+    argv.extend(_provider_agent_args(profile))
     argv.extend(agent_args)
     return tuple(argv)
 
@@ -202,6 +203,45 @@ def _append_network_args(argv: list[str], profile: Profile) -> None:
         argv.extend(["-e", f"AGENT_ALLOWED_EGRESS={','.join(profile.egress.hosts)}"])
     if profile.provider and profile.provider.api_key_env:
         argv.extend(["-e", profile.provider.api_key_env])
+    if profile.provider and profile.agent == AgentName.CLAUDE_CODE:
+        if profile.provider.endpoint is not None:
+            argv.extend(["-e", f"ANTHROPIC_BASE_URL={_url_value(profile.provider.endpoint)}"])
+        if profile.provider.model is not None:
+            argv.extend(["-e", f"ANTHROPIC_MODEL={profile.provider.model}"])
+
+
+def _provider_agent_args(profile: Profile) -> list[str]:
+    """Render provider settings through the selected agent's supported surface."""
+    provider = profile.provider
+    if provider is None:
+        return []
+    if profile.agent == AgentName.CLAUDE_CODE:
+        return []
+    if profile.agent == AgentName.CODEX:
+        args = []
+        if provider.model is not None:
+            args.extend(["--model", provider.model])
+        if provider.endpoint is not None:
+            if provider.kind == "openai":
+                args.extend(["--config", f'openai_base_url="{_toml_string(_url_value(provider.endpoint))}"'])
+            else:
+                provider_id = "agent_containers"
+                args.extend(
+                    [
+                        "--config",
+                        f'model_provider="{provider_id}"',
+                        "--config",
+                        f'model_providers.{provider_id}.name="{provider.kind}"',
+                        "--config",
+                        f'model_providers.{provider_id}.base_url="{_toml_string(_url_value(provider.endpoint))}"',
+                        "--config",
+                        f'model_providers.{provider_id}.wire_api="responses"',
+                    ]
+                )
+        return args
+    if provider.endpoint is not None or provider.model is not None:
+        raise DockerCommandError(f"provider endpoint/model mapping is not implemented for {profile.agent.value}")
+    return []
 
 
 def _append_proxy_args(argv: list[str], profile: Profile, profile_path: Path) -> None:
@@ -221,6 +261,11 @@ def _append_proxy_args(argv: list[str], profile: Profile, profile_path: Path) ->
 def _url_value(value: object) -> str:
     """Render a validated URL without Pydantic's cosmetic root slash."""
     return str(value).rstrip("/")
+
+
+def _toml_string(value: str) -> str:
+    """Escape a value embedded in a Codex TOML string override."""
+    return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
 def _append_mount_args(argv: list[str], profile: Profile, profile_path: Path) -> None:

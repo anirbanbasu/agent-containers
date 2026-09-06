@@ -236,6 +236,29 @@ read-only or as a single read-write file. See [custom configuration
 files](custom-configuration.md) and the candidate [local-model
 recipes](local-models.md) for the agent-specific constraints.
 
+## CLI-managed profile shortcuts
+
+The onboarding CLI leaves this generic file available and maintains a separate
+`$XDG_CONFIG_HOME/agent-containers/profiles.sh` (falling back to
+`~/.config/agent-containers/profiles.sh`). Source the generated file once from
+your shell startup file:
+
+```sh
+source "$HOME/.config/agent-containers/profiles.sh"
+```
+
+It contains one namespaced function for each profile that has been applied, such
+as `agent_containers_work_codex` or `agent_containers_local_codex`. These
+functions evaluate `$PWD` at invocation time but select the profile's retained
+image, home volume, egress policy, proxy/CA mounts, and other managed launch
+settings. `apply` and `rollback` refresh the matching function atomically; the
+CLI does not overwrite this generic `shortcuts.sh` file.
+
+Generated functions do not expose the generic shortcut's `--docker` escape
+hatch. Keep using the generic functions above for deliberate one-off Docker
+options, and review those options against the containment warning at the top of
+this page.
+
 For Codex device authentication, forward the login subcommand through the
 same function. Do not add another `codex`: the function already supplies the
 CLI command required after the image name.

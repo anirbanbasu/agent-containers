@@ -89,6 +89,61 @@ def test_command_handles_proxy_ca_mount_and_custom_mount(tmp_path: Path) -> None
     assert any(str(settings) in item and item.endswith(":ro") for item in argv)
 
 
+def test_provider_overrides_use_agent_surfaces(tmp_path: Path) -> None:
+    """Claude receives env settings while Codex receives one-run config overrides."""
+    claude = build_run_argv(
+        make_profile(
+            agent="claude-code",
+            provider={"kind": "anthropic", "endpoint": "https://proxy.example.test/v1", "model": "sonnet"},
+        ),
+        tmp_path,
+        tmp_path / "work.toml",
+    )
+    assert "ANTHROPIC_BASE_URL=https://proxy.example.test/v1" in claude
+    assert "ANTHROPIC_MODEL=sonnet" in claude
+    codex = build_run_argv(
+        make_profile(provider={"kind": "local", "endpoint": "http://model.example.test/v1", "model": "local-model"}),
+        tmp_path,
+        tmp_path / "work.toml",
+    )
+    assert codex[-10:] == (
+        "--model",
+        "local-model",
+        "--config",
+        'model_provider="agent_containers"',
+        "--config",
+        'model_providers.agent_containers.name="local"',
+        "--config",
+        'model_providers.agent_containers.base_url="http://model.example.test/v1"',
+        "--config",
+        'model_providers.agent_containers.wire_api="responses"',
+    )
+
+
+def test_provider_endpoint_mapping_rejects_unimplemented_agents(tmp_path: Path) -> None:
+    """A provider field never disappears silently for OpenCode or Hermes."""
+    with pytest.raises(DockerCommandError, match="not implemented"):
+        build_run_argv(
+            make_profile(agent="opencode", provider={"kind": "custom", "endpoint": "https://model.example.test"}),
+            tmp_path,
+            tmp_path / "work.toml",
+        )
+
+
+def test_codex_builtin_provider_and_empty_unsupported_provider(tmp_path: Path) -> None:
+    """Built-in OpenAI routing uses its dedicated key and empty metadata is a no-op."""
+    builtin = build_run_argv(
+        make_profile(provider={"kind": "openai", "endpoint": "https://api.openai.com/v1"}),
+        tmp_path,
+        tmp_path / "work.toml",
+    )
+    assert 'openai_base_url="https://api.openai.com/v1"' in builtin
+    empty = build_run_argv(
+        make_profile(agent="opencode", provider={"kind": "custom"}), tmp_path, tmp_path / "work.toml"
+    )
+    assert empty[-1] == "opencode"
+
+
 def test_command_handles_gateway_and_explicit_unrestricted_mode(tmp_path: Path) -> None:
     """Gateway variables are explicit and unrestricted mode requires consent."""
     gateway = make_profile(egress={"gateway_host": "gateway", "gateway_port": 2222})

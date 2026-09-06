@@ -14,6 +14,7 @@ from agent_containers.build_context import prepare_build_contexts
 from agent_containers.docker import build_image_argv, build_seed_argv, default_image_tag
 from agent_containers.planner import PlanAction, build_plan
 from agent_containers.profile import MountType, Profile
+from agent_containers.shortcuts import update_shortcuts
 from agent_containers.state import (
     DeploymentRecord,
     DeploymentState,
@@ -46,7 +47,12 @@ def build_user_ids() -> tuple[int, int]:
     return os.getuid(), 1000 if sys.platform == "darwin" else os.getgid()
 
 
-def apply_profile(profile: Profile, profile_path: Path, state_path: Path | None = None) -> DeploymentRecord:
+def apply_profile(
+    profile: Profile,
+    profile_path: Path,
+    state_path: Path | None = None,
+    shortcuts_path: Path | None = None,
+) -> DeploymentRecord:
     """Build or verify a deployment, seed it safely, then atomically select it."""
     target_state_path = state_path or default_state_path(profile)
     state = load_state(target_state_path) if target_state_path.exists() else DeploymentState(profile_name=profile.name)
@@ -65,12 +71,21 @@ def apply_profile(profile: Profile, profile_path: Path, state_path: Path | None 
         state.deployments = [item.model_copy(update={"selected": False}) for item in state.deployments]
         state.deployments.append(record)
         save_state(target_state_path, state)
+        if shortcuts_path is not None:
+            update_shortcuts(shortcuts_path, profile, record, profile_path)
         return record
     assert selected is not None
+    if shortcuts_path is not None:
+        update_shortcuts(shortcuts_path, profile, selected, profile_path)
     return selected
 
 
-def rollback_profile(profile: Profile, state_path: Path | None = None) -> DeploymentRecord:
+def rollback_profile(
+    profile: Profile,
+    state_path: Path | None = None,
+    shortcuts_path: Path | None = None,
+    profile_path: Path | None = None,
+) -> DeploymentRecord:
     """Select the immediately preceding retained image after verifying it exists."""
     target_state_path = state_path or default_state_path(profile)
     state = load_state(target_state_path)
@@ -87,6 +102,9 @@ def rollback_profile(profile: Profile, state_path: Path | None = None) -> Deploy
         item.model_copy(update={"selected": item.deployment_id == target.deployment_id}) for item in state.deployments
     ]
     save_state(target_state_path, state)
+    if shortcuts_path is not None:
+        restored_profile = Profile.model_validate(target.profile_snapshot)
+        update_shortcuts(shortcuts_path, restored_profile, target, profile_path or Path.cwd() / "profile.toml")
     return state.selected_deployment or target
 
 
