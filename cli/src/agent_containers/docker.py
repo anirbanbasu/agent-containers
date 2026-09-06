@@ -243,23 +243,35 @@ def _append_network_args(argv: list[str], profile: Profile) -> None:
                 f"provider endpoint mapping is not implemented for Hermes provider {profile.provider.kind!r}"
             )
         argv.extend(["-e", f"{environment}={_url_value(profile.provider.endpoint)}"])
-    if (
-        profile.provider
-        and profile.agent == AgentName.OPENCODE
-        and (profile.provider.endpoint is not None or profile.provider.model is not None)
+    if profile.agent == AgentName.OPENCODE and (
+        profile.langfuse.enabled
+        or (
+            profile.provider is not None
+            and (profile.provider.endpoint is not None or profile.provider.model is not None)
+        )
     ):
         argv.extend(["-e", f"AGENT_OPENCODE_CONFIG_JSON={_opencode_config(profile)}"])
+    _append_langfuse_args(argv, profile)
 
 
 def _provider_agent_args(profile: Profile) -> list[str]:
     """Render provider settings through the selected agent's supported surface."""
     provider = profile.provider
-    if provider is None:
-        return []
     if profile.agent == AgentName.CLAUDE_CODE:
         return []
     if profile.agent == AgentName.CODEX:
         args = []
+        if profile.langfuse.enabled:
+            args.extend(
+                [
+                    "--config",
+                    "features.hooks=true",
+                    "--config",
+                    'plugins."tracing@codex-observability-plugin".enabled=true',
+                ]
+            )
+        if provider is None:
+            return args
         if provider.model is not None:
             args.extend(["--model", provider.model])
         if provider.endpoint is not None:
@@ -281,6 +293,8 @@ def _provider_agent_args(profile: Profile) -> list[str]:
                 )
         return args
     if profile.agent == AgentName.HERMES:
+        if provider is None:
+            return []
         args = []
         if provider.kind:
             args.extend(["--provider", provider.kind])
@@ -347,27 +361,69 @@ def _toml_string(value: str) -> str:
 def _opencode_config(profile: Profile) -> str:
     """Render a secret-free, per-run OpenCode provider configuration."""
     provider = profile.provider
-    assert provider is not None
     options: dict[str, str] = {}
-    if provider.endpoint is not None:
-        options["baseURL"] = _url_value(provider.endpoint)
-    if provider.api_key_env is not None:
-        options["apiKey"] = "{env:" + provider.api_key_env + "}"
-    provider_config: dict[str, object] = {
-        "npm": "@ai-sdk/openai-compatible",
-        "name": provider.kind,
-        "options": options,
-        "models": {},
-    }
-    if provider.model is not None:
-        provider_config["models"] = {provider.model: {"name": provider.model}}
     document: dict[str, object] = {
         "$schema": "https://opencode.ai/config.json",
-        "provider": {"agent_containers": provider_config},
     }
-    if provider.model is not None:
-        document["model"] = f"agent_containers/{provider.model}"
+    if provider is not None:
+        if provider.endpoint is not None:
+            options["baseURL"] = _url_value(provider.endpoint)
+        if provider.api_key_env is not None:
+            options["apiKey"] = "{env:" + provider.api_key_env + "}"
+        provider_config: dict[str, object] = {
+            "npm": "@ai-sdk/openai-compatible",
+            "name": provider.kind,
+            "options": options,
+            "models": {},
+        }
+        if provider.model is not None:
+            provider_config["models"] = {provider.model: {"name": provider.model}}
+            document["model"] = f"agent_containers/{provider.model}"
+        document["provider"] = {"agent_containers": provider_config}
+    if profile.langfuse.enabled:
+        document["experimental"] = {"openTelemetry": True}
+        document["plugin"] = ["@langfuse/opencode-observability-plugin@latest"]
     return json.dumps(document, separators=(",", ":"))
+
+
+def _append_langfuse_args(argv: list[str], profile: Profile) -> None:
+    """Append opt-in Langfuse environment references and enforce egress scope."""
+    config = profile.langfuse
+    if not config.enabled:
+        return
+    base_url = config.base_url
+    assert base_url is not None
+    host = base_url.host
+    assert host is not None
+    host = host.lower()
+    if profile.egress.gateway_host is None:
+        if profile.egress.mode == "deny":
+            raise DockerCommandError("Langfuse requires an egress allowlist entry or gateway")
+        if profile.egress.mode == "allowlist" and host not in {entry.lower() for entry in profile.egress.hosts}:
+            raise DockerCommandError(f"Langfuse host must be included in egress hosts: {host}")
+    base_url_value = _url_value(base_url)
+    base_environment = "LANGFUSE_BASEURL" if profile.agent == AgentName.OPENCODE else "LANGFUSE_BASE_URL"
+    argv.extend(
+        [
+            "-e",
+            "TRACE_TO_LANGFUSE=true",
+            "-e",
+            config.public_key_env,
+            "-e",
+            f"AGENT_LANGFUSE_PUBLIC_KEY_ENV={config.public_key_env}",
+            "-e",
+            config.secret_key_env,
+            "-e",
+            f"AGENT_LANGFUSE_SECRET_KEY_ENV={config.secret_key_env}",
+            "-e",
+            f"{base_environment}={base_url_value}",
+        ]
+    )
+    if config.environment is not None:
+        environment = "LANGFUSE_ENVIRONMENT" if profile.agent == AgentName.OPENCODE else "LANGFUSE_TRACING_ENVIRONMENT"
+        argv.extend(["-e", f"{environment}={config.environment}"])
+    if config.user_id is not None:
+        argv.extend(["-e", f"LANGFUSE_USER_ID={config.user_id}"])
 
 
 def _append_mount_args(argv: list[str], profile: Profile, profile_path: Path) -> None:

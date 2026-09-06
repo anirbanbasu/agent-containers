@@ -39,6 +39,11 @@ def test_prompt_profile_collects_all_sections(monkeypatch: pytest.MonkeyPatch, t
         "Decant source profiles (comma-separated)": "base, tools",
         "Decant bind address": "127.0.0.1",
         "Decant port": 8787,
+        "Langfuse base URL": "https://langfuse.example.test",
+        "Langfuse public-key environment variable": "LANGFUSE_PUBLIC_KEY",
+        "Langfuse secret-key environment variable": "LANGFUSE_SECRET_KEY",
+        "Langfuse environment label": "development",
+        "Langfuse user ID": "alice",
         "Number of custom mounts": 1,
         "Mount type (bind/directory/seed)": "bind",
         "Mount source": "settings.json",
@@ -58,6 +63,7 @@ def test_prompt_profile_collects_all_sections(monkeypatch: pytest.MonkeyPatch, t
     assert profile.egress.gateway_user == "tunnel"
     assert profile.egress.gateway_bootstrap_allow == ["192.0.2.10"]
     assert profile.decant.enabled and profile.decant.source_profiles == ["base", "tools"]
+    assert profile.langfuse.enabled and profile.langfuse.environment == "development"
     assert profile.mounts[0].target == "/home/codex/settings.json"
 
 
@@ -77,7 +83,7 @@ def test_prompt_profile_uses_safe_defaults_for_optional_sections(
         "Gateway host": "",
         "Number of custom mounts": 0,
     }
-    confirms = iter([False, False, False])
+    confirms = iter([False, False, False, False])
     monkeypatch.setattr("agent_containers.creation.typer.prompt", lambda label, **_: answers[label])
     monkeypatch.setattr("agent_containers.creation.typer.confirm", lambda *_args, **_kwargs: next(confirms))
     profile = prompt_profile(tmp_path / "minimal.toml")

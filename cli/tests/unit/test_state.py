@@ -104,6 +104,17 @@ def test_plan_classifies_image_and_launch_changes() -> None:
     assert not plan.live_state_checked
 
 
+def test_plan_classifies_langfuse_as_image_and_launch_change() -> None:
+    """Opting into observability rebuilds the plugin image and launch config."""
+    current = make_profile(
+        langfuse={"enabled": True, "base_url": "https://langfuse.example.test"},
+        egress={"hosts": ["langfuse.example.test"]},
+    )
+    plan = build_plan(current, make_state(make_profile(egress={"hosts": ["langfuse.example.test"]})))
+    assert plan.actions == [PlanAction.UPDATE_IMAGE, PlanAction.UPDATE_LAUNCH]
+    assert plan.changed_sections == ["langfuse"]
+
+
 def test_plan_detects_rotated_proxy_ca_contents(tmp_path: Path) -> None:
     """Changing a certificate file triggers an image rebuild even if TOML is unchanged."""
     ca = tmp_path / "corp-ca.pem"

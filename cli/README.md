@@ -22,9 +22,10 @@ package will be `agent_containers`.
   without duplicating each agent's settings schema. Relative input paths resolve
   against the profile directory; the workspace defaults to the launch directory.
 - Composable hosted/local/custom model endpoints, HTTP(S) proxies, CA trust,
-  egress gateways, and Decant. These belong to the complete initial product,
-  not a deferred integration wishlist. Local inference engine installation and
-  model downloads are outside the agreed initial scope.
+  egress gateways, and experimental observability integrations. Decant is
+  experimental and currently limited to Claude Code and Codex; it is disabled
+  unless a profile opts in. Local inference engine installation and model
+  downloads are outside the agreed initial scope.
 - Explicit application and updates, retained prior deployments, and rollback of
   the selected image and managed launch configuration. Rollback does not restore
   mutable home-volume data or terminate existing sessions automatically.
@@ -52,6 +53,13 @@ explicit mounts at `/etc/agent/gateway-key` and
 `/etc/agent/gateway-known-hosts`; bootstrap rules are restricted to literal
 IP addresses/CIDRs. Gateway user, Cloudflare Access hostname, and bootstrap
 allow rules are emitted only when gateway mode is explicitly configured.
+
+Langfuse support is experimental and opt-in for Claude Code, Codex, and
+OpenCode. The CLI installs the vendor-supported integration for the selected
+agent and emits only references to credential environment variables; it never
+stores credential values. A Langfuse endpoint must be present in the profile's
+egress allowlist (or be reached through a configured gateway). Langfuse is one
+of many possible OpenTelemetry backends, not a default telemetry provider.
 
 Unit and distribution tests must run without Docker. Integration tests require
 Docker and disposable resources, without real account logins. Offline plans and

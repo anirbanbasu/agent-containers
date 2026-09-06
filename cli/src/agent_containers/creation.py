@@ -13,6 +13,7 @@ from agent_containers.profile import (
     AgentName,
     DecantConfig,
     EgressConfig,
+    LangfuseConfig,
     MountConfig,
     MountType,
     PackageSet,
@@ -41,6 +42,7 @@ def prompt_profile(path: Path) -> Profile:
     proxy = _prompt_proxy()
     egress = _prompt_egress()
     decant = _prompt_decant()
+    langfuse = _prompt_langfuse()
     mounts = _prompt_mounts()
     return Profile(
         name=name,
@@ -51,6 +53,7 @@ def prompt_profile(path: Path) -> Profile:
         proxy=proxy,
         egress=egress,
         decant=decant,
+        langfuse=langfuse,
         mounts=mounts,
     )
 
@@ -130,6 +133,19 @@ def _prompt_decant() -> DecantConfig:
         source_profiles=_csv_prompt("Decant source profiles (comma-separated)"),
         bind_address=typer.prompt("Decant bind address", default="127.0.0.1"),
         port=typer.prompt("Decant port", default=8787, type=int),
+    )
+
+
+def _prompt_langfuse() -> LangfuseConfig:
+    if not typer.confirm("Enable experimental Langfuse observability?", default=False):
+        return LangfuseConfig()
+    return LangfuseConfig(
+        enabled=True,
+        base_url=typer.prompt("Langfuse base URL"),
+        public_key_env=typer.prompt("Langfuse public-key environment variable", default="LANGFUSE_PUBLIC_KEY"),
+        secret_key_env=typer.prompt("Langfuse secret-key environment variable", default="LANGFUSE_SECRET_KEY"),
+        environment=_optional_prompt("Langfuse environment label"),
+        user_id=_optional_prompt("Langfuse user ID"),
     )
 
 

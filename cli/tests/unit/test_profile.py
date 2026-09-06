@@ -125,6 +125,33 @@ def test_unknown_profile_fields_are_rejected() -> None:
             {"name": "work", "agent": "codex", "egress": {"gateway_bootstrap_allow": ["gateway.example.test"]}},
             "IP addresses or CIDRs",
         ),
+        ({"name": "work", "agent": "hermes", "decant": {"enabled": True}}, "Decant support"),
+        (
+            {"name": "work", "agent": "hermes", "langfuse": {"enabled": True, "base_url": "https://lf.example"}},
+            "Langfuse support",
+        ),
+        ({"name": "work", "agent": "codex", "langfuse": {"enabled": True}}, "base_url is required"),
+        (
+            {
+                "name": "work",
+                "agent": "codex",
+                "langfuse": {"enabled": True, "base_url": "https://lf.example", "public_key_env": "secret"},
+            },
+            "uppercase environment variable names",
+        ),
+        (
+            {
+                "name": "work",
+                "agent": "codex",
+                "langfuse": {
+                    "enabled": True,
+                    "base_url": "https://lf.example",
+                    "public_key_env": "SAME",
+                    "secret_key_env": "SAME",
+                },
+            },
+            "must differ",
+        ),
     ],
 )
 def test_profile_rejects_unsafe_values(payload: dict[str, object], message: str) -> None:

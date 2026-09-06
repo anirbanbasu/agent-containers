@@ -1,0 +1,2 @@
+# Optional profile-managed Codex plugin marketplaces.
+# The onboarding CLI adds the Langfuse marketplace only when explicitly enabled.

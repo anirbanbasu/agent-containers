@@ -36,6 +36,40 @@ def test_prepare_contexts_replaces_all_optional_package_lists(tmp_path: Path) ->
     assert (contexts.image / "packages-uv.txt").read_text(encoding="utf-8") == "httpx>=0.28\n"
 
 
+@pytest.mark.parametrize(
+    ("agent", "field", "required", "filename"),
+    [("opencode", "npm", "@langfuse/opencode-observability-plugin", "packages-npm.txt")],
+)
+def test_prepare_contexts_adds_agent_specific_langfuse_dependency(
+    tmp_path: Path, agent: str, field: str, required: str, filename: str
+) -> None:
+    """Langfuse dependencies are added only when the integration is enabled."""
+    profile = make_profile(
+        agent=agent,
+        langfuse={"enabled": True, "base_url": "https://langfuse.example.test"},
+        packages={field: ["user-package"]},
+    )
+    contexts = prepare_build_contexts(profile, tmp_path / f"{agent}-context")
+    assert (contexts.image / filename).read_text(encoding="utf-8") == f"user-package\n{required}\n"
+    if agent == "opencode":
+        config = (contexts.image / "Dockerfile").read_text(encoding="utf-8")
+        assert "opencode" in config
+
+
+def test_prepare_contexts_materializes_langfuse_plugins(tmp_path: Path) -> None:
+    """Claude and Codex receive their official marketplace selections only when enabled."""
+    for agent in ("claude-code", "codex"):
+        profile = make_profile(
+            agent=agent,
+            langfuse={"enabled": True, "base_url": "https://langfuse.example.test"},
+        )
+        contexts = prepare_build_contexts(profile, tmp_path / f"{agent}-context")
+        assert "langfuse/" in (contexts.image / "plugin-marketplaces.txt").read_text(encoding="utf-8")
+        plugins = (contexts.image / "plugins.txt").read_text(encoding="utf-8")
+        expected = "tracing@codex-observability-plugin" if agent == "codex" else "langfuse-observability"
+        assert expected in plugins
+
+
 def test_prepare_contexts_writes_empty_lists_and_refuses_existing_destination(tmp_path: Path) -> None:
     """Empty profiles install no optional packages and never merge into a directory."""
     destination = tmp_path / "context"

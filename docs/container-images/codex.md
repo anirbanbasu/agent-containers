@@ -114,6 +114,18 @@ read-only. See [custom configuration files](../customisation/custom-configuratio
 for the file-update constraints and [local models](../customisation/local-models.md#codex)
 for a version-recorded candidate that uses CLI overrides instead.
 
+### Experimental Langfuse observability
+
+An opted-in profile adds Langfuse's Codex plugin marketplace and enables the
+plugin hooks for that run. The launch exports `TRACE_TO_LANGFUSE=true`,
+`LANGFUSE_BASE_URL`, and references to the configured public/secret-key
+environment variables; it never stores the credential values. Include the
+Langfuse endpoint host in the profile egress allowlist (or use a gateway).
+This is experimental, disabled by default, and Langfuse is only one possible
+OpenTelemetry backend. A previously populated home volume hides newly
+image-seeded plugins; use a fresh profile volume or add the marketplace/plugin
+to that volume explicitly.
+
 ## Authentication
 
 Choose one authentication mode:

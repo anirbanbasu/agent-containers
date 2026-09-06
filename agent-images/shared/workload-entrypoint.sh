@@ -11,6 +11,19 @@ agent_command="$1"
 agent_user="$2"
 shift 2
 
+if [ -n "${AGENT_LANGFUSE_PUBLIC_KEY_ENV:-}" ]; then
+    langfuse_public_name="$AGENT_LANGFUSE_PUBLIC_KEY_ENV"
+    if [ -n "${!langfuse_public_name+x}" ]; then
+        export LANGFUSE_PUBLIC_KEY="${!langfuse_public_name}"
+    fi
+fi
+if [ -n "${AGENT_LANGFUSE_SECRET_KEY_ENV:-}" ]; then
+    langfuse_secret_name="$AGENT_LANGFUSE_SECRET_KEY_ENV"
+    if [ -n "${!langfuse_secret_name+x}" ]; then
+        export LANGFUSE_SECRET_KEY="${!langfuse_secret_name}"
+    fi
+fi
+
 if [ "$agent_command" = "opencode" ] && [ -n "${AGENT_OPENCODE_CONFIG_JSON:-}" ]; then
     printf '%s\n' "$AGENT_OPENCODE_CONFIG_JSON" > /tmp/agent-containers-opencode.json
     chmod 0644 /tmp/agent-containers-opencode.json

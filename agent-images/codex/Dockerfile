@@ -88,6 +88,18 @@ RUN mkdir -p /opt/agent-tools/npm /opt/agent-tools/uv-tools /opt/agent-tools/bin
         && install_uv_tools /tmp/tools-uv.txt' \
     && rm -f /tmp/packages-npm.txt /tmp/tools-uv.txt
 
+COPY plugin-marketplaces.txt /tmp/plugin-marketplaces.txt
+COPY plugins.txt /tmp/plugins.txt
+RUN while IFS= read -r marketplace; do \
+        case "$marketplace" in ''|'#'*) continue ;; esac; \
+        gosu codex codex-cli plugin marketplace add "${marketplace}"; \
+    done < /tmp/plugin-marketplaces.txt \
+    && while IFS= read -r plugin; do \
+        case "$plugin" in ''|'#'*) continue ;; esac; \
+        gosu codex codex-cli plugin add "${plugin}"; \
+    done < /tmp/plugins.txt \
+    && rm -f /tmp/plugin-marketplaces.txt /tmp/plugins.txt
+
 # Everything above this line is UID/GID-independent and layer-cacheable
 # across hosts: the codex account exists at the fixed placeholder UID/GID
 # only so the installers above have a non-root account to run as. From here

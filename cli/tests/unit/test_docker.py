@@ -208,6 +208,85 @@ def test_opencode_provider_uses_secret_free_per_run_config(tmp_path: Path) -> No
     assert "MODEL_API_KEY" in argv
 
 
+def test_langfuse_runtime_exports_secret_references_and_requires_egress(tmp_path: Path) -> None:
+    """Enabled Langfuse routing forwards only env names and requires its host allowlist entry."""
+    profile = make_profile(
+        agent="claude-code",
+        langfuse={
+            "enabled": True,
+            "base_url": "https://self-hosted.langfuse.example.test",
+            "environment": "development",
+            "user_id": "alice",
+        },
+        egress={"hosts": ["self-hosted.langfuse.example.test"]},
+    )
+    argv = build_run_argv(profile, tmp_path, tmp_path / "work.toml")
+    assert "TRACE_TO_LANGFUSE=true" in argv
+    assert "LANGFUSE_PUBLIC_KEY" in argv
+    assert "LANGFUSE_SECRET_KEY" in argv
+    assert "AGENT_LANGFUSE_PUBLIC_KEY_ENV=LANGFUSE_PUBLIC_KEY" in argv
+    assert "AGENT_LANGFUSE_SECRET_KEY_ENV=LANGFUSE_SECRET_KEY" in argv
+    assert "LANGFUSE_BASE_URL=https://self-hosted.langfuse.example.test" in argv
+    assert "LANGFUSE_TRACING_ENVIRONMENT=development" in argv
+    assert "LANGFUSE_USER_ID=alice" in argv
+    with pytest.raises(DockerCommandError, match="allowlist entry or gateway"):
+        build_run_argv(
+            make_profile(
+                agent="claude-code",
+                langfuse={"enabled": True, "base_url": "https://self-hosted.langfuse.example.test"},
+                egress={"mode": "deny"},
+            ),
+            tmp_path,
+            tmp_path / "work.toml",
+        )
+    with pytest.raises(DockerCommandError, match="Langfuse host"):
+        build_run_argv(
+            make_profile(
+                agent="claude-code",
+                langfuse={
+                    "enabled": True,
+                    "base_url": "https://self-hosted.langfuse.example.test",
+                    "environment": "development",
+                    "user_id": "alice",
+                },
+                egress={"hosts": ["api.example.test"]},
+            ),
+            tmp_path,
+            tmp_path / "work.toml",
+        )
+
+
+def test_opencode_langfuse_config_does_not_require_provider(tmp_path: Path) -> None:
+    """OpenCode-only observability still emits its per-run telemetry config."""
+    argv = build_run_argv(
+        make_profile(
+            agent="opencode",
+            langfuse={"enabled": True, "base_url": "https://langfuse.example.test"},
+            egress={"hosts": ["langfuse.example.test"]},
+        ),
+        tmp_path,
+        tmp_path / "work.toml",
+    )
+    config = json.loads(next(item.split("=", 1)[1] for item in argv if item.startswith("AGENT_OPENCODE_CONFIG_JSON=")))
+    assert config["experimental"] == {"openTelemetry": True}
+    assert config["plugin"] == ["@langfuse/opencode-observability-plugin@latest"]
+    assert "LANGFUSE_BASEURL=https://langfuse.example.test" in argv
+
+
+def test_codex_langfuse_enables_plugin_hooks_per_run(tmp_path: Path) -> None:
+    """Codex receives the current hook and plugin settings without secrets."""
+    argv = build_run_argv(
+        make_profile(
+            langfuse={"enabled": True, "base_url": "https://langfuse.example.test"},
+            egress={"hosts": ["langfuse.example.test"]},
+        ),
+        tmp_path,
+        tmp_path / "work.toml",
+    )
+    assert "features.hooks=true" in argv
+    assert 'plugins."tracing@codex-observability-plugin".enabled=true' in argv
+
+
 def test_hermes_provider_uses_per_run_flags_and_endpoint_environment(tmp_path: Path) -> None:
     """Hermes provider selection does not rewrite its persistent config file."""
     argv = build_run_argv(

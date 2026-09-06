@@ -202,6 +202,19 @@ Model settings and the egress allowlist can each be supplied either by
 mounting a file into the container or by setting environment variables
 directly with `-e`.
 
+### Experimental Langfuse observability
+
+The onboarding CLI can opt a profile into Langfuse observability. It installs
+Langfuse's Claude Code marketplace plugin and passes `TRACE_TO_LANGFUSE=true`,
+`LANGFUSE_BASE_URL`, and references to the profile's public/secret-key
+environment variables at runtime. Credential values remain on the host; set
+the named variables when launching the container. Add the Langfuse endpoint
+host to the profile egress allowlist (or configure a gateway) before applying
+the profile. Langfuse is one possible OpenTelemetry backend and is not enabled
+by default. A previously populated home volume hides newly image-seeded
+plugins; use a fresh profile volume or install the marketplace plugin into that
+volume explicitly.
+
 For the corresponding file paths and mount behaviour for every image, see
 [custom configuration files](../customisation/custom-configuration.md). Claude Code's global
 settings file is `/home/claude/.claude/settings.json`.

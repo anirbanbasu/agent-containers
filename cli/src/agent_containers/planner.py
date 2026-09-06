@@ -75,6 +75,9 @@ def build_plan(profile: Profile, state: DeploymentState | None = None, profile_p
     launch_sections = ["home_volume", "provider", "proxy", "egress", "decant", "mounts"]
     changed_image = [section for section in image_sections if snapshot.get(section) != previous.get(section)]
     changed_launch = [section for section in launch_sections if snapshot.get(section) != previous.get(section)]
+    langfuse_changed = snapshot.get("langfuse") != previous.get("langfuse")
+    if langfuse_changed:
+        changed_image.append("langfuse")
     changed = changed_image + changed_launch
     if digest != selected.profile_digest and not changed:
         changed_image.append("proxy CA contents")
@@ -85,7 +88,7 @@ def build_plan(profile: Profile, state: DeploymentState | None = None, profile_p
         actions = []
         if changed_image:
             actions.append(PlanAction.UPDATE_IMAGE)
-        if changed_launch:
+        if changed_launch or langfuse_changed:
             actions.append(PlanAction.UPDATE_LAUNCH)
     return Plan(
         profile_name=profile.name,

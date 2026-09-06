@@ -98,6 +98,16 @@ See [custom configuration files](../customisation/custom-configuration.md) for
 state-preservation constraints and [local models](../customisation/local-models.md#opencode)
 for a version-recorded candidate configuration.
 
+### Experimental Langfuse observability
+
+An opted-in profile installs the `@langfuse/opencode-observability-plugin` npm
+package and emits an ephemeral OpenCode configuration enabling its OpenTelemetry
+exporter. The launch references the configured public/secret-key environment
+variables and sets `LANGFUSE_BASEURL`; no credential values are written to the
+profile or image. Include the Langfuse endpoint host in the profile egress
+allowlist (or use a gateway). This integration is experimental and disabled by
+default; Langfuse is one of many possible OpenTelemetry providers.
+
 ## Providers and egress control
 
 The container defaults to deny-all when neither `AGENT_ALLOWED_EGRESS` nor a

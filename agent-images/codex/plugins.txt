@@ -1,0 +1,2 @@
+# Optional profile-managed Codex plugins.
+# The onboarding CLI adds the Langfuse tracing plugin only when explicitly enabled.

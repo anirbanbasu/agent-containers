@@ -196,6 +196,36 @@ class DecantConfig(BaseModel):
         return cleaned
 
 
+class LangfuseConfig(BaseModel):
+    """Experimental, opt-in Langfuse observability settings."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    base_url: AnyHttpUrl | None = None
+    public_key_env: str = "LANGFUSE_PUBLIC_KEY"
+    secret_key_env: str = "LANGFUSE_SECRET_KEY"
+    environment: str | None = Field(default=None, min_length=1)
+    user_id: str | None = Field(default=None, min_length=1)
+
+    @field_validator("public_key_env", "secret_key_env")
+    @classmethod
+    def credential_environment_name_is_safe(cls, value: str) -> str:
+        """Allow only environment-variable references, never credential values."""
+        if not _ENV_PATTERN.fullmatch(value):
+            raise ValueError("Langfuse credential fields must be uppercase environment variable names")
+        return value
+
+    @model_validator(mode="after")
+    def enabled_requires_endpoint(self) -> Self:
+        """Require an explicit endpoint when the experimental integration is enabled."""
+        if self.enabled and self.base_url is None:
+            raise ValueError("Langfuse base_url is required when Langfuse is enabled")
+        if self.public_key_env == self.secret_key_env:
+            raise ValueError("Langfuse public_key_env and secret_key_env must differ")
+        return self
+
+
 class MountConfig(BaseModel):
     """A custom file/directory input or copy-once seed."""
 
@@ -238,6 +268,7 @@ class Profile(BaseModel):
     proxy: ProxyConfig | None = None
     egress: EgressConfig = Field(default_factory=EgressConfig)
     decant: DecantConfig = Field(default_factory=DecantConfig)
+    langfuse: LangfuseConfig = Field(default_factory=LangfuseConfig)
     mounts: list[MountConfig] = Field(default_factory=list)
 
     @field_validator("schema_version")
@@ -275,6 +306,19 @@ class Profile(BaseModel):
         for index, target in enumerate(targets):
             if index and (target == targets[index - 1] or target.startswith(f"{targets[index - 1]}/")):
                 raise ValueError(f"mount targets overlap: {targets[index - 1]} and {target}")
+        return self
+
+    @model_validator(mode="after")
+    def experimental_integrations_are_supported(self) -> Self:
+        """Reject integrations for agent adapters that cannot consume them."""
+        if self.decant.enabled and self.agent not in {AgentName.CLAUDE_CODE, AgentName.CODEX}:
+            raise ValueError("experimental Decant support is limited to Claude Code and Codex")
+        if self.langfuse.enabled and self.agent not in {
+            AgentName.CLAUDE_CODE,
+            AgentName.CODEX,
+            AgentName.OPENCODE,
+        }:
+            raise ValueError("experimental Langfuse support is limited to Claude Code, Codex, and OpenCode")
         return self
 
 
