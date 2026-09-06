@@ -27,6 +27,7 @@ def run(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
 @pytest.mark.packaging
 def test_standalone_sdist_to_installed_wheel(tmp_path: Path) -> None:
     """A source distribution builds and installs without its parent repository."""
+    assert (PROJECT / "LICENSE").read_bytes() == (PROJECT.parent / "LICENSE").read_bytes()
     run(sys.executable, "scripts/bundle_image_assets.py", cwd=PROJECT)
     dist = tmp_path / "dist"
     run("uv", "build", "--offline", "--out-dir", str(dist), str(PROJECT), cwd=tmp_path)
@@ -50,8 +51,12 @@ def test_standalone_sdist_to_installed_wheel(tmp_path: Path) -> None:
     with zipfile.ZipFile(wheel) as archive:
         assert "agent_containers/cli.py" in archive.namelist()
         assert "agent_containers/_assets/agent-images/claude-code/Dockerfile" in archive.namelist()
+        assert "agent_containers-0.1.0.dev0.dist-info/licenses/LICENSE" in archive.namelist()
         (metadata,) = (name for name in archive.namelist() if name.endswith(".dist-info/METADATA"))
-        assert "Requires-Python: >=3.12" in archive.read(metadata).decode()
+        metadata_text = archive.read(metadata).decode()
+        assert "Requires-Python: >=3.12" in metadata_text
+        assert "License-Expression: MIT" in metadata_text
+        assert "License-File: LICENSE" in metadata_text
 
     venv = tmp_path / "venv"
     run("uv", "venv", "--offline", "--python", sys.executable, str(venv), cwd=tmp_path)

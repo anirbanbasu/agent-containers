@@ -151,7 +151,9 @@ the CLI expects the user-scoped
 `agent-containers-decant-<user>-<uid>-<profile>` container name; set
 `decant.image` for an explicit prebuilt image override. Decant's writable
 database uses a user-scoped volume by default and can reuse an existing named
-volume with `decant.data_volume`.
+volume with `decant.data_volume`. There is no unscoped `decant-matched:local`
+fallback: an operator-built image must be tagged with the generated
+user-scoped reference (or supplied through `decant.image`).
 
 Langfuse is experimental, disabled by default, and currently available for
 Claude Code, Codex, and OpenCode. The CLI installs the vendor-supported agent

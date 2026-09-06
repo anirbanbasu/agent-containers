@@ -14,6 +14,10 @@ build-cli:
     uv run --project cli python cli/scripts/bundle_image_assets.py
     uv build --project cli
 
+# Check, test, build and publish the CLI distributions; requires UV_PUBLISH_TOKEN.
+publish-cli: check-cli test-cli build-cli
+    uv publish --project cli cli/dist/*
+
 # Regenerate the component dropdown lists in issue templates from agent-images/*
 update-issue-templates:
     ./scripts/update-issue-templates.sh

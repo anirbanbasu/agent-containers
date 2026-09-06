@@ -6,3 +6,4 @@ site/
 .remember
 tmp-*
 tmp/
+.env

@@ -6,6 +6,8 @@ build-backend = "uv_build"
 name = "agent-containers"
 version = "0.1.0.dev0"
 description = "Deterministic onboarding and maintenance for hardened coding-agent containers"
+license = "MIT"
+license-files = ["LICEN[CS]E*"]
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -13,6 +15,18 @@ dependencies = [
     "tomlkit>=0.13,<1",
     "typer>=0.16,<1",
 ]
+
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+]
+
+[project.urls]
+Repository = "https://github.com/anirbanbasu/agent-containers"
+Issues = "https://github.com/anirbanbasu/agent-containers/issues"
+Download = "https://pypi.org/project/agent-containers/"
 
 [project.scripts]
 agent-containers = "agent_containers.cli:app"
