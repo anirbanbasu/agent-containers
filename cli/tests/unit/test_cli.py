@@ -49,6 +49,28 @@ def test_validate_rejects_invalid_profile(tmp_path: Path) -> None:
     assert "name" in result.output
 
 
+def test_plan_without_state_is_read_only(tmp_path: Path) -> None:
+    """Planning a profile reports an offline initial deployment."""
+    profile = tmp_path / "work.toml"
+    profile.write_text('name = "work"\nagent = "codex"\n', encoding="utf-8")
+    with patch("subprocess.Popen", side_effect=AssertionError("unexpected subprocess")):
+        result = CliRunner().invoke(app, ["plan", str(profile)])
+    assert result.exit_code == 0, result.output
+    assert "create-image" in result.output
+    assert "not inspected" in result.output
+
+
+def test_plan_reports_invalid_state(tmp_path: Path) -> None:
+    """Planning reports malformed recorded state as a command error."""
+    profile = tmp_path / "work.toml"
+    profile.write_text('name = "work"\nagent = "codex"\n', encoding="utf-8")
+    state = tmp_path / "state.json"
+    state.write_text("{not-json", encoding="utf-8")
+    result = CliRunner().invoke(app, ["plan", str(profile), "--state", str(state)])
+    assert result.exit_code != 0
+    assert "state" in result.output.lower()
+
+
 def test_module_entry_point(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     """The python -m entry point invokes the same installed CLI."""
     monkeypatch.setattr(sys, "argv", ["agent-containers", "--version"])

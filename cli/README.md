@@ -78,3 +78,7 @@ The private implementation handoff is maintained in
 `agent-containers validate PROFILE.toml` parses and validates a profile without
 contacting Docker or changing files. Lifecycle commands will be added behind the
 same validated model.
+
+`agent-containers plan PROFILE.toml` compares the desired profile with optional
+recorded deployment JSON (`--state STATE.json`). It reports image versus launch
+changes and always discloses that live Docker state was not inspected.

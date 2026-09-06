@@ -8,7 +8,9 @@ from typing import Annotated
 import typer
 from pydantic import ValidationError
 
+from agent_containers.planner import build_plan
 from agent_containers.profile import load_profile
+from agent_containers.state import load_state
 
 app = typer.Typer(
     help=(
@@ -53,3 +55,24 @@ def validate(
     except (OSError, tomllib.TOMLDecodeError, ValidationError) as exc:
         raise typer.BadParameter(str(exc), param_hint="profile") from exc
     typer.echo(f"Valid profile: {document.name} ({document.agent.value})")
+
+
+@app.command()
+def plan(
+    profile: Annotated[
+        Path,
+        typer.Argument(exists=True, dir_okay=False, readable=True, help="TOML profile to plan."),
+    ],
+    state: Annotated[
+        Path | None,
+        typer.Option("--state", exists=True, dir_okay=False, readable=True, help="Recorded deployment JSON."),
+    ] = None,
+) -> None:
+    """Show an offline plan without contacting Docker or changing state."""
+    try:
+        document = load_profile(profile)
+        recorded = load_state(state) if state is not None else None
+    except (OSError, tomllib.TOMLDecodeError, ValidationError, ValueError) as exc:
+        raise typer.BadParameter(str(exc), param_hint="profile/state") from exc
+    for line in build_plan(document, recorded).summary_lines():
+        typer.echo(line)
