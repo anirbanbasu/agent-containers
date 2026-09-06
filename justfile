@@ -1,3 +1,18 @@
+# Run Python unit and packaging tests (no Docker required).
+test-cli:
+    cd cli && uv run --group test coverage run -m pytest tests/unit tests/packaging
+    cd cli && uv run --group test coverage report
+
+# Check Python style and types without modifying source files.
+check-cli:
+    uv run --project cli --group test ruff check cli
+    uv run --project cli --group test ruff format --check cli
+    uv run --project cli --group test ty check --project cli
+
+# Build the Python source distribution and wheel locally; never publishes.
+build-cli:
+    uv build --project cli
+
 # Regenerate the component dropdown lists in issue templates from agent-images/*
 update-issue-templates:
     ./scripts/update-issue-templates.sh

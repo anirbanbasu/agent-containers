@@ -1,0 +1,72 @@
+[build-system]
+requires = ["uv_build>=0.12.10,<0.13"]
+build-backend = "uv_build"
+
+[project]
+name = "agent-containers"
+version = "0.1.0.dev0"
+description = "Deterministic onboarding and maintenance for hardened coding-agent containers"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.11,<3",
+    "tomlkit>=0.13,<1",
+    "typer>=0.16,<1",
+]
+
+[project.scripts]
+agent-containers = "agent_containers.cli:app"
+
+[dependency-groups]
+dev = [
+    "ty>=0.0.1,<1",
+    "ruff>=0.11,<1",
+]
+test = [
+    "pytest>=8.4.1,<10",
+    "coverage>=7.9.1,<8",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["--import-mode=importlib", "--strict-markers"]
+markers = [
+    "packaging: builds and installs distributions without Docker",
+    "integration: requires an explicitly enabled disposable Docker environment",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+include = ["src/agent_containers/**/*.py", "tests/**/*.py"]
+
+[tool.ruff.lint]
+extend-select = ["Q", "RUF100", "RUF018", "C90", "UP", "I", "D", "TID251"]
+mccabe = { max-complexity = 15 }
+ignore = ["D100", "D102", "D104", "D105", "D107"]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+known-first-party = ["agent_containers"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.format]
+docstring-code-format = false
+
+[tool.ty.environment]
+python-version = "3.12"
+
+[tool.ty.rules]
+possibly-unresolved-reference = "warn"
+
+[tool.coverage.run]
+source = ["agent_containers"]
+omit = ["tests/*"]
+
+[tool.coverage.report]
+fail_under = 100
+skip_covered = true
+show_missing = true
+precision = 2
