@@ -82,3 +82,8 @@ same validated model.
 `agent-containers plan PROFILE.toml` compares the desired profile with optional
 recorded deployment JSON (`--state STATE.json`). It reports image versus launch
 changes and always discloses that live Docker state was not inspected.
+
+Before building a distribution, run `uv run --project cli python cli/scripts/bundle_image_assets.py`; 
+`just build-cli` does this automatically.
+The generated package-data directory is ignored, derived only from canonical
+`agent-images/`, and included in the wheel and source distribution.

@@ -11,6 +11,7 @@ check-cli:
 
 # Build the Python source distribution and wheel locally; never publishes.
 build-cli:
+    uv run --project cli python cli/scripts/bundle_image_assets.py
     uv build --project cli
 
 # Regenerate the component dropdown lists in issue templates from agent-images/*

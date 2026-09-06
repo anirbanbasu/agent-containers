@@ -27,6 +27,7 @@ def run(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
 @pytest.mark.packaging
 def test_standalone_sdist_to_installed_wheel(tmp_path: Path) -> None:
     """A source distribution builds and installs without its parent repository."""
+    run(sys.executable, "scripts/bundle_image_assets.py", cwd=PROJECT)
     dist = tmp_path / "dist"
     run("uv", "build", "--offline", "--out-dir", str(dist), str(PROJECT), cwd=tmp_path)
     (sdist,) = dist.glob("*.tar.gz")
@@ -48,6 +49,7 @@ def test_standalone_sdist_to_installed_wheel(tmp_path: Path) -> None:
     (wheel,) = rebuilt.glob("*.whl")
     with zipfile.ZipFile(wheel) as archive:
         assert "agent_containers/cli.py" in archive.namelist()
+        assert "agent_containers/_assets/agent-images/claude-code/Dockerfile" in archive.namelist()
         (metadata,) = (name for name in archive.namelist() if name.endswith(".dist-info/METADATA"))
         assert "Requires-Python: >=3.12" in archive.read(metadata).decode()
 
