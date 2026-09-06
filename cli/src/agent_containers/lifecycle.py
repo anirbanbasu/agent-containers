@@ -14,7 +14,7 @@ from agent_containers.build_context import prepare_build_contexts
 from agent_containers.docker import build_image_argv, build_seed_argv, default_home_volume, default_image_tag
 from agent_containers.planner import PlanAction, build_plan
 from agent_containers.profile import MountType, Profile
-from agent_containers.shortcuts import update_shortcuts
+from agent_containers.shortcuts import render_shortcut, update_shortcuts
 from agent_containers.state import (
     DeploymentRecord,
     DeploymentState,
@@ -66,8 +66,13 @@ def apply_profile(
     else:
         _docker("docker", "image", "inspect", image)
     if not plan.is_noop:
-        _apply_seeds(profile, profile_path, image)
         record = _new_record(profile, image, profile_path)
+        if shortcuts_path is not None:
+            # Validate the complete launch before seeds or state can make this
+            # deployment visible. The later atomic write still refreshes the
+            # generated file after state selection succeeds.
+            render_shortcut(profile, record, profile_path)
+        _apply_seeds(profile, profile_path, image)
         state.deployments = [item.model_copy(update={"selected": False}) for item in state.deployments]
         state.deployments.append(record)
         save_state(target_state_path, state)
@@ -98,13 +103,18 @@ def rollback_profile(
         raise LifecycleError("no prior deployment is retained for rollback")
     target = state.deployments[selected_index - 1]
     _docker("docker", "image", "inspect", target.image)
+    restored_profile = Profile.model_validate(target.profile_snapshot)
+    shortcut_profile_path = profile_path or Path.cwd() / "profile.toml"
+    if shortcuts_path is not None:
+        # A historical profile may reference an input that no longer exists;
+        # refuse before changing state so rollback cannot strand the shortcut.
+        render_shortcut(restored_profile, target, shortcut_profile_path)
     state.deployments = [
         item.model_copy(update={"selected": item.deployment_id == target.deployment_id}) for item in state.deployments
     ]
     save_state(target_state_path, state)
     if shortcuts_path is not None:
-        restored_profile = Profile.model_validate(target.profile_snapshot)
-        update_shortcuts(shortcuts_path, restored_profile, target, profile_path or Path.cwd() / "profile.toml")
+        update_shortcuts(shortcuts_path, restored_profile, target, shortcut_profile_path)
     return state.selected_deployment or target
 
 

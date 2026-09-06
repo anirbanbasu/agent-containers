@@ -17,6 +17,7 @@ from agent_containers.lifecycle import (
     rollback_profile,
 )
 from agent_containers.profile import Profile
+from agent_containers.shortcuts import ShortcutError
 from agent_containers.state import DeploymentState, load_state, save_state
 
 
@@ -170,6 +171,32 @@ def test_rollback_updates_profile_shortcut(tmp_path: Path) -> None:
     with patch("agent_containers.lifecycle.subprocess.run"):
         rollback_profile(profile, state_path, shortcuts_path, tmp_path / "work.toml")
     assert "agent-containers/codex:previous" in shortcuts_path.read_text(encoding="utf-8")
+
+
+def test_rollback_preflights_shortcut_before_state_change(tmp_path: Path) -> None:
+    """Invalid historical launch inputs cannot leave rollback partially selected."""
+    profile = make_profile()
+    state_path = tmp_path / "state.json"
+    shortcuts_path = tmp_path / "profiles.sh"
+    previous = _new_record(
+        make_profile(
+            egress={
+                "gateway_host": "gateway",
+                "gateway_port": 2222,
+                "gateway_key_file": "missing-key",
+                "gateway_known_hosts_file": "missing-hosts",
+            }
+        ),
+        "agent-containers/codex:previous",
+    )
+    current = _new_record(profile, "agent-containers/codex:current")
+    save_state(
+        state_path,
+        DeploymentState(profile_name="work", deployments=[previous.model_copy(update={"selected": False}), current]),
+    )
+    with patch("agent_containers.lifecycle.subprocess.run"), pytest.raises(ShortcutError, match="gateway key"):
+        rollback_profile(profile, state_path, shortcuts_path, tmp_path / "work.toml")
+    assert load_state(state_path).selected_deployment == current
 
 
 def test_rollback_refuses_missing_prior_deployment(tmp_path: Path) -> None:
