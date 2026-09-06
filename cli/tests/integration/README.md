@@ -8,3 +8,14 @@ Required coverage includes all four agent adapters, read-only root filesystems,
 unprivileged execution, populated persistent homes, home-tool precedence warnings,
 proxy/CA and gateway routing, Decant access, and update/rollback failure recovery.
 Do not use real account logins or weaken containment to make tests pass.
+
+The profile CA integration test can be run explicitly after the local Docker
+daemon is available:
+
+```sh
+AGENT_CONTAINERS_RUN_INTEGRATION=1 \
+  uv run --project cli --group test pytest cli/tests/integration -m integration -v
+```
+
+It creates only a one-day self-signed test certificate and removes its image
+afterward. The normal `just test-cli` suite remains Docker-free.
