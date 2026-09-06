@@ -6,6 +6,8 @@ icon: lucide/shield-check
 
 Here's a scenario. You've hired someone brilliant to help around the house. Genuinely brilliant — they can fix the boiler, reorganise the shed, even nip out to the shops when you're low on milk. There's just one small catch: to do any of that, you've had to give them a key to every room in the house, including the one with your passport, your bank statements, and your grandmother's jewellery. Oh, and they've also got your car keys, so they can pop out whenever they like, to wherever they like, without _necessarily_ telling you first.
 
+For repeatable setup and maintenance, see the [onboarding guide](onboarding/).
+
 That, it turns out, is roughly the deal we've been striking with **coding agents**.
 
 A (command-line) coding agent — the kind that can, backed by generative artificial intelligence (AI) models, read your files, run a build, install packages, and shell out to fix whatever's broken, all without you typing a single command yourself — is brilliant precisely *because* of that access. But here's the catch: that list of superpowers is also the entire problem. Every capability is a door, and the agent doesn't always know which door it's just walked through. A stray instruction hidden in a scraped web page, a typosquatted package that slipped in during a routine install, or simply the model having what we might charitably call an off day — any one of these can turn a helpful assistant into something with the run of your home directory, your stored credentials, and the open Internet. Not because it's gone rogue. Just because, on a bare host, that access was sitting there all along, waiting to be used.

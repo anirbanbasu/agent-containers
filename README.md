@@ -4,6 +4,11 @@ Restricted Docker images for running command line interface (coding) agents in h
 
 Full documentation: <https://docs-agent-containers.anirbanbasu.com/> (or browse `docs/` in this repository, starting at `docs/index.md`).
 
+For repeatable, user-scoped profile deployments, install and use the
+[`agent-containers` onboarding CLI](docs/onboarding/). It validates profiles, builds
+the selected image, records deployment state, and maintains profile-specific
+shell shortcuts without launching an agent during `apply`.
+
 ## Images
 
 - **`claude-code`** — hardened container for running the [Claude Code](https://claude.com/product/claude-code) CLI: non-root user, read-only root filesystem, minimal capability set, egress denied by default. See `docs/container-images/claude-code.md`.
