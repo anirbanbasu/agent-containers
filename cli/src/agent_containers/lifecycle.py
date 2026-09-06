@@ -61,6 +61,43 @@ def apply_profile(profile: Profile, profile_path: Path, state_path: Path | None 
     return selected
 
 
+def rollback_profile(profile: Profile, state_path: Path | None = None) -> DeploymentRecord:
+    """Select the immediately preceding retained image after verifying it exists."""
+    target_state_path = state_path or default_state_path(profile)
+    state = load_state(target_state_path)
+    if state.profile_name != profile.name:
+        raise LifecycleError(f"state belongs to profile {state.profile_name!r}, not {profile.name!r}")
+    selected_index = next((index for index, item in enumerate(state.deployments) if item.selected), None)
+    if selected_index is None:
+        raise LifecycleError("rollback requires a selected deployment")
+    if selected_index == 0:
+        raise LifecycleError("no prior deployment is retained for rollback")
+    target = state.deployments[selected_index - 1]
+    _docker("docker", "image", "inspect", target.image)
+    state.deployments = [
+        item.model_copy(update={"selected": item.deployment_id == target.deployment_id}) for item in state.deployments
+    ]
+    save_state(target_state_path, state)
+    return state.selected_deployment or target
+
+
+def rollback_preview(record: DeploymentRecord) -> list[str]:
+    """Render the managed launch choices restored by a rollback without secrets."""
+    snapshot = record.profile_snapshot
+    egress = snapshot.get("egress", {})
+    proxy = snapshot.get("proxy")
+    provider = snapshot.get("provider")
+    return [
+        f"Rollback target: {record.deployment_id} ({record.image})",
+        f"Restored egress mode: {egress.get('mode', 'unknown')}",
+        f"Restored egress hosts: {', '.join(egress.get('hosts', [])) or '(none)'}",
+        f"Restored proxy/CA: {'configured' if proxy else 'none'}",
+        f"Restored provider endpoint: {'configured' if provider and provider.get('endpoint') else 'none'}",
+        "Warning: persistent home-volume data is not rolled back.",
+        "Warning: existing agent sessions are not stopped.",
+    ]
+
+
 def _build_image(profile: Profile) -> str:
     """Build a profile context in an automatically removed private directory."""
     image = default_image_tag(profile)

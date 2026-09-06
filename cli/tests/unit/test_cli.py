@@ -105,6 +105,41 @@ def test_apply_reports_lifecycle_failures(tmp_path: Path) -> None:
     assert "build failed" in result.output
 
 
+def test_rollback_delegates_and_shows_data_warning(tmp_path: Path) -> None:
+    """Rollback renders its safety warning after the lifecycle selects a record."""
+    profile = tmp_path / "work.toml"
+    profile.write_text('name = "work"\nagent = "codex"\n', encoding="utf-8")
+    record = DeploymentRecord(
+        deployment_id="work-previous",
+        image="agent-containers/codex:previous",
+        profile_digest="a" * 64,
+        profile_snapshot={"egress": {"mode": "deny", "hosts": []}},
+        launch_digest="a" * 64,
+        created_at=datetime.now(UTC),
+        selected=True,
+    )
+    with (
+        patch("agent_containers.cli.rollback_profile", return_value=record),
+        patch(
+            "agent_containers.cli.rollback_preview",
+            return_value=["Warning: persistent home-volume data is not rolled back."],
+        ),
+    ):
+        result = CliRunner().invoke(app, ["rollback", str(profile)])
+    assert result.exit_code == 0, result.output
+    assert "home-volume" in result.output
+
+
+def test_rollback_reports_lifecycle_failures(tmp_path: Path) -> None:
+    """Rollback failures do not turn into an unreported state mutation."""
+    profile = tmp_path / "work.toml"
+    profile.write_text('name = "work"\nagent = "codex"\n', encoding="utf-8")
+    with patch("agent_containers.cli.rollback_profile", side_effect=LifecycleError("no previous image")):
+        result = CliRunner().invoke(app, ["rollback", str(profile)])
+    assert result.exit_code != 0
+    assert "no previous image" in result.output
+
+
 def test_module_entry_point(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     """The python -m entry point invokes the same installed CLI."""
     monkeypatch.setattr(sys, "argv", ["agent-containers", "--version"])

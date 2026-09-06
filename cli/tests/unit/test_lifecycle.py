@@ -7,7 +7,14 @@ from unittest.mock import patch
 import pytest
 
 from agent_containers.build_context import BuildContexts
-from agent_containers.lifecycle import LifecycleError, _new_record, apply_profile, build_user_ids
+from agent_containers.lifecycle import (
+    LifecycleError,
+    _new_record,
+    apply_profile,
+    build_user_ids,
+    rollback_preview,
+    rollback_profile,
+)
 from agent_containers.profile import Profile
 from agent_containers.state import DeploymentState, load_state, save_state
 
@@ -97,3 +104,43 @@ def test_apply_runs_create_only_seed_before_selecting_state(tmp_path: Path) -> N
     ):
         apply_profile(profile, tmp_path / "work.toml", tmp_path / "state.json")
     assert any(call.args[0][:2] == ("docker", "run") for call in run.call_args_list)
+
+
+def test_rollback_inspects_previous_image_and_warns_about_home_data(tmp_path: Path) -> None:
+    """Rollback only changes the selected managed deployment after inspection."""
+    profile = make_profile(egress={"mode": "allowlist", "hosts": ["api.example.test"]})
+    state_path = tmp_path / "state.json"
+    previous = _new_record(profile, "agent-containers/codex:previous")
+    current = _new_record(make_profile(egress={"mode": "deny"}), "agent-containers/codex:current")
+    state = DeploymentState(profile_name="work", deployments=[previous.model_copy(update={"selected": False}), current])
+    save_state(state_path, state)
+    with patch("agent_containers.lifecycle.subprocess.run") as run:
+        restored = rollback_profile(profile, state_path)
+    assert restored.deployment_id == previous.deployment_id
+    assert run.call_args.args[0] == ("docker", "image", "inspect", previous.image)
+    preview = "\n".join(rollback_preview(restored))
+    assert "api.example.test" in preview
+    assert "home-volume" in preview
+    assert load_state(state_path).selected_deployment == restored
+
+
+def test_rollback_refuses_missing_prior_deployment(tmp_path: Path) -> None:
+    """The first selected deployment cannot manufacture a rollback target."""
+    profile = make_profile()
+    state_path = tmp_path / "state.json"
+    save_state(state_path, DeploymentState(profile_name="work", deployments=[_new_record(profile, "image")]))
+    with pytest.raises(LifecycleError, match="no prior"):
+        rollback_profile(profile, state_path)
+
+
+def test_rollback_rejects_unselected_or_mismatched_state(tmp_path: Path) -> None:
+    """Rollback cannot infer a target from unrelated or unselected records."""
+    profile = make_profile()
+    unselected_path = tmp_path / "unselected.json"
+    save_state(unselected_path, DeploymentState(profile_name="work"))
+    with pytest.raises(LifecycleError, match="selected"):
+        rollback_profile(profile, unselected_path)
+    mismatched_path = tmp_path / "mismatched.json"
+    save_state(mismatched_path, DeploymentState(profile_name="other"))
+    with pytest.raises(LifecycleError, match="belongs"):
+        rollback_profile(profile, mismatched_path)

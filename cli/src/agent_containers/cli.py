@@ -12,7 +12,7 @@ from pydantic import ValidationError
 from typer.core import TyperGroup
 
 from agent_containers.docker import DockerCommandError
-from agent_containers.lifecycle import LifecycleError, apply_profile
+from agent_containers.lifecycle import LifecycleError, apply_profile, rollback_preview, rollback_profile
 from agent_containers.planner import build_plan
 from agent_containers.profile import load_profile
 from agent_containers.state import load_state
@@ -128,3 +128,35 @@ def apply(
     ) as exc:
         raise typer.BadParameter(str(exc), param_hint="profile/state") from exc
     typer.echo(f"Selected deployment: {record.deployment_id} ({record.image})")
+
+
+@app.command()
+def rollback(
+    profile: Annotated[
+        Path,
+        typer.Argument(
+            exists=True, dir_okay=False, readable=True, help="TOML profile whose selected deployment is restored."
+        ),
+    ],
+    state: Annotated[
+        Path | None,
+        typer.Option(
+            "--state", exists=True, dir_okay=False, readable=True, help="Override the XDG deployment-state JSON path."
+        ),
+    ] = None,
+) -> None:
+    """Restore the immediately previous retained image and managed launch record."""
+    try:
+        document = load_profile(profile)
+        record = rollback_profile(document, state)
+    except (
+        LifecycleError,
+        OSError,
+        subprocess.CalledProcessError,
+        tomllib.TOMLDecodeError,
+        ValidationError,
+        ValueError,
+    ) as exc:
+        raise typer.BadParameter(str(exc), param_hint="profile/state") from exc
+    for line in rollback_preview(record):
+        typer.echo(line)

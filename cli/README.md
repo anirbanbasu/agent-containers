@@ -97,6 +97,11 @@ when its target is absent, and atomically selects deployment state. State is
 written to the standard per-user location unless `--state STATE.json` overrides
 it. `apply` does not launch an agent or terminate an existing session.
 
+`agent-containers rollback PROFILE.toml` verifies and selects the immediately
+previous retained image and launch record. It previews restored egress,
+proxy/CA, and endpoint choices. It never restores persistent-home data or stops
+an existing agent session.
+
 Before building a distribution, run `uv run --project cli python cli/scripts/bundle_image_assets.py`; 
 `just build-cli` does this automatically.
 The generated package-data directory is ignored, derived only from canonical
