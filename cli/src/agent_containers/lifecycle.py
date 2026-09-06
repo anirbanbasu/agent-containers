@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from agent_containers.build_context import prepare_build_contexts
-from agent_containers.docker import build_image_argv, build_seed_argv, default_image_tag
+from agent_containers.docker import build_image_argv, build_seed_argv, default_home_volume, default_image_tag
 from agent_containers.planner import PlanAction, build_plan
 from agent_containers.profile import MountType, Profile
 from agent_containers.shortcuts import update_shortcuts
@@ -161,7 +161,7 @@ def _apply_seeds(profile: Profile, profile_path: Path, image: str) -> None:
     """Copy new seed inputs only after the image is available for its adapter."""
     for mount in profile.mounts:
         if mount.type == MountType.SEED:
-            _docker(*build_seed_argv(profile, mount.target, profile_path, image=image))
+            _docker(*build_seed_argv(profile, mount.target, profile_path, image=image, home_volume=profile.home_volume))
 
 
 def _new_record(profile: Profile, image: str, profile_path: Path | None = None) -> DeploymentRecord:
@@ -170,6 +170,7 @@ def _new_record(profile: Profile, image: str, profile_path: Path | None = None) 
     return DeploymentRecord(
         deployment_id=new_deployment_id(profile, profile_path),
         image=image,
+        home_volume=profile.home_volume or default_home_volume(profile),
         profile_digest=digest,
         profile_snapshot=profile_snapshot(profile),
         launch_digest=digest,

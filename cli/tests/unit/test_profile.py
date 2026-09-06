@@ -76,6 +76,8 @@ def test_unknown_profile_fields_are_rejected() -> None:
     ("payload", "message"),
     [
         ({"name": "Work", "agent": "codex"}, "name"),
+        ({"name": "work", "agent": "codex", "home_volume": "../shared"}, "home_volume"),
+        ({"name": "work", "agent": "codex", "home_volume": "  "}, "home_volume"),
         ({"name": "work", "agent": "codex", "schema_version": 2}, "unsupported"),
         ({"name": "work", "agent": "codex", "packages": {"apt": ["  "]}}, "package names"),
         ({"name": "work", "agent": "codex", "packages": {"npm": ["one\ntwo"]}}, "single-line"),

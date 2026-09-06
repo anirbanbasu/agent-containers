@@ -30,6 +30,7 @@ def prompt_profile(path: Path) -> Profile:
     """Prompt for every profile section and return the validated model."""
     name = typer.prompt("Profile name", default=path.stem)
     agent = typer.prompt("Agent", default=AgentName.CODEX.value)
+    home_volume = _optional_prompt("Home Docker volume name (blank uses a user-scoped default)")
     packages = PackageSet(
         apt=_csv_prompt("APT packages (comma-separated)"),
         npm=_csv_prompt("NPM packages (comma-separated)"),
@@ -44,6 +45,7 @@ def prompt_profile(path: Path) -> Profile:
     return Profile(
         name=name,
         agent=agent,
+        home_volume=home_volume,
         packages=packages,
         provider=provider,
         proxy=proxy,

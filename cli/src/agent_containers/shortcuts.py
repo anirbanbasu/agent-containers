@@ -7,7 +7,7 @@ import shlex
 import tempfile
 from pathlib import Path
 
-from agent_containers.docker import DockerCommandError, build_run_argv
+from agent_containers.docker import DockerCommandError, build_run_argv, legacy_home_volume
 from agent_containers.profile import Profile
 from agent_containers.state import DeploymentRecord
 
@@ -35,7 +35,13 @@ def render_shortcut(profile: Profile, record: DeploymentRecord, profile_path: Pa
     """Render one profile function without embedding secrets or shell interpolation."""
     workspace = profile_path.expanduser().resolve().parent
     try:
-        argv = build_run_argv(profile, workspace, profile_path, image=record.image)
+        argv = build_run_argv(
+            profile,
+            workspace,
+            profile_path,
+            image=record.image,
+            home_volume=record.home_volume or legacy_home_volume(profile),
+        )
     except DockerCommandError as exc:
         raise ShortcutError(str(exc)) from exc
     workspace_mount = f"{workspace}:/workspace/{workspace.name}"

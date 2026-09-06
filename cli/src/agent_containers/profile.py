@@ -14,6 +14,7 @@ from pydantic import AnyHttpUrl, BaseModel, ConfigDict, Field, field_validator, 
 _SCHEMA_VERSION = 1
 _NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_-]{0,62}$")
 _ENV_PATTERN = re.compile(r"^[A-Z_][A-Z0-9_]*$")
+_VOLUME_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$")
 
 
 class AgentName(StrEnum):
@@ -231,6 +232,7 @@ class Profile(BaseModel):
     schema_version: Annotated[int, Field(default=_SCHEMA_VERSION, ge=1)]
     name: str
     agent: AgentName
+    home_volume: str | None = Field(default=None, min_length=1)
     packages: PackageSet = Field(default_factory=PackageSet)
     provider: ProviderConfig | None = None
     proxy: ProxyConfig | None = None
@@ -253,6 +255,17 @@ class Profile(BaseModel):
         cleaned = value.strip()
         if not _NAME_PATTERN.fullmatch(cleaned):
             raise ValueError("name must start with a lowercase letter and contain only a-z, 0-9, _ or -")
+        return cleaned
+
+    @field_validator("home_volume")
+    @classmethod
+    def home_volume_is_safe(cls, value: str | None) -> str | None:
+        """Allow explicit Docker volume names without shell/path syntax."""
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not _VOLUME_NAME_PATTERN.fullmatch(cleaned):
+            raise ValueError("home_volume must be a Docker named-volume name")
         return cleaned
 
     @model_validator(mode="after")

@@ -134,6 +134,13 @@ and forwards arguments to the agent. It does not accept arbitrary Docker
 options; use the documented generic shortcuts when an intentional one-off
 override is needed.
 
+By default, profile resources are namespaced with the host username and UID:
+an image tag and home volume created for `work` by one user cannot collide with
+the corresponding `work` resources created by another user on the same Docker
+host. Set `home_volume = "an-existing-volume"` in the profile when an existing
+named volume should be reused; that explicit name is an intentional sharing
+choice and is never silently renamed.
+
 Provider launch mappings are agent-specific: Claude Code uses its endpoint and
 model environment variables, Codex uses per-run configuration overrides, and
 Hermes uses per-run `--provider`/`--model` flags plus the documented base-URL

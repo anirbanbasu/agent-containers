@@ -74,6 +74,23 @@ def test_plan_noop_for_matching_selected_profile() -> None:
     assert plan.changed_sections == []
 
 
+def test_default_home_volume_field_is_compatible_with_older_state() -> None:
+    """Adding the optional volume override does not invalidate old snapshots."""
+    profile = make_profile()
+    snapshot = profile_snapshot(profile)
+    assert "home_volume" not in snapshot
+    assert build_plan(profile, make_state(profile)).is_noop
+
+
+def test_explicit_home_volume_is_recorded_in_profile_snapshot() -> None:
+    """An explicit volume choice participates in deployment identity and planning."""
+    profile = make_profile(home_volume="existing-home")
+    assert profile_snapshot(profile)["home_volume"] == "existing-home"
+    plan = build_plan(make_profile(), make_state(profile))
+    assert plan.actions == [PlanAction.UPDATE_LAUNCH]
+    assert plan.changed_sections == ["home_volume"]
+
+
 def test_plan_classifies_image_and_launch_changes() -> None:
     """Package and endpoint changes are separated for future apply ordering."""
     previous = make_profile()

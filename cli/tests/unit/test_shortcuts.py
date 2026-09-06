@@ -50,6 +50,7 @@ def test_render_shortcut_namespaces_and_recomputes_workspace(tmp_path: Path) -> 
     assert '"$PWD:/workspace/$(basename "$PWD")"' in text
     assert '"/workspace/$(basename "$PWD")"' in text
     assert "agent-containers/codex:work" in text
+    assert "codex-home-work-codex:/home/codex" in text
     assert '"$@"' in text
     assert shortcut_function_name(profile) == "agent_containers_work_codex"
 

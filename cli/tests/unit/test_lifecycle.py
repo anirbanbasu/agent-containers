@@ -45,6 +45,16 @@ def test_apply_builds_then_selects_after_success(tmp_path: Path) -> None:
     assert run.call_args.args[0][:2] == ("docker", "build")
 
 
+def test_new_record_persists_effective_home_volume(monkeypatch: pytest.MonkeyPatch) -> None:
+    """New deployment records retain the resolved volume for future shortcuts."""
+    monkeypatch.setattr("agent_containers.docker.getpass.getuser", lambda: "alice")
+    monkeypatch.setattr("agent_containers.docker.os.getuid", lambda: 501)
+    record = _new_record(make_profile(), "image")
+    assert record.home_volume == "codex-home-alice-501-work"
+    explicit = _new_record(make_profile(home_volume="existing-home"), "image")
+    assert explicit.home_volume == "existing-home"
+
+
 def test_build_user_ids_preserves_linux_matching_and_macos_collision_rejection(monkeypatch: pytest.MonkeyPatch) -> None:
     """MacOS uses the known safe image GID instead of weakening Dockerfile checks."""
     monkeypatch.setattr("agent_containers.lifecycle.os.getuid", lambda: 501)
@@ -112,7 +122,8 @@ def test_apply_runs_create_only_seed_before_selecting_state(tmp_path: Path) -> N
     source = tmp_path / "settings.json"
     source.write_text("{}", encoding="utf-8")
     profile = make_profile(
-        mounts=[{"type": "seed", "source": "settings.json", "target": "/home/codex/.codex/settings.json"}]
+        home_volume="existing-codex-home",
+        mounts=[{"type": "seed", "source": "settings.json", "target": "/home/codex/.codex/settings.json"}],
     )
     contexts = BuildContexts(tmp_path / "image", tmp_path / "shared")
     contexts.image.mkdir()
@@ -124,7 +135,9 @@ def test_apply_runs_create_only_seed_before_selecting_state(tmp_path: Path) -> N
         patch("agent_containers.lifecycle.subprocess.run") as run,
     ):
         apply_profile(profile, tmp_path / "work.toml", tmp_path / "state.json")
-    assert any(call.args[0][:2] == ("docker", "run") for call in run.call_args_list)
+    seed_calls = [call.args[0] for call in run.call_args_list if call.args[0][:2] == ("docker", "run")]
+    assert seed_calls
+    assert any("type=volume,src=existing-codex-home,dst=/home/codex" in call for call in seed_calls[0])
 
 
 def test_rollback_inspects_previous_image_and_warns_about_home_data(tmp_path: Path) -> None:

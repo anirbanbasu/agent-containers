@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import getpass
 import json
+import os
+import re
 import shlex
 from collections.abc import Iterable
 from pathlib import Path
@@ -57,7 +60,20 @@ _HERMES_BASE_URL_ENV = {
 
 def default_image_tag(profile: Profile, profile_path: Path | None = None) -> str:
     """Return a local tag tied to the profile's complete desired content."""
-    return f"agent-containers/{_IMAGE_NAMES[profile.agent]}:{profile.name}-{profile_digest(profile, profile_path)[:12]}"
+    return (
+        f"agent-containers/{_IMAGE_NAMES[profile.agent]}:{_resource_owner()}-{profile.name}-"
+        f"{profile_digest(profile, profile_path)[:12]}"
+    )
+
+
+def default_home_volume(profile: Profile) -> str:
+    """Return the user-scoped default home volume for a profile."""
+    return f"{_IMAGE_NAMES[profile.agent]}-home-{_resource_owner()}-{profile.name}"
+
+
+def legacy_home_volume(profile: Profile) -> str:
+    """Return the pre-user-scoped volume name used by older deployments."""
+    return f"{_IMAGE_NAMES[profile.agent]}-home-{profile.name}"
 
 
 def build_image_argv(
@@ -107,7 +123,7 @@ def build_seed_argv(
     source = resolve_mount_source(profile, mount, profile_path)
     if not source.exists():
         raise DockerCommandError(f"seed source does not exist: {source}")
-    home = home_volume or f"{_IMAGE_NAMES[profile.agent]}-home-{profile.name}"
+    home = home_volume or profile.home_volume or default_home_volume(profile)
     uid = _SEED_USER_IDS[profile.agent]
     return (
         "docker",
@@ -157,7 +173,7 @@ def build_run_argv(
     if profile.egress.mode == "unrestricted" and not permit_unrestricted:
         raise DockerCommandError("unrestricted egress requires explicit permit_unrestricted=True")
     image_ref = image or f"{_IMAGE_NAMES[profile.agent]}:latest"
-    home = home_volume or f"{_IMAGE_NAMES[profile.agent]}-home-{profile.name}"
+    home = home_volume or profile.home_volume or default_home_volume(profile)
     workspace_target = f"/workspace/{workspace.name}"
     tmpfs_suffix = ":exec" if profile.agent in _WORKSPACE_EXEC else ""
     argv = [
@@ -310,6 +326,17 @@ def _append_proxy_args(argv: list[str], profile: Profile, profile_path: Path) ->
 def _url_value(value: object) -> str:
     """Render a validated URL without Pydantic's cosmetic root slash."""
     return str(value).rstrip("/")
+
+
+def _resource_owner() -> str:
+    """Return a stable, Docker-safe host-user namespace for local resources."""
+    try:
+        username = getpass.getuser().strip().lower()
+    except (KeyError, OSError):
+        username = ""
+    username = re.sub(r"[^a-z0-9_.-]+", "-", username).strip("-_.")[:32].strip("-_.")
+    uid = getattr(os, "getuid", lambda: 0)()
+    return f"{username or 'user'}-{uid}"
 
 
 def _toml_string(value: str) -> str:

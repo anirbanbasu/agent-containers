@@ -22,6 +22,7 @@ class DeploymentRecord(BaseModel):
 
     deployment_id: str = Field(min_length=1)
     image: str = Field(min_length=1)
+    home_volume: str | None = None
     profile_digest: str = Field(min_length=64, max_length=64)
     profile_snapshot: dict[str, Any]
     launch_digest: str = Field(min_length=64, max_length=64)
@@ -61,7 +62,13 @@ class DeploymentState(BaseModel):
 
 def profile_snapshot(profile: Profile) -> dict[str, Any]:
     """Produce a JSON-compatible desired profile snapshot."""
-    return profile.model_dump(mode="json")
+    snapshot = profile.model_dump(mode="json")
+    # Keep snapshots made before the optional explicit volume field compatible
+    # with the default profile representation. An omitted value means the
+    # same user-scoped default, so it must not force a spurious image rebuild.
+    if profile.home_volume is None:
+        snapshot.pop("home_volume", None)
+    return snapshot
 
 
 def digest_snapshot(snapshot: dict[str, Any]) -> str:

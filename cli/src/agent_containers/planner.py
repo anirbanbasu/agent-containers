@@ -72,7 +72,7 @@ def build_plan(profile: Profile, state: DeploymentState | None = None, profile_p
     selected = state.selected_deployment
     previous = selected.profile_snapshot
     image_sections = ["agent", "packages"]
-    launch_sections = ["provider", "proxy", "egress", "decant", "mounts"]
+    launch_sections = ["home_volume", "provider", "proxy", "egress", "decant", "mounts"]
     changed_image = [section for section in image_sections if snapshot.get(section) != previous.get(section)]
     changed_launch = [section for section in launch_sections if snapshot.get(section) != previous.get(section)]
     changed = changed_image + changed_launch

@@ -251,8 +251,10 @@ It contains one namespaced function for each profile that has been applied, such
 as `agent_containers_work_codex` or `agent_containers_local_codex`. These
 functions evaluate `$PWD` at invocation time but select the profile's retained
 image, home volume, egress policy, proxy/CA mounts, and other managed launch
-settings. Profile proxy launches provide both uppercase and lowercase proxy and
-bypass variables, plus the runtime CA pointers used by common Node.js and
+settings. Unless the profile sets `home_volume`, its image tag and home volume
+are namespaced with the host username and UID, so equal profile names used by
+different host users remain isolated. Profile proxy launches provide both
+uppercase and lowercase proxy and bypass variables, plus the runtime CA pointers used by common Node.js and
 Python clients. Profile CA files or certificate directories are baked into the
 profile-owned image's system trust store during `apply`, and those pointers use
 the resulting merged bundle. Certificate inputs remain deployment-specific and

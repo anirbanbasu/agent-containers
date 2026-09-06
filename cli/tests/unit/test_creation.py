@@ -13,6 +13,7 @@ def test_prompt_profile_collects_all_sections(monkeypatch: pytest.MonkeyPatch, t
     answers = {
         "Profile name": "work",
         "Agent": "codex",
+        "Home Docker volume name (blank uses a user-scoped default)": "existing-codex-home",
         "APT packages (comma-separated)": "git, jq",
         "NPM packages (comma-separated)": "typescript",
         "uv tools (comma-separated)": "ruff",
@@ -48,6 +49,7 @@ def test_prompt_profile_collects_all_sections(monkeypatch: pytest.MonkeyPatch, t
     monkeypatch.setattr("agent_containers.creation.typer.confirm", lambda *_args, **_kwargs: next(confirms))
     profile = prompt_profile(tmp_path / "work.toml")
     assert profile.name == "work"
+    assert profile.home_volume == "existing-codex-home"
     assert profile.packages.apt == ["git", "jq"]
     assert profile.provider is not None and profile.provider.endpoint is not None
     assert profile.proxy is not None and profile.proxy.ca_file == "corp-ca.pem"
@@ -66,6 +68,7 @@ def test_prompt_profile_uses_safe_defaults_for_optional_sections(
     answers = {
         "Profile name": "minimal",
         "Agent": "codex",
+        "Home Docker volume name (blank uses a user-scoped default)": "",
         "APT packages (comma-separated)": "",
         "NPM packages (comma-separated)": "",
         "uv tools (comma-separated)": "",

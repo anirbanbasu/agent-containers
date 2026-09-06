@@ -11,6 +11,7 @@ from agent_containers.docker import (
     build_image_argv,
     build_run_argv,
     build_seed_argv,
+    default_home_volume,
     default_image_tag,
     shell_command,
 )
@@ -41,6 +42,35 @@ def test_codex_command_contains_hardening_workspace_and_arguments(tmp_path: Path
     assert argv[-3:] == ("codex", "--ask-for-approval", "never")
     assert f"{tmp_path.resolve()}:/workspace/{tmp_path.name}" in argv
     assert shell_command(argv).startswith("docker run -it")
+
+
+def test_resources_are_user_scoped_and_home_volume_can_be_selected(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Same-named profiles from different users use isolated defaults or an explicit volume."""
+    monkeypatch.setattr("agent_containers.docker.getpass.getuser", lambda: "Alice Smith")
+    monkeypatch.setattr("agent_containers.docker.os.getuid", lambda: 501)
+    profile = make_profile()
+    assert default_image_tag(profile).startswith("agent-containers/codex:alice-smith-501-work-")
+    assert default_home_volume(profile) == "codex-home-alice-smith-501-work"
+    default = build_run_argv(profile, tmp_path, tmp_path / "work.toml")
+    assert "codex-home-alice-smith-501-work:/home/codex" in default
+    selected = build_run_argv(make_profile(home_volume="existing-codex-home"), tmp_path, tmp_path / "work.toml")
+    assert "existing-codex-home:/home/codex" in selected
+
+
+def test_resource_names_fall_back_when_host_username_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Resource isolation still has a safe namespace when user lookup fails."""
+
+    def unavailable_username() -> str:
+        raise KeyError
+
+    monkeypatch.setattr("agent_containers.docker.getpass.getuser", unavailable_username)
+    monkeypatch.setattr("agent_containers.docker.os.getuid", lambda: 501)
+    profile = make_profile()
+    assert default_home_volume(profile) == "codex-home-user-501-work"
 
 
 @pytest.mark.parametrize(
