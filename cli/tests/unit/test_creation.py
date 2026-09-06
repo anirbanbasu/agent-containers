@@ -25,6 +25,7 @@ def test_prompt_profile_collects_all_sections(monkeypatch: pytest.MonkeyPatch, t
         "HTTPS proxy URL": "https://proxy.example.test:8443",
         "Proxy bypass hosts (comma-separated)": "localhost, 127.0.0.1",
         "CA file path": "corp-ca.pem",
+        "CA directory path": "",
         "Egress mode (deny/allowlist/unrestricted)": "allowlist",
         "Egress hosts (comma-separated)": "model.example.test, registry.npmjs.org",
         "Gateway host": "gateway.example.test",

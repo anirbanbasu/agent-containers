@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from agent_containers.profile import Profile
-from agent_containers.state import DeploymentState, digest_snapshot, profile_snapshot
+from agent_containers.state import DeploymentState, profile_digest, profile_snapshot
 
 
 class PlanAction(StrEnum):
@@ -54,10 +55,10 @@ class Plan(BaseModel):
         return lines
 
 
-def build_plan(profile: Profile, state: DeploymentState | None = None) -> Plan:
+def build_plan(profile: Profile, state: DeploymentState | None = None, profile_path: Path | None = None) -> Plan:
     """Compare a profile with recorded state without contacting Docker."""
     snapshot = profile_snapshot(profile)
-    digest = digest_snapshot(snapshot)
+    digest = profile_digest(profile, profile_path)
     warnings = ["Live Docker state was not inspected."]
     if state is None or state.selected_deployment is None:
         return Plan(
@@ -75,6 +76,9 @@ def build_plan(profile: Profile, state: DeploymentState | None = None) -> Plan:
     changed_image = [section for section in image_sections if snapshot.get(section) != previous.get(section)]
     changed_launch = [section for section in launch_sections if snapshot.get(section) != previous.get(section)]
     changed = changed_image + changed_launch
+    if digest != selected.profile_digest and not changed:
+        changed_image.append("proxy CA contents")
+        changed.append("proxy CA contents")
     if not changed:
         actions = [PlanAction.NOOP]
     else:

@@ -70,9 +70,12 @@ def digest_snapshot(snapshot: dict[str, Any]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def profile_digest(profile: Profile) -> str:
-    """Return the canonical digest of a desired profile."""
-    return digest_snapshot(profile_snapshot(profile))
+def profile_digest(profile: Profile, profile_path: Path | None = None) -> str:
+    """Return the canonical digest, including deployment CA input contents."""
+    snapshot = profile_snapshot(profile)
+    if profile_path is not None and profile.proxy is not None:
+        snapshot["_proxy_ca_digest"] = _proxy_ca_digest(profile, profile_path)
+    return digest_snapshot(snapshot)
 
 
 def load_state(path: Path) -> DeploymentState:
@@ -103,7 +106,31 @@ def save_state(path: Path, state: DeploymentState) -> None:
         temporary_path.unlink(missing_ok=True)
 
 
-def new_deployment_id(profile: Profile) -> str:
+def new_deployment_id(profile: Profile, profile_path: Path | None = None) -> str:
     """Create a timestamp-plus-digest identifier without using a secret."""
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    return f"{profile.name}-{timestamp}-{profile_digest(profile)[:12]}"
+    return f"{profile.name}-{timestamp}-{profile_digest(profile, profile_path)[:12]}"
+
+
+def _proxy_ca_digest(profile: Profile, profile_path: Path) -> str:
+    """Hash profile CA inputs so certificate rotation triggers an image update."""
+    assert profile.proxy is not None
+    hasher = hashlib.sha256()
+    base = profile_path.expanduser().resolve().parent
+    if profile.proxy.ca_file is not None:
+        source = (base / profile.proxy.ca_file).resolve()
+        if not source.is_file():
+            raise ValueError(f"proxy CA file does not exist: {source}")
+        hasher.update(source.name.encode())
+        hasher.update(source.read_bytes())
+    if profile.proxy.ca_dir is not None:
+        source = (base / profile.proxy.ca_dir).resolve()
+        if not source.is_dir():
+            raise ValueError(f"proxy CA directory does not exist: {source}")
+        files = sorted(item for item in source.iterdir() if item.is_file())
+        if not files:
+            raise ValueError(f"proxy CA directory is empty: {source}")
+        for item in files:
+            hasher.update(item.name.encode())
+            hasher.update(item.read_bytes())
+    return hasher.hexdigest()

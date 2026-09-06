@@ -58,16 +58,16 @@ def apply_profile(
     state = load_state(target_state_path) if target_state_path.exists() else DeploymentState(profile_name=profile.name)
     if state.profile_name != profile.name:
         raise LifecycleError(f"state belongs to profile {state.profile_name!r}, not {profile.name!r}")
-    plan = build_plan(profile, state)
+    plan = build_plan(profile, state, profile_path)
     selected = state.selected_deployment
     image = selected.image if selected is not None else default_image_tag(profile)
     if PlanAction.CREATE_IMAGE in plan.actions or PlanAction.UPDATE_IMAGE in plan.actions:
-        image = _build_image(profile)
+        image = _build_image(profile, profile_path)
     else:
         _docker("docker", "image", "inspect", image)
     if not plan.is_noop:
         _apply_seeds(profile, profile_path, image)
-        record = _new_record(profile, image)
+        record = _new_record(profile, image, profile_path)
         state.deployments = [item.model_copy(update={"selected": False}) for item in state.deployments]
         state.deployments.append(record)
         save_state(target_state_path, state)
@@ -147,11 +147,11 @@ def doctor_profile(profile: Profile, state_path: Path | None = None) -> DoctorRe
     return DoctorReport(tuple(lines), healthy=docker_available and image_available)
 
 
-def _build_image(profile: Profile) -> str:
+def _build_image(profile: Profile, profile_path: Path) -> str:
     """Build a profile context in an automatically removed private directory."""
-    image = default_image_tag(profile)
+    image = default_image_tag(profile, profile_path)
     with tempfile.TemporaryDirectory(prefix="agent-containers-") as temporary:
-        contexts = prepare_build_contexts(profile, Path(temporary) / "context")
+        contexts = prepare_build_contexts(profile, Path(temporary) / "context", profile_path)
         uid, gid = build_user_ids()
         _docker(*build_image_argv(profile, contexts, image=image, uid=uid, gid=gid))
     return image
@@ -164,11 +164,11 @@ def _apply_seeds(profile: Profile, profile_path: Path, image: str) -> None:
             _docker(*build_seed_argv(profile, mount.target, profile_path, image=image))
 
 
-def _new_record(profile: Profile, image: str) -> DeploymentRecord:
+def _new_record(profile: Profile, image: str, profile_path: Path | None = None) -> DeploymentRecord:
     """Create an unambiguous selected deployment record after successful work."""
-    digest = profile_digest(profile)
+    digest = profile_digest(profile, profile_path)
     return DeploymentRecord(
-        deployment_id=new_deployment_id(profile),
+        deployment_id=new_deployment_id(profile, profile_path),
         image=image,
         profile_digest=digest,
         profile_snapshot=profile_snapshot(profile),

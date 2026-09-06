@@ -89,6 +89,7 @@ class ProxyConfig(BaseModel):
     https: AnyHttpUrl | None = None
     no_proxy: list[str] = Field(default_factory=list)
     ca_file: str | None = Field(default=None, min_length=1)
+    ca_dir: str | None = Field(default=None, min_length=1)
 
     @field_validator("no_proxy")
     @classmethod
@@ -98,6 +99,13 @@ class ProxyConfig(BaseModel):
         if any(not value for value in cleaned):
             raise ValueError("no_proxy entries must not be blank")
         return cleaned
+
+    @model_validator(mode="after")
+    def ca_inputs_are_exclusive(self) -> Self:
+        """Require one CA input shape at most: a file or a certificate directory."""
+        if self.ca_file is not None and self.ca_dir is not None:
+            raise ValueError("proxy ca_file and ca_dir are mutually exclusive")
+        return self
 
 
 class EgressConfig(BaseModel):

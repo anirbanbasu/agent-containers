@@ -39,12 +39,12 @@ arguments, images, logs, or command output; profiles reference runtime inputs.
 
 When a profile declares a proxy, its generated Docker launch exports both
 uppercase and lowercase `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` variables,
-and enables Node's environment proxy support. A profile `proxy.ca_file` is
-mounted read-only and exposed through `SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`,
-and `NODE_EXTRA_CA_CERTS`. This supplies runtime trust to clients that honor
-those variables; it does not install the CA into the image's system trust
-store. For system-wide trust, bake the deployment CA into the selected image
-as described in `docs/network-proxy-considerations.md`.
+and enables Node's environment proxy support. A profile `proxy.ca_file` or
+`proxy.ca_dir` is copied into the isolated image build context and installed
+into the image's system trust store. The generated launch points
+`SSL_CERT_FILE`, `REQUESTS_CA_BUNDLE`, and `NODE_EXTRA_CA_CERTS` at the merged
+system bundle. Certificate inputs are never placed in the shared canonical
+image assets; they are deployment-specific and excluded from command output.
 
 Gateway profiles require a host and port plus a read-only SSH key and pinned
 known-hosts input. These can be supplied through the dedicated profile paths or

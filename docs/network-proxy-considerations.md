@@ -114,6 +114,19 @@ to a private/internal registry the organisation controls and referencing
 that registry path in `FROM` instead — a public registry is never
 required.
 
+#### Onboarding CLI profiles
+
+The onboarding CLI provides the same single- and multiple-certificate shapes
+for profile-owned deployments. Set `proxy.ca_file` to one PEM/CRT input, or
+set `proxy.ca_dir` to a directory containing the certificates. The CLI copies
+those inputs into an isolated, deployment-specific build context, normalizes
+their extensions, and runs `update-ca-certificates` while building the
+profile-owned image. It then points `NODE_EXTRA_CA_CERTS`, `SSL_CERT_FILE`, and
+`REQUESTS_CA_BUNDLE` at the resulting merged
+`/etc/ssl/certs/ca-certificates.crt` bundle at runtime. `ca_file` and `ca_dir`
+are mutually exclusive; certificate inputs containing private-key material are
+refused.
+
 #### Example
 
 Save one of the following as `network-proxy.dockerfile` next to your

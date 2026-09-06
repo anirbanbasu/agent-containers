@@ -98,6 +98,10 @@ def test_unknown_profile_fields_are_rejected() -> None:
         ({"name": "work", "agent": "codex", "egress": {"gateway_host": "gateway"}}, "together"),
         ({"name": "work", "agent": "codex", "provider": {"api_key_env": "secret-value"}}, "uppercase"),
         ({"name": "work", "agent": "codex", "proxy": {"no_proxy": ["localhost", "  "]}}, "no_proxy entries"),
+        (
+            {"name": "work", "agent": "codex", "proxy": {"ca_file": "ca.pem", "ca_dir": "certs"}},
+            "ca_file and ca_dir",
+        ),
         ({"name": "work", "agent": "codex", "egress": {"gateway_user": "tunnel"}}, "gateway options"),
         (
             {

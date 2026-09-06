@@ -54,9 +54,9 @@ _HERMES_BASE_URL_ENV = {
 }
 
 
-def default_image_tag(profile: Profile) -> str:
+def default_image_tag(profile: Profile, profile_path: Path | None = None) -> str:
     """Return a local tag tied to the profile's complete desired content."""
-    return f"agent-containers/{_IMAGE_NAMES[profile.agent]}:{profile.name}-{profile_digest(profile)[:12]}"
+    return f"agent-containers/{_IMAGE_NAMES[profile.agent]}:{profile.name}-{profile_digest(profile, profile_path)[:12]}"
 
 
 def build_image_argv(
@@ -285,12 +285,13 @@ def _append_proxy_args(argv: list[str], profile: Profile, profile_path: Path) ->
     if profile.proxy.http is not None or profile.proxy.https is not None:
         argv.extend(["-e", "NODE_USE_ENV_PROXY=1"])
     if profile.proxy.ca_file is not None:
-        ca_source = _resolve_input_file(profile_path, profile.proxy.ca_file, "proxy CA")
-        target = "/etc/ssl/certs/agent-containers-custom-ca.pem"
+        _resolve_input_file(profile_path, profile.proxy.ca_file, "proxy CA")
+    if profile.proxy.ca_dir is not None:
+        _resolve_input_directory(profile_path, profile.proxy.ca_dir, "proxy CA directory")
+    if profile.proxy.ca_file is not None or profile.proxy.ca_dir is not None:
+        target = "/etc/ssl/certs/ca-certificates.crt"
         argv.extend(
             [
-                "-v",
-                f"{ca_source}:{target}:ro",
                 "-e",
                 f"SSL_CERT_FILE={target}",
                 "-e",
@@ -313,16 +314,23 @@ def _toml_string(value: str) -> str:
 
 def _append_mount_args(argv: list[str], profile: Profile, profile_path: Path) -> None:
     """Append explicit bind/directory mounts and reject copy-once seeds."""
-    targets = {"/etc/ssl/certs/agent-containers-custom-ca.pem"}
-    configured_targets = {mount.target for mount in profile.mounts}
+    targets = {"/etc/ssl/certs/ca-certificates.crt"}
     if profile.egress.gateway_host is not None:
-        if profile.egress.gateway_key_file is None and "/etc/agent/gateway-key" not in configured_targets:
+        key_mount = next((mount for mount in profile.mounts if mount.target == "/etc/agent/gateway-key"), None)
+        known_hosts_mount = next(
+            (mount for mount in profile.mounts if mount.target == "/etc/agent/gateway-known-hosts"), None
+        )
+        if profile.egress.gateway_key_file is None and key_mount is None:
             raise DockerCommandError("gateway key input is required when gateway mode is enabled")
-        if (
-            profile.egress.gateway_known_hosts_file is None
-            and "/etc/agent/gateway-known-hosts" not in configured_targets
-        ):
+        if profile.egress.gateway_known_hosts_file is None and known_hosts_mount is None:
             raise DockerCommandError("gateway known-hosts input is required when gateway mode is enabled")
+        for mount, label in ((key_mount, "gateway key"), (known_hosts_mount, "gateway known-hosts")):
+            if mount is not None:
+                if not mount.read_only:
+                    raise DockerCommandError(f"{label} mount must be read-only")
+                if not resolve_mount_source(profile, mount, profile_path).is_file():
+                    source = resolve_mount_source(profile, mount, profile_path)
+                    raise DockerCommandError(f"{label} does not exist: {source}")
     if profile.egress.gateway_key_file is not None:
         key_source = _resolve_input_file(profile_path, profile.egress.gateway_key_file, "gateway key")
         argv.extend(["-v", f"{key_source}:/etc/agent/gateway-key:ro"])
@@ -348,6 +356,14 @@ def _resolve_input_file(profile_path: Path, value: str, label: str) -> Path:
     """Resolve a profile-relative file input and reject Docker-created directories."""
     source = (profile_path.expanduser().resolve().parent / value).resolve()
     if not source.is_file():
+        raise DockerCommandError(f"{label} does not exist: {source}")
+    return source
+
+
+def _resolve_input_directory(profile_path: Path, value: str, label: str) -> Path:
+    """Resolve a profile-relative directory input and reject Docker-created paths."""
+    source = (profile_path.expanduser().resolve().parent / value).resolve()
+    if not source.is_dir():
         raise DockerCommandError(f"{label} does not exist: {source}")
     return source
 

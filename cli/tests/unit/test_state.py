@@ -26,10 +26,10 @@ def make_profile(**overrides: object) -> Profile:
     return Profile.model_validate(payload)
 
 
-def make_state(profile: Profile) -> DeploymentState:
+def make_state(profile: Profile, profile_path: Path | None = None) -> DeploymentState:
     """Create a selected record representing an applied profile."""
     snapshot = profile_snapshot(profile)
-    digest = profile_digest(profile)
+    digest = profile_digest(profile, profile_path)
     record = DeploymentRecord(
         deployment_id="work-1",
         image="agent-containers/codex:local",
@@ -85,6 +85,39 @@ def test_plan_classifies_image_and_launch_changes() -> None:
     assert plan.actions == [PlanAction.UPDATE_IMAGE, PlanAction.UPDATE_LAUNCH]
     assert plan.changed_sections == ["packages", "provider"]
     assert not plan.live_state_checked
+
+
+def test_plan_detects_rotated_proxy_ca_contents(tmp_path: Path) -> None:
+    """Changing a certificate file triggers an image rebuild even if TOML is unchanged."""
+    ca = tmp_path / "corp-ca.pem"
+    ca.write_text("CERTIFICATE-ONE", encoding="utf-8")
+    profile_path = tmp_path / "work.toml"
+    profile = make_profile(proxy={"ca_file": "corp-ca.pem"})
+    state = make_state(profile, profile_path)
+    ca.write_text("CERTIFICATE-TWO", encoding="utf-8")
+    plan = build_plan(profile, state, profile_path)
+    assert plan.actions == [PlanAction.UPDATE_IMAGE]
+    assert plan.changed_sections == ["proxy CA contents"]
+
+
+def test_profile_digest_covers_ca_directory_and_rejects_bad_inputs(tmp_path: Path) -> None:
+    """Directory contents participate in identity and invalid sources fail safely."""
+    ca_dir = tmp_path / "certs"
+    ca_dir.mkdir()
+    (ca_dir / "one.pem").write_text("ONE", encoding="utf-8")
+    profile = make_profile(proxy={"ca_dir": "certs"})
+    profile_path = tmp_path / "work.toml"
+    first = profile_digest(profile, profile_path)
+    (ca_dir / "two.pem").write_text("TWO", encoding="utf-8")
+    assert profile_digest(profile, profile_path) != first
+    with pytest.raises(ValueError, match="CA directory does not exist"):
+        profile_digest(make_profile(proxy={"ca_dir": "missing"}), profile_path)
+    with pytest.raises(ValueError, match="CA file does not exist"):
+        profile_digest(make_profile(proxy={"ca_file": "missing.pem"}), profile_path)
+    empty_dir = tmp_path / "empty-certs"
+    empty_dir.mkdir()
+    with pytest.raises(ValueError, match="CA directory is empty"):
+        profile_digest(make_profile(proxy={"ca_dir": "empty-certs"}), profile_path)
 
 
 def test_state_rejects_two_selected_records() -> None:

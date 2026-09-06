@@ -65,8 +65,8 @@ def test_agent_specific_runtime_contracts(tmp_path: Path, agent: str, expected_h
         assert argv[-1] == agent
 
 
-def test_command_handles_proxy_ca_mount_and_custom_mount(tmp_path: Path) -> None:
-    """Proxy and custom inputs are mounted read-only without changing contents."""
+def test_command_handles_proxy_ca_and_custom_mount(tmp_path: Path) -> None:
+    """Proxy trust pointers and custom inputs are rendered safely."""
     ca = tmp_path / "corp-ca.pem"
     settings = tmp_path / "settings.json"
     ca.write_text("CA", encoding="utf-8")
@@ -90,12 +90,30 @@ def test_command_handles_proxy_ca_mount_and_custom_mount(tmp_path: Path) -> None
     assert "NO_PROXY=localhost,127.0.0.1" in argv
     assert "no_proxy=localhost,127.0.0.1" in argv
     assert "NODE_USE_ENV_PROXY=1" in argv
-    assert "SSL_CERT_FILE=/etc/ssl/certs/agent-containers-custom-ca.pem" in argv
-    assert "REQUESTS_CA_BUNDLE=/etc/ssl/certs/agent-containers-custom-ca.pem" in argv
-    assert "NODE_EXTRA_CA_CERTS=/etc/ssl/certs/agent-containers-custom-ca.pem" in argv
+    assert "SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt" in argv
+    assert "REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt" in argv
+    assert "NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt" in argv
     assert "CUSTOM_API_KEY" in argv
-    assert any(str(ca) in item and item.endswith(":ro") for item in argv)
     assert any(str(settings) in item and item.endswith(":ro") for item in argv)
+
+
+def test_command_handles_proxy_ca_directory(tmp_path: Path) -> None:
+    """A certificate directory is validated as a build-time trust input."""
+    ca_dir = tmp_path / "certs"
+    ca_dir.mkdir()
+    (ca_dir / "org.crt").write_text("CERT", encoding="utf-8")
+    argv = build_run_argv(
+        make_profile(proxy={"ca_dir": "certs"}),
+        tmp_path,
+        tmp_path / "work.toml",
+    )
+    assert "SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt" in argv
+    with pytest.raises(DockerCommandError, match="proxy CA directory does not exist"):
+        build_run_argv(
+            make_profile(proxy={"ca_dir": "missing-certs"}),
+            tmp_path,
+            tmp_path / "work.toml",
+        )
 
 
 def test_provider_overrides_use_agent_surfaces(tmp_path: Path) -> None:
@@ -213,27 +231,12 @@ def test_command_handles_gateway_and_explicit_unrestricted_mode(tmp_path: Path) 
 
 def test_command_rejects_workspace_and_seed_conflicts(tmp_path: Path) -> None:
     """Run refuses missing workspaces and copy-once seeds."""
-    (tmp_path / "corp-ca.pem").write_text("CA", encoding="utf-8")
     missing = tmp_path / "missing"
     with pytest.raises(DockerCommandError, match="workspace"):
         build_run_argv(make_profile(), missing, tmp_path / "work.toml")
     with pytest.raises(DockerCommandError, match="seed"):
         build_run_argv(
             make_profile(mounts=[{"type": "seed", "source": "settings", "target": "/home/codex/settings"}]),
-            tmp_path,
-            tmp_path / "work.toml",
-        )
-    with pytest.raises(DockerCommandError, match="generated mount"):
-        build_run_argv(
-            make_profile(
-                proxy={"ca_file": "corp-ca.pem"},
-                mounts=[
-                    {
-                        "source": "settings",
-                        "target": "/etc/ssl/certs/agent-containers-custom-ca.pem",
-                    }
-                ],
-            ),
             tmp_path,
             tmp_path / "work.toml",
         )
@@ -244,6 +247,20 @@ def test_command_rejects_missing_proxy_ca(tmp_path: Path) -> None:
     with pytest.raises(DockerCommandError, match="proxy CA does not exist"):
         build_run_argv(
             make_profile(proxy={"ca_file": "missing-ca.pem"}),
+            tmp_path,
+            tmp_path / "work.toml",
+        )
+
+
+def test_command_rejects_proxy_mount_target_conflict(tmp_path: Path) -> None:
+    """A custom mount cannot shadow the generated merged CA bundle path."""
+    (tmp_path / "corp-ca.pem").write_text("CA", encoding="utf-8")
+    with pytest.raises(DockerCommandError, match="generated mount"):
+        build_run_argv(
+            make_profile(
+                proxy={"ca_file": "corp-ca.pem"},
+                mounts=[{"source": "corp-ca.pem", "target": "/etc/ssl/certs/ca-certificates.crt"}],
+            ),
             tmp_path,
             tmp_path / "work.toml",
         )
@@ -283,6 +300,54 @@ def test_command_rejects_gateway_without_known_hosts_input(tmp_path: Path) -> No
             make_profile(
                 egress={"gateway_host": "gateway", "gateway_port": 2222},
                 mounts=[{"source": "key", "target": "/etc/agent/gateway-key"}],
+            ),
+            tmp_path,
+            tmp_path / "work.toml",
+        )
+
+
+def test_command_accepts_explicit_readonly_gateway_mounts(tmp_path: Path) -> None:
+    """Gateway trust inputs may be supplied as ordinary read-only mounts."""
+    (tmp_path / "key").write_text("private key", encoding="utf-8")
+    (tmp_path / "hosts").write_text("gateway ssh key", encoding="utf-8")
+    argv = build_run_argv(
+        make_profile(
+            egress={"gateway_host": "gateway", "gateway_port": 2222},
+            mounts=[
+                {"source": "key", "target": "/etc/agent/gateway-key"},
+                {"source": "hosts", "target": "/etc/agent/gateway-known-hosts"},
+            ],
+        ),
+        tmp_path,
+        tmp_path / "work.toml",
+    )
+    assert any("key:/etc/agent/gateway-key:ro" in item for item in argv)
+    assert any("hosts:/etc/agent/gateway-known-hosts:ro" in item for item in argv)
+
+
+def test_command_rejects_unsafe_gateway_mounts(tmp_path: Path) -> None:
+    """Gateway key material cannot be writable or silently created as a directory."""
+    with pytest.raises(DockerCommandError, match="must be read-only"):
+        build_run_argv(
+            make_profile(
+                egress={"gateway_host": "gateway", "gateway_port": 2222},
+                mounts=[
+                    {"source": "key", "target": "/etc/agent/gateway-key", "read_only": False},
+                    {"source": "hosts", "target": "/etc/agent/gateway-known-hosts"},
+                ],
+            ),
+            tmp_path,
+            tmp_path / "work.toml",
+        )
+    (tmp_path / "key").write_text("private key", encoding="utf-8")
+    with pytest.raises(DockerCommandError, match="gateway known-hosts does not exist"):
+        build_run_argv(
+            make_profile(
+                egress={"gateway_host": "gateway", "gateway_port": 2222},
+                mounts=[
+                    {"source": "key", "target": "/etc/agent/gateway-key"},
+                    {"source": "hosts", "target": "/etc/agent/gateway-known-hosts"},
+                ],
             ),
             tmp_path,
             tmp_path / "work.toml",

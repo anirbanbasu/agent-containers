@@ -7,6 +7,22 @@ ARG TARGETARCH
 COPY --from=shared install-workload-base.sh /usr/local/lib/agent/install-workload-base.sh
 RUN TARGETARCH="$TARGETARCH" bash /usr/local/lib/agent/install-workload-base.sh
 
+# Optional profile-managed organisational CAs; see claude-code/Dockerfile.
+COPY proxy-ca.d/ /tmp/agent-containers-proxy-ca/
+RUN set -eu; \
+    mkdir -p /usr/local/share/ca-certificates/custom; \
+    found=0; \
+    for cert in /tmp/agent-containers-proxy-ca/*; do \
+        [ -f "$cert" ] || continue; \
+        name="$(basename "$cert")"; \
+        [ "$name" = ".keep" ] && continue; \
+        case "$name" in *.crt) ;; *) name="${name%.*}.crt" ;; esac; \
+        cp "$cert" "/usr/local/share/ca-certificates/custom/$name"; \
+        found=1; \
+    done; \
+    if [ "$found" -eq 1 ]; then update-ca-certificates; fi; \
+    rm -rf /tmp/agent-containers-proxy-ca
+
 COPY --from=shared install-additional-packages.sh /usr/local/lib/agent/install-additional-packages.sh
 COPY packages-apt.txt /tmp/packages-apt.txt
 RUN bash -c '. /usr/local/lib/agent/install-additional-packages.sh \

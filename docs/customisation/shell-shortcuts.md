@@ -253,9 +253,10 @@ functions evaluate `$PWD` at invocation time but select the profile's retained
 image, home volume, egress policy, proxy/CA mounts, and other managed launch
 settings. Profile proxy launches provide both uppercase and lowercase proxy and
 bypass variables, plus the runtime CA pointers used by common Node.js and
-Python clients. A mounted CA is not automatically added to the image-wide
-system trust store; bake it into a deployment-specific image when system-wide
-trust is required, as described in
+Python clients. Profile CA files or certificate directories are baked into the
+profile-owned image's system trust store during `apply`, and those pointers use
+the resulting merged bundle. Certificate inputs remain deployment-specific and
+are not copied into canonical image assets, as described in
 [`network-proxy-considerations.md`](../network-proxy-considerations.md).
 Gateway profiles also carry their pinned SSH key and known-hosts mounts and
 explicit gateway bootstrap settings; missing gateway inputs are rejected before

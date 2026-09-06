@@ -119,7 +119,7 @@ def plan(
         recorded = load_state(state) if state is not None else None
     except (OSError, tomllib.TOMLDecodeError, ValidationError, ValueError) as exc:
         raise typer.BadParameter(str(exc), param_hint="profile/state") from exc
-    for line in build_plan(document, recorded).summary_lines():
+    for line in build_plan(document, recorded, profile).summary_lines():
         typer.echo(line)
 
 
