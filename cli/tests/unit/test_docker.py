@@ -179,10 +179,27 @@ def test_codex_builtin_provider_and_empty_unsupported_provider(tmp_path: Path) -
 
 def test_command_handles_gateway_and_explicit_unrestricted_mode(tmp_path: Path) -> None:
     """Gateway variables are explicit and unrestricted mode requires consent."""
-    gateway = make_profile(egress={"gateway_host": "gateway", "gateway_port": 2222})
+    (tmp_path / "gateway-key").write_text("private key", encoding="utf-8")
+    (tmp_path / "gateway-known-hosts").write_text("gateway ssh key", encoding="utf-8")
+    gateway = make_profile(
+        egress={
+            "gateway_host": "gateway",
+            "gateway_port": 2222,
+            "gateway_user": "tunnel",
+            "gateway_access_hostname": "gateway.example.test",
+            "gateway_bootstrap_allow": ["192.0.2.10"],
+            "gateway_key_file": "gateway-key",
+            "gateway_known_hosts_file": "gateway-known-hosts",
+        }
+    )
     argv = build_run_argv(gateway, tmp_path, tmp_path / "work.toml")
     assert "AGENT_GATEWAY_HOST=gateway" in argv
     assert "AGENT_GATEWAY_PORT=2222" in argv
+    assert "AGENT_GATEWAY_USER=tunnel" in argv
+    assert "AGENT_GATEWAY_ACCESS_HOSTNAME=gateway.example.test" in argv
+    assert "AGENT_GATEWAY_BOOTSTRAP_ALLOW=192.0.2.10" in argv
+    assert any("gateway-key:/etc/agent/gateway-key:ro" in item for item in argv)
+    assert any("gateway-known-hosts:/etc/agent/gateway-known-hosts:ro" in item for item in argv)
     with pytest.raises(DockerCommandError, match="explicit"):
         build_run_argv(make_profile(egress={"mode": "unrestricted"}), tmp_path, tmp_path / "work.toml")
     allowed = build_run_argv(
@@ -224,9 +241,49 @@ def test_command_rejects_workspace_and_seed_conflicts(tmp_path: Path) -> None:
 
 def test_command_rejects_missing_proxy_ca(tmp_path: Path) -> None:
     """A generated launch cannot reference a missing CA input."""
-    with pytest.raises(DockerCommandError, match="CA file does not exist"):
+    with pytest.raises(DockerCommandError, match="proxy CA does not exist"):
         build_run_argv(
             make_profile(proxy={"ca_file": "missing-ca.pem"}),
+            tmp_path,
+            tmp_path / "work.toml",
+        )
+
+
+def test_command_rejects_missing_gateway_inputs(tmp_path: Path) -> None:
+    """Gateway launches reject missing SSH inputs before Docker can create directories."""
+    with pytest.raises(DockerCommandError, match="gateway key does not exist"):
+        build_run_argv(
+            make_profile(
+                egress={
+                    "gateway_host": "gateway",
+                    "gateway_port": 2222,
+                    "gateway_key_file": "key",
+                    "gateway_known_hosts_file": "hosts",
+                }
+            ),
+            tmp_path,
+            tmp_path / "work.toml",
+        )
+
+
+def test_command_rejects_unconfigured_gateway_contract(tmp_path: Path) -> None:
+    """Gateway mode cannot start without either dedicated or explicit key mounts."""
+    with pytest.raises(DockerCommandError, match="gateway key input is required"):
+        build_run_argv(
+            make_profile(egress={"gateway_host": "gateway", "gateway_port": 2222}),
+            tmp_path,
+            tmp_path / "work.toml",
+        )
+
+
+def test_command_rejects_gateway_without_known_hosts_input(tmp_path: Path) -> None:
+    """A manually mounted key still requires a pinned gateway host key."""
+    with pytest.raises(DockerCommandError, match="gateway known-hosts input is required"):
+        build_run_argv(
+            make_profile(
+                egress={"gateway_host": "gateway", "gateway_port": 2222},
+                mounts=[{"source": "key", "target": "/etc/agent/gateway-key"}],
+            ),
             tmp_path,
             tmp_path / "work.toml",
         )

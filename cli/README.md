@@ -46,6 +46,13 @@ those variables; it does not install the CA into the image's system trust
 store. For system-wide trust, bake the deployment CA into the selected image
 as described in `docs/network-proxy-considerations.md`.
 
+Gateway profiles require a host and port plus a read-only SSH key and pinned
+known-hosts input. These can be supplied through the dedicated profile paths or
+explicit mounts at `/etc/agent/gateway-key` and
+`/etc/agent/gateway-known-hosts`; bootstrap rules are restricted to literal
+IP addresses/CIDRs. Gateway user, Cloudflare Access hostname, and bootstrap
+allow rules are emitted only when gateway mode is explicitly configured.
+
 Unit and distribution tests must run without Docker. Integration tests require
 Docker and disposable resources, without real account logins. Offline plans and
 diagnostics must distinguish recorded state from inspected live state and mark

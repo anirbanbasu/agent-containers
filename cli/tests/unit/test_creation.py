@@ -29,6 +29,11 @@ def test_prompt_profile_collects_all_sections(monkeypatch: pytest.MonkeyPatch, t
         "Egress hosts (comma-separated)": "model.example.test, registry.npmjs.org",
         "Gateway host": "gateway.example.test",
         "Gateway port": 2222,
+        "Gateway SSH user": "tunnel",
+        "Gateway Access hostname": "gateway-access.example.test",
+        "Gateway bootstrap IPs/CIDRs (comma-separated)": "192.0.2.10",
+        "Gateway SSH key path": "gateway-key",
+        "Gateway known-hosts path": "gateway-known-hosts",
         "Decant source profiles (comma-separated)": "base, tools",
         "Decant bind address": "127.0.0.1",
         "Decant port": 8787,
@@ -47,6 +52,8 @@ def test_prompt_profile_collects_all_sections(monkeypatch: pytest.MonkeyPatch, t
     assert profile.proxy is not None and profile.proxy.ca_file == "corp-ca.pem"
     assert profile.proxy.no_proxy == ["localhost", "127.0.0.1"]
     assert profile.egress.gateway_port == 2222
+    assert profile.egress.gateway_user == "tunnel"
+    assert profile.egress.gateway_bootstrap_allow == ["192.0.2.10"]
     assert profile.decant.enabled and profile.decant.source_profiles == ["base", "tools"]
     assert profile.mounts[0].target == "/home/codex/settings.json"
 

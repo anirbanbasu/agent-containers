@@ -100,7 +100,22 @@ def _prompt_egress() -> EgressConfig:
     hosts = _csv_prompt("Egress hosts (comma-separated)") if mode.strip().lower() == "allowlist" else []
     gateway_host = _optional_prompt("Gateway host")
     gateway_port = typer.prompt("Gateway port", type=int) if gateway_host is not None else None
-    return EgressConfig(mode=mode, hosts=hosts, gateway_host=gateway_host, gateway_port=gateway_port)
+    gateway_user = _optional_prompt("Gateway SSH user") if gateway_host is not None else None
+    gateway_access_hostname = _optional_prompt("Gateway Access hostname") if gateway_host is not None else None
+    gateway_bootstrap_allow = _csv_prompt("Gateway bootstrap IPs/CIDRs (comma-separated)") if gateway_host else []
+    gateway_key_file = _optional_prompt("Gateway SSH key path") if gateway_host is not None else None
+    gateway_known_hosts_file = _optional_prompt("Gateway known-hosts path") if gateway_host is not None else None
+    return EgressConfig(
+        mode=mode,
+        hosts=hosts,
+        gateway_host=gateway_host,
+        gateway_port=gateway_port,
+        gateway_user=gateway_user,
+        gateway_access_hostname=gateway_access_hostname,
+        gateway_bootstrap_allow=gateway_bootstrap_allow,
+        gateway_key_file=gateway_key_file,
+        gateway_known_hosts_file=gateway_known_hosts_file,
+    )
 
 
 def _prompt_decant() -> DecantConfig:

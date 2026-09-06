@@ -257,6 +257,9 @@ Python clients. A mounted CA is not automatically added to the image-wide
 system trust store; bake it into a deployment-specific image when system-wide
 trust is required, as described in
 [`network-proxy-considerations.md`](../network-proxy-considerations.md).
+Gateway profiles also carry their pinned SSH key and known-hosts mounts and
+explicit gateway bootstrap settings; missing gateway inputs are rejected before
+Docker is invoked.
 `apply` and `rollback` refresh the matching function atomically; the
 CLI does not overwrite this generic `shortcuts.sh` file.
 

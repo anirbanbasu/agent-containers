@@ -204,6 +204,12 @@ def _append_network_args(argv: list[str], profile: Profile) -> None:
                 f"AGENT_GATEWAY_PORT={profile.egress.gateway_port}",
             ]
         )
+        if profile.egress.gateway_user is not None:
+            argv.extend(["-e", f"AGENT_GATEWAY_USER={profile.egress.gateway_user}"])
+        if profile.egress.gateway_access_hostname is not None:
+            argv.extend(["-e", f"AGENT_GATEWAY_ACCESS_HOSTNAME={profile.egress.gateway_access_hostname}"])
+        if profile.egress.gateway_bootstrap_allow:
+            argv.extend(["-e", f"AGENT_GATEWAY_BOOTSTRAP_ALLOW={','.join(profile.egress.gateway_bootstrap_allow)}"])
     elif profile.egress.mode == "allowlist" and profile.egress.hosts:
         argv.extend(["-e", f"AGENT_ALLOWED_EGRESS={','.join(profile.egress.hosts)}"])
     if profile.provider and profile.provider.api_key_env:
@@ -279,9 +285,7 @@ def _append_proxy_args(argv: list[str], profile: Profile, profile_path: Path) ->
     if profile.proxy.http is not None or profile.proxy.https is not None:
         argv.extend(["-e", "NODE_USE_ENV_PROXY=1"])
     if profile.proxy.ca_file is not None:
-        ca_source = (profile_path.parent / profile.proxy.ca_file).resolve()
-        if not ca_source.is_file():
-            raise DockerCommandError(f"proxy CA file does not exist: {ca_source}")
+        ca_source = _resolve_input_file(profile_path, profile.proxy.ca_file, "proxy CA")
         target = "/etc/ssl/certs/agent-containers-custom-ca.pem"
         argv.extend(
             [
@@ -310,6 +314,25 @@ def _toml_string(value: str) -> str:
 def _append_mount_args(argv: list[str], profile: Profile, profile_path: Path) -> None:
     """Append explicit bind/directory mounts and reject copy-once seeds."""
     targets = {"/etc/ssl/certs/agent-containers-custom-ca.pem"}
+    configured_targets = {mount.target for mount in profile.mounts}
+    if profile.egress.gateway_host is not None:
+        if profile.egress.gateway_key_file is None and "/etc/agent/gateway-key" not in configured_targets:
+            raise DockerCommandError("gateway key input is required when gateway mode is enabled")
+        if (
+            profile.egress.gateway_known_hosts_file is None
+            and "/etc/agent/gateway-known-hosts" not in configured_targets
+        ):
+            raise DockerCommandError("gateway known-hosts input is required when gateway mode is enabled")
+    if profile.egress.gateway_key_file is not None:
+        key_source = _resolve_input_file(profile_path, profile.egress.gateway_key_file, "gateway key")
+        argv.extend(["-v", f"{key_source}:/etc/agent/gateway-key:ro"])
+        targets.add("/etc/agent/gateway-key")
+    if profile.egress.gateway_known_hosts_file is not None:
+        hosts_source = _resolve_input_file(
+            profile_path, profile.egress.gateway_known_hosts_file, "gateway known-hosts file"
+        )
+        argv.extend(["-v", f"{hosts_source}:/etc/agent/gateway-known-hosts:ro"])
+        targets.add("/etc/agent/gateway-known-hosts")
     for mount in profile.mounts:
         if mount.type == MountType.SEED:
             raise DockerCommandError(f"seed mount requires apply before run: {mount.target}")
@@ -319,6 +342,14 @@ def _append_mount_args(argv: list[str], profile: Profile, profile_path: Path) ->
         source = resolve_mount_source(profile, mount, profile_path)
         access = "ro" if mount.read_only else "rw"
         argv.extend(["-v", f"{source}:{mount.target}:{access}"])
+
+
+def _resolve_input_file(profile_path: Path, value: str, label: str) -> Path:
+    """Resolve a profile-relative file input and reject Docker-created directories."""
+    source = (profile_path.expanduser().resolve().parent / value).resolve()
+    if not source.is_file():
+        raise DockerCommandError(f"{label} does not exist: {source}")
+    return source
 
 
 def shell_command(argv: Iterable[str]) -> str:

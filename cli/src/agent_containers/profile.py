@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import re
 import tomllib
 from enum import StrEnum
@@ -108,6 +109,11 @@ class EgressConfig(BaseModel):
     hosts: list[str] = Field(default_factory=list)
     gateway_host: str | None = Field(default=None, min_length=1)
     gateway_port: Annotated[int | None, Field(default=None, ge=1, le=65535)] = None
+    gateway_user: str | None = Field(default=None, min_length=1)
+    gateway_access_hostname: str | None = Field(default=None, min_length=1)
+    gateway_bootstrap_allow: list[str] = Field(default_factory=list)
+    gateway_key_file: str | None = Field(default=None, min_length=1)
+    gateway_known_hosts_file: str | None = Field(default=None, min_length=1)
 
     @field_validator("mode")
     @classmethod
@@ -127,11 +133,37 @@ class EgressConfig(BaseModel):
             raise ValueError("egress hosts must not be blank")
         return cleaned
 
+    @field_validator("gateway_bootstrap_allow")
+    @classmethod
+    def gateway_bootstrap_entries_are_nonempty(cls, values: list[str]) -> list[str]:
+        """Reject accidental blank gateway bootstrap entries."""
+        cleaned = [value.strip() for value in values]
+        if any(not value for value in cleaned):
+            raise ValueError("gateway bootstrap entries must not be blank")
+        for value in cleaned:
+            try:
+                ipaddress.ip_network(value, strict=False)
+            except ValueError as exc:
+                raise ValueError("gateway bootstrap entries must be IP addresses or CIDRs") from exc
+        return cleaned
+
     @model_validator(mode="after")
     def gateway_requires_port(self) -> Self:
         """Require a complete gateway address when either part is supplied."""
         if (self.gateway_host is None) != (self.gateway_port is None):
             raise ValueError("gateway_host and gateway_port must be supplied together")
+        options = (
+            self.gateway_user,
+            self.gateway_access_hostname,
+            self.gateway_key_file,
+            self.gateway_known_hosts_file,
+        )
+        if self.gateway_host is None and (
+            any(option is not None for option in options) or self.gateway_bootstrap_allow
+        ):
+            raise ValueError("gateway options require gateway_host")
+        if (self.gateway_key_file is None) != (self.gateway_known_hosts_file is None):
+            raise ValueError("gateway_key_file and gateway_known_hosts_file must be supplied together")
         return self
 
 

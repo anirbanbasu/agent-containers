@@ -39,6 +39,11 @@ mode = "allowlist"
 hosts = ["api.anthropic.com", "registry.npmjs.org"]
 gateway_host = "gateway.example.test"
 gateway_port = 22
+gateway_user = "tunnel"
+gateway_access_hostname = "gateway-access.example.test"
+gateway_bootstrap_allow = ["192.0.2.10"]
+gateway_key_file = "./gateway-key"
+gateway_known_hosts_file = "./gateway-known-hosts"
 
 [decant]
 enabled = true
@@ -93,6 +98,27 @@ def test_unknown_profile_fields_are_rejected() -> None:
         ({"name": "work", "agent": "codex", "egress": {"gateway_host": "gateway"}}, "together"),
         ({"name": "work", "agent": "codex", "provider": {"api_key_env": "secret-value"}}, "uppercase"),
         ({"name": "work", "agent": "codex", "proxy": {"no_proxy": ["localhost", "  "]}}, "no_proxy entries"),
+        ({"name": "work", "agent": "codex", "egress": {"gateway_user": "tunnel"}}, "gateway options"),
+        (
+            {
+                "name": "work",
+                "agent": "codex",
+                "egress": {"gateway_host": "gateway", "gateway_port": 2222, "gateway_key_file": "key"},
+            },
+            "gateway_key_file and gateway_known_hosts_file",
+        ),
+        (
+            {
+                "name": "work",
+                "agent": "codex",
+                "egress": {"gateway_host": "gateway", "gateway_bootstrap_allow": ["  "]},
+            },
+            "gateway bootstrap entries",
+        ),
+        (
+            {"name": "work", "agent": "codex", "egress": {"gateway_bootstrap_allow": ["gateway.example.test"]}},
+            "IP addresses or CIDRs",
+        ),
     ],
 )
 def test_profile_rejects_unsafe_values(payload: dict[str, object], message: str) -> None:
