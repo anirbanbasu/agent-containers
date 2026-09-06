@@ -59,7 +59,10 @@ ENV HOME=/home/claude
 # Docker's volume copy-up only seeds genuinely empty volumes) so the prefix
 # applies regardless of what's already in the mounted $HOME volume.
 ENV npm_config_prefix=/home/claude/.npm-global
-ENV PATH="/home/claude/.local/bin:/home/claude/.npm-global/bin:${PATH}"
+# Home-managed installations intentionally precede profile-managed tools. The
+# latter are image-owned under /opt so a populated home volume cannot hide a
+# rebuilt profile image's requested versions.
+ENV PATH="/home/claude/.local/bin:/home/claude/.npm-global/bin:/opt/agent-tools/bin:/opt/agent-tools/npm/bin:${PATH}"
 
 # $HOME (uv's default cache location) and /workspace are deliberately
 # separate mounts in this containment model, so uv's hardlink/reflink
@@ -67,12 +70,18 @@ ENV PATH="/home/claude/.local/bin:/home/claude/.npm-global/bin:${PATH}"
 # explicit rather than have uv warn about it on every install.
 ENV UV_LINK_MODE=copy
 
-# packages-npm.txt / tools-uv.txt — see packages-apt.txt above. Run as the
-# claude user (not root) so npm/uv-tool installs land under $HOME, per the
-# ENV block just above.
+# packages-npm.txt / tools-uv.txt — see packages-apt.txt above. Profile-managed
+# tools live outside the persistent home, so changing an image changes the
+# visible managed version even when a populated home volume is mounted.
 COPY packages-npm.txt /tmp/packages-npm.txt
 COPY tools-uv.txt /tmp/tools-uv.txt
-RUN gosu claude bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
+RUN mkdir -p /opt/agent-tools/npm /opt/agent-tools/uv-tools /opt/agent-tools/bin \
+    && chown -R claude:claude /opt/agent-tools \
+    && gosu claude env \
+        npm_config_prefix=/opt/agent-tools/npm \
+        UV_TOOL_DIR=/opt/agent-tools/uv-tools \
+        UV_TOOL_BIN_DIR=/opt/agent-tools/bin \
+        bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
         && install_npm_packages /tmp/packages-npm.txt \
         && install_uv_tools /tmp/tools-uv.txt' \
     && rm -f /tmp/packages-npm.txt /tmp/tools-uv.txt
@@ -117,7 +126,7 @@ ARG GID=1000
 RUN if [ "$UID" != "1000" ] || [ "$GID" != "1000" ]; then \
         groupmod -g "$GID" claude \
         && usermod -u "$UID" -g "$GID" claude \
-        && chown -R "$UID":"$GID" /home/claude /workspace; \
+        && chown -R "$UID":"$GID" /home/claude /workspace /opt/agent-tools; \
     fi
 
 COPY --from=shared egress-allowlist.sh /usr/local/lib/agent/egress-allowlist.sh

@@ -48,7 +48,10 @@ RUN groupadd -g 1000 codex \
 
 ENV HOME=/home/codex
 ENV npm_config_prefix=/home/codex/.npm-global
-ENV PATH="/home/codex/.local/bin:/home/codex/.npm-global/bin:${PATH}"
+# Home-managed installations intentionally precede profile-managed tools. The
+# latter are image-owned under /opt so a populated home volume cannot hide a
+# rebuilt profile image's requested versions.
+ENV PATH="/home/codex/.local/bin:/home/codex/.npm-global/bin:/opt/agent-tools/bin:/opt/agent-tools/npm/bin:${PATH}"
 
 # $HOME (uv's default cache location) and /workspace are deliberately
 # separate mounts in this containment model, so uv's hardlink/reflink
@@ -58,7 +61,13 @@ ENV UV_LINK_MODE=copy
 
 COPY packages-npm.txt /tmp/packages-npm.txt
 COPY tools-uv.txt /tmp/tools-uv.txt
-RUN gosu codex bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
+RUN mkdir -p /opt/agent-tools/npm /opt/agent-tools/uv-tools /opt/agent-tools/bin \
+    && chown -R codex:codex /opt/agent-tools \
+    && gosu codex env \
+        npm_config_prefix=/opt/agent-tools/npm \
+        UV_TOOL_DIR=/opt/agent-tools/uv-tools \
+        UV_TOOL_BIN_DIR=/opt/agent-tools/bin \
+        bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
         && install_npm_packages /tmp/packages-npm.txt \
         && install_uv_tools /tmp/tools-uv.txt' \
     && rm -f /tmp/packages-npm.txt /tmp/tools-uv.txt
@@ -86,7 +95,7 @@ ARG GID=1000
 RUN if [ "$UID" != "1000" ] || [ "$GID" != "1000" ]; then \
         groupmod -g "$GID" codex \
         && usermod -u "$UID" -g "$GID" codex \
-        && chown -R "$UID":"$GID" /home/codex /workspace; \
+        && chown -R "$UID":"$GID" /home/codex /workspace /opt/agent-tools; \
     fi
 
 COPY --from=shared egress-allowlist.sh /usr/local/lib/agent/egress-allowlist.sh

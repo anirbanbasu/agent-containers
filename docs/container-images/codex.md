@@ -52,7 +52,7 @@ docker build --build-context shared=agent-images/shared \
 
 `Dockerfile` splits into a `base` stage that installs everything —
 apt/Node.js/`uv` baseline, `packages-apt.txt`/`packages-uv.txt`, the Codex
-CLI itself, and the account-scoped `packages-npm.txt`/`tools-uv.txt` —
+CLI itself, and image-owned `packages-npm.txt`/`tools-uv.txt` —
 under a fixed placeholder account (UID/GID `1000:1000`), and a `final`
 stage that only remaps that account to the `UID`/`GID` build args
 (`usermod`/`groupmod` plus a `chown -R` of what `base` already installed)
@@ -202,6 +202,12 @@ importable libraries with no console-script of their own, installed into the
 image's system Python instead. They are installed separately from the
 image's required infrastructure, so edits cannot remove egress enforcement
 or the privilege-drop tooling.
+
+The npm and uv-tool installations are image-owned under `/opt/agent-tools`,
+outside the persistent `/home/codex` volume. Rebuilding therefore changes
+their managed versions even for an existing home. Runtime installs remain in
+the writable home and appear first on `PATH`; they are preserved and can
+intentionally shadow an image-managed executable.
 
 The image also sets `UV_LINK_MODE=copy` — see [`claude-code`'s uv cache
 notes](claude-code.md#installing-python-and-node-packages-at-runtime) for why.

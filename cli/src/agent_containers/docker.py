@@ -6,7 +6,9 @@ import shlex
 from collections.abc import Iterable
 from pathlib import Path
 
+from agent_containers.build_context import BuildContexts
 from agent_containers.profile import AgentName, MountType, Profile, resolve_mount_source
+from agent_containers.state import profile_digest
 
 
 class DockerCommandError(ValueError):
@@ -33,6 +35,103 @@ _AGENT_COMMANDS = {
 }
 _CAPABILITIES = ("NET_ADMIN", "NET_RAW", "SETUID", "SETGID")
 _WORKSPACE_EXEC = {AgentName.OPENCODE, AgentName.HERMES}
+_SEED_USER_IDS = {
+    AgentName.CLAUDE_CODE: 1000,
+    AgentName.OPENCODE: 1000,
+    AgentName.CODEX: 1000,
+    AgentName.HERMES: 10000,
+}
+_SEED_COPY_SCRIPT = """set -eu
+test ! -e "$SEED_TARGET"
+mkdir -p "$(dirname "$SEED_TARGET")"
+cp -a /tmp/agent-seed "$SEED_TARGET"
+chown -R "$SEED_UID:$SEED_UID" "$SEED_TARGET"
+"""
+
+
+def default_image_tag(profile: Profile) -> str:
+    """Return a local tag tied to the profile's complete desired content."""
+    return f"agent-containers/{_IMAGE_NAMES[profile.agent]}:{profile.name}-{profile_digest(profile)[:12]}"
+
+
+def build_image_argv(
+    profile: Profile,
+    contexts: BuildContexts,
+    *,
+    image: str | None = None,
+    uid: int | None = None,
+    gid: int | None = None,
+) -> tuple[str, ...]:
+    """Build argv for a materialized profile context without executing Docker."""
+    if not contexts.image.is_dir() or not contexts.shared.is_dir():
+        raise DockerCommandError("materialized image and shared contexts must be directories")
+    if (uid is None) != (gid is None):
+        raise DockerCommandError("uid and gid must be supplied together")
+    if uid is not None and (uid < 1 or gid is None or gid < 1):
+        raise DockerCommandError("uid and gid must be positive")
+    argv = [
+        "docker",
+        "build",
+        "--build-context",
+        f"shared={contexts.shared}",
+        "--tag",
+        image or default_image_tag(profile),
+    ]
+    if profile.agent != AgentName.HERMES and uid is not None and gid is not None:
+        argv.extend(["--build-arg", f"UID={uid}", "--build-arg", f"GID={gid}"])
+    argv.append(str(contexts.image))
+    return tuple(argv)
+
+
+def build_seed_argv(
+    profile: Profile,
+    mount_target: str,
+    profile_path: Path,
+    *,
+    image: str,
+    home_volume: str | None = None,
+) -> tuple[str, ...]:
+    """Build a networkless, create-only copy-once seed command without running it."""
+    mount = next((item for item in profile.mounts if item.target == mount_target), None)
+    if mount is None or mount.type != MountType.SEED:
+        raise DockerCommandError(f"seed mount is not configured: {mount_target}")
+    home_path = _HOME_PATHS[profile.agent]
+    if not mount.target.startswith(f"{home_path}/"):
+        raise DockerCommandError(f"seed target must be inside the persistent home: {mount.target}")
+    source = resolve_mount_source(profile, mount, profile_path)
+    if not source.exists():
+        raise DockerCommandError(f"seed source does not exist: {source}")
+    home = home_volume or f"{_IMAGE_NAMES[profile.agent]}-home-{profile.name}"
+    uid = _SEED_USER_IDS[profile.agent]
+    return (
+        "docker",
+        "run",
+        "--rm",
+        "--network=none",
+        "--user",
+        "0:0",
+        "--security-opt=no-new-privileges",
+        "--read-only",
+        "--tmpfs",
+        "/tmp",
+        "--tmpfs",
+        "/run",
+        "--cap-drop=ALL",
+        "--cap-add=CHOWN",
+        "--mount",
+        f"type=volume,src={home},dst={home_path}",
+        "--mount",
+        f"type=bind,src={source},dst=/tmp/agent-seed,readonly",
+        "-e",
+        f"SEED_TARGET={mount.target}",
+        "-e",
+        f"SEED_UID={uid}",
+        "--entrypoint",
+        "/bin/sh",
+        image,
+        "-ceu",
+        _SEED_COPY_SCRIPT,
+    )
 
 
 def build_run_argv(

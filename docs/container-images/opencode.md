@@ -37,7 +37,7 @@ docker build --build-context shared=agent-images/shared \
 
 `Dockerfile` splits into a `base` stage that installs everything —
 apt/Node.js/`uv` baseline, `packages-apt.txt`/`packages-uv.txt`, OpenCode
-itself, and the account-scoped `packages-npm.txt`/`tools-uv.txt` — under a
+itself, and image-owned `packages-npm.txt`/`tools-uv.txt` — under a
 fixed placeholder account (UID/GID `1000:1000`), and a `final` stage that
 only remaps that account to the `UID`/`GID` build args (`usermod`/`groupmod`
 plus a `chown -R` of what `base` already installed) when they differ from
@@ -132,6 +132,12 @@ isolated venv; `packages-uv.txt` (`uv pip install --system`) is for plain
 importable libraries with no console-script of their own, installed into the
 image's system Python instead. No plugins or skills are seeded in v1; all
 OpenCode state lives under the persisted home volume.
+
+The npm and uv-tool installations are image-owned under `/opt/agent-tools`,
+outside the persistent `/home/opencode` volume. Rebuilding therefore changes
+their managed versions even for an existing home. Runtime installs remain in
+the writable home and appear first on `PATH`; they are preserved and can
+intentionally shadow an image-managed executable.
 
 The image also sets `UV_LINK_MODE=copy` — see [`claude-code`'s uv cache
 notes](claude-code.md#installing-python-and-node-packages-at-runtime) for why.

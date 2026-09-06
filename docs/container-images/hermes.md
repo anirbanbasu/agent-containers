@@ -130,6 +130,12 @@ for the version-recorded custom-endpoint candidate.
   by whatever runs inside the image. Edit any of the four and rebuild the
   image to change what's installed.
 
+  The npm and uv-tool installations are image-owned under `/opt/agent-tools`,
+  outside the persistent `/opt/data` volume. Rebuilding therefore changes
+  their managed versions even for existing Hermes data. Runtime installs remain
+  in `/opt/data` and appear first on `PATH`; they are preserved and can
+  intentionally shadow an image-managed executable.
+
 The image also sets `UV_LINK_MODE=copy` — see [`claude-code`'s uv cache
 notes](claude-code.md#installing-python-and-node-packages-at-runtime) for why.
 

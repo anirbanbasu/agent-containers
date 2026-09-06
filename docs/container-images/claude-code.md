@@ -56,7 +56,7 @@ docker build --build-context shared=agent-images/shared \
 
 `Dockerfile` splits into a `base` stage that installs everything —
 apt/Node.js/`uv` baseline, `packages-apt.txt`/`packages-uv.txt`, Claude Code
-itself, and the account-scoped `packages-npm.txt`/`tools-uv.txt`/plugin-
+itself, and image-owned `packages-npm.txt`/`tools-uv.txt`/plugin-
 marketplace/plugin installs — under a fixed placeholder account (UID/GID
 `1000:1000`), and a `final` stage that only remaps that account to the
 `UID`/`GID` build args (`usermod`/`groupmod` plus a `chown -R` of what
@@ -184,6 +184,12 @@ of warning about a hardlink fallback on every install.
   console-script of their own (e.g. `langfuse`) that need to be importable
   by whatever runs inside the image. Edit any of the four and rebuild the
   image to change what's installed.
+
+  The npm and uv-tool installations are image-owned under `/opt/agent-tools`,
+  outside the persistent `/home/claude` volume. Rebuilding therefore changes
+  their managed versions even for an existing home. Runtime installs still go
+  into the writable home and appear first on `PATH`; they are preserved and can
+  intentionally shadow an image-managed executable.
 - **`examples/settings.local-model.json`** — sample `settings.json` for
   pointing Claude Code at a custom/local model endpoint
   (`ANTHROPIC_BASE_URL`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL`).

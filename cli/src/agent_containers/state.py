@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Self
@@ -79,13 +81,26 @@ def load_state(path: Path) -> DeploymentState:
         return DeploymentState.model_validate_json(state_file.read())
 
 
+def default_state_path(profile: Profile) -> Path:
+    """Return the XDG-style per-user state path for one named profile."""
+    state_home = os.environ.get("XDG_STATE_HOME")
+    root = Path(state_home).expanduser() if state_home else Path.home() / ".local" / "state"
+    return (root / "agent-containers" / f"{profile.name}.json").resolve()
+
+
 def save_state(path: Path, state: DeploymentState) -> None:
-    """Write state as formatted JSON, creating its parent directory."""
+    """Atomically write formatted JSON, creating its parent directory."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        state.model_dump_json(indent=2) + "\n",
-        encoding="utf-8",
-    )
+    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent, text=True)
+    temporary_path = Path(temporary)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as state_file:
+            state_file.write(state.model_dump_json(indent=2) + "\n")
+            state_file.flush()
+            os.fsync(state_file.fileno())
+        temporary_path.replace(path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
 
 
 def new_deployment_id(profile: Profile) -> str:

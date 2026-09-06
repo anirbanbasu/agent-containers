@@ -1,8 +1,8 @@
 # agent-containers CLI
 
-Implementation is starting. A Python package and help/version entry point are
-implemented and tested on Python 3.13 (with Python 3.12+ support). Profile
-and runtime commands and bundled image assets are not implemented yet.
+The Python package is tested on Python 3.14 (with Python 3.12+ support). It
+validates profiles, produces offline plans, materializes bundled image recipes,
+and applies a direct-Docker deployment without launching an agent session.
 
 This directory will contain the standalone Python project for deterministic
 onboarding and maintenance of this repository's hardened agent images. The
@@ -54,16 +54,25 @@ Do not suppress type or coverage errors without a demonstrated, documented need.
 The packaging test builds a standalone source distribution and installs its
 rebuilt wheel in a fresh temporary environment; dependency downloads may be needed.
 
+The CLI prints its required ASCII banner before every invocation. Deployment
+state defaults to `$XDG_STATE_HOME/agent-containers/` (or
+`~/.local/state/agent-containers/`). On macOS Docker Desktop, `apply` keeps the
+host UID but uses image GID `1000`: the conventional macOS GID 20 collides with
+an existing Linux image group, and the project deliberately retains its
+Dockerfile collision rejection rather than silently joining that group.
+
 If the host mounts `/tmp` with `noexec`, use a dedicated executable temporary
 directory for pytest's `--basetemp` option. Pytest owns and clears that directory:
 never point it at an existing directory containing your files. No mount flags
 need changing. Tests still install outside the repository and use a fresh venv.
 
-Six foundation tests currently pass with 100% source coverage. This does not
-establish runtime containment or agent compatibility; Docker integration tests
-and image-asset packaging coverage remain to be implemented.
+The test suite covers CLI behavior, profile/state validation, generated build
+contexts, Docker argv construction, lifecycle transitions, and standalone
+sdist-to-wheel installation at 100% source coverage. It does not establish all
+runtime containment or agent compatibility claims; broader Docker integration
+tests remain to be implemented.
 
-Profile-managed npm and uv tools will be installed into image-owned locations
+Profile-managed npm and uv tools are installed into image-owned locations
 outside the persistent home during image creation only. Runtime root filesystems
 stay read-only, with the existing explicit writable mounts preserved. Manual
 home installations take PATH precedence; diagnostics must warn when they shadow
@@ -73,15 +82,20 @@ The private implementation handoff is maintained in
 `../tmp-onboarding-codex.log`; the original discussion is in
 `../tmp-onboarding.md`. Both are intentionally ignored by Git.
 
-## Current command
+## Current commands
 
 `agent-containers validate PROFILE.toml` parses and validates a profile without
-contacting Docker or changing files. Lifecycle commands will be added behind the
-same validated model.
+contacting Docker or changing files.
 
 `agent-containers plan PROFILE.toml` compares the desired profile with optional
 recorded deployment JSON (`--state STATE.json`). It reports image versus launch
 changes and always discloses that live Docker state was not inspected.
+
+`agent-containers apply PROFILE.toml` materializes an isolated profile-owned
+build context, builds or verifies its retained image, copies any new seed only
+when its target is absent, and atomically selects deployment state. State is
+written to the standard per-user location unless `--state STATE.json` overrides
+it. `apply` does not launch an agent or terminate an existing session.
 
 Before building a distribution, run `uv run --project cli python cli/scripts/bundle_image_assets.py`; 
 `just build-cli` does this automatically.

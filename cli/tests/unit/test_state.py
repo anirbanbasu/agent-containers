@@ -10,6 +10,7 @@ from agent_containers.profile import Profile
 from agent_containers.state import (
     DeploymentRecord,
     DeploymentState,
+    default_state_path,
     load_state,
     new_deployment_id,
     profile_digest,
@@ -49,6 +50,12 @@ def test_state_round_trips_json(tmp_path: Path) -> None:
     loaded = load_state(state_path)
     assert loaded.selected_deployment is not None
     assert loaded.selected_deployment.profile_digest == profile_digest(profile)
+
+
+def test_default_state_path_uses_xdg_state_home(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Default machine state is separate from user-editable profile files."""
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    assert default_state_path(make_profile()) == tmp_path / "state" / "agent-containers" / "work.json"
 
 
 def test_plan_initial_deployment_is_explicitly_offline() -> None:

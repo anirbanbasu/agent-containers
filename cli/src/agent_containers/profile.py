@@ -45,10 +45,12 @@ class PackageSet(BaseModel):
     @field_validator("apt", "npm", "uv_tools", "uv_libraries")
     @classmethod
     def package_names_are_nonempty(cls, values: list[str]) -> list[str]:
-        """Reject blank package-list entries while preserving order."""
+        """Reject blank or multiline package-list entries while preserving order."""
         cleaned = [value.strip() for value in values]
         if any(not value for value in cleaned):
             raise ValueError("package names must not be blank")
+        if any("\n" in value or "\r" in value or "\x00" in value for value in cleaned):
+            raise ValueError("package names must be single-line text")
         return cleaned
 
 

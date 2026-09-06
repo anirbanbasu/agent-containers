@@ -1,24 +1,44 @@
 """CLI entry point. Runtime operations are added as verified components mature."""
 
+import subprocess
+import sys
 import tomllib
 from importlib.metadata import version
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 from pydantic import ValidationError
+from typer.core import TyperGroup
 
+from agent_containers.docker import DockerCommandError
+from agent_containers.lifecycle import LifecycleError, apply_profile
 from agent_containers.planner import build_plan
 from agent_containers.profile import load_profile
 from agent_containers.state import load_state
 
+_LOGO = """░█▀█░█▀▀░█▀▀░█▀█░▀█▀░░░█▀▀░█▀█░█▀█░▀█▀░█▀█░▀█▀░█▀█░█▀▀░█▀▄░█▀▀
+░█▀█░█░█░█▀▀░█░█░░█░░░░█░░░█░█░█░█░░█░░█▀█░░█░░█░█░█▀▀░█▀▄░▀▀█
+░▀░▀░▀▀▀░▀▀▀░▀░▀░░▀░░░░▀▀▀░▀▀▀░▀░▀░░▀░░▀░▀░▀▀▀░▀░▀░▀▀▀░▀░▀░▀▀▀"""
+
+
+class LogoGroup(TyperGroup):
+    """Render the required banner before Click dispatches any CLI invocation."""
+
+    def parse_args(self, ctx: Any, args: list[str]) -> list[str]:
+        """Print once for normal commands, help, version and parser errors."""
+        typer.echo(_LOGO)
+        return super().parse_args(ctx, args)
+
+
 app = typer.Typer(
     help=(
         "Onboarding and maintenance for hardened agent containers. "
-        "Development foundation: profile and runtime commands are not implemented yet."
+        "Profiles can be validated, planned, and applied with direct Docker commands."
     ),
     add_completion=False,
     pretty_exceptions_enable=False,
+    cls=LogoGroup,
 )
 
 
@@ -76,3 +96,35 @@ def plan(
         raise typer.BadParameter(str(exc), param_hint="profile/state") from exc
     for line in build_plan(document, recorded).summary_lines():
         typer.echo(line)
+
+
+@app.command()
+def apply(
+    profile: Annotated[
+        Path,
+        typer.Argument(exists=True, dir_okay=False, readable=True, help="TOML profile to build and select."),
+    ],
+    state: Annotated[
+        Path | None,
+        typer.Option("--state", dir_okay=False, help="Override the XDG deployment-state JSON path."),
+    ] = None,
+) -> None:
+    """Build, safely seed, and select a profile deployment without launching it."""
+    try:
+        document = load_profile(profile)
+        if sys.platform == "darwin":
+            typer.echo(
+                "Note: macOS Docker Desktop builds retain the host UID and use image GID 1000 to avoid collisions."
+            )
+        record = apply_profile(document, profile, state)
+    except (
+        DockerCommandError,
+        LifecycleError,
+        OSError,
+        subprocess.CalledProcessError,
+        tomllib.TOMLDecodeError,
+        ValidationError,
+        ValueError,
+    ) as exc:
+        raise typer.BadParameter(str(exc), param_hint="profile/state") from exc
+    typer.echo(f"Selected deployment: {record.deployment_id} ({record.image})")

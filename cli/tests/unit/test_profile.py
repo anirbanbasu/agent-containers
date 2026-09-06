@@ -70,6 +70,7 @@ def test_unknown_profile_fields_are_rejected() -> None:
         ({"name": "Work", "agent": "codex"}, "name"),
         ({"name": "work", "agent": "codex", "schema_version": 2}, "unsupported"),
         ({"name": "work", "agent": "codex", "packages": {"apt": ["  "]}}, "package names"),
+        ({"name": "work", "agent": "codex", "packages": {"npm": ["one\ntwo"]}}, "single-line"),
         ({"name": "work", "agent": "codex", "egress": {"mode": "open"}}, "network mode"),
         ({"name": "work", "agent": "codex", "egress": {"hosts": ["  "]}}, "egress hosts"),
         ({"name": "work", "agent": "codex", "decant": {"source_profiles": ["  "]}}, "Decant"),

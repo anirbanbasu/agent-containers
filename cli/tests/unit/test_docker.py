@@ -4,7 +4,15 @@ from pathlib import Path
 
 import pytest
 
-from agent_containers.docker import DockerCommandError, build_run_argv, shell_command
+from agent_containers.build_context import BuildContexts
+from agent_containers.docker import (
+    DockerCommandError,
+    build_image_argv,
+    build_run_argv,
+    build_seed_argv,
+    default_image_tag,
+    shell_command,
+)
 from agent_containers.profile import Profile
 
 
@@ -122,4 +130,64 @@ def test_command_rejects_workspace_and_seed_conflicts(tmp_path: Path) -> None:
             ),
             tmp_path,
             tmp_path / "work.toml",
+        )
+
+
+def test_build_command_uses_profile_tag_contexts_and_first_party_ids(tmp_path: Path) -> None:
+    """Build commands connect the generated shared context and host IDs safely."""
+    contexts = BuildContexts(image=tmp_path / "image", shared=tmp_path / "shared")
+    contexts.image.mkdir()
+    contexts.shared.mkdir()
+    profile = make_profile(packages={"npm": ["typescript"]})
+    argv = build_image_argv(profile, contexts, uid=501, gid=20)
+    assert argv[:3] == ("docker", "build", "--build-context")
+    assert f"shared={contexts.shared}" in argv
+    assert default_image_tag(profile) in argv
+    assert "UID=501" in argv
+    assert "GID=20" in argv
+    assert argv[-1] == str(contexts.image)
+
+
+def test_build_command_omits_uid_arguments_for_hermes_and_rejects_bad_inputs(tmp_path: Path) -> None:
+    """Hermes retains its upstream fixed identity and contexts must be complete."""
+    contexts = BuildContexts(image=tmp_path / "image", shared=tmp_path / "shared")
+    contexts.image.mkdir()
+    contexts.shared.mkdir()
+    assert "UID=501" not in build_image_argv(make_profile(agent="hermes"), contexts, uid=501, gid=20)
+    with pytest.raises(DockerCommandError, match="together"):
+        build_image_argv(make_profile(), contexts, uid=501)
+    with pytest.raises(DockerCommandError, match="positive"):
+        build_image_argv(make_profile(), contexts, uid=0, gid=20)
+    with pytest.raises(DockerCommandError, match="directories"):
+        build_image_argv(make_profile(), BuildContexts(tmp_path / "missing", contexts.shared))
+
+
+def test_seed_command_is_networkless_create_only_and_home_scoped(tmp_path: Path) -> None:
+    """Seed helpers cannot overwrite arbitrary container locations or use egress."""
+    source = tmp_path / "settings.json"
+    source.write_text("{}", encoding="utf-8")
+    profile = make_profile(
+        mounts=[{"type": "seed", "source": "settings.json", "target": "/home/codex/.codex/settings.json"}]
+    )
+    argv = build_seed_argv(profile, "/home/codex/.codex/settings.json", tmp_path / "work.toml", image="image")
+    assert "--network=none" in argv
+    assert "--read-only" in argv
+    assert "--cap-add=CHOWN" in argv
+    assert "SEED_TARGET=/home/codex/.codex/settings.json" in argv
+    assert "test ! -e" in argv[-1]
+    with pytest.raises(DockerCommandError, match="not configured"):
+        build_seed_argv(profile, "/home/codex/.codex/other.json", tmp_path / "work.toml", image="image")
+    with pytest.raises(DockerCommandError, match="persistent home"):
+        build_seed_argv(
+            make_profile(mounts=[{"type": "seed", "source": "settings.json", "target": "/etc/settings.json"}]),
+            "/etc/settings.json",
+            tmp_path / "work.toml",
+            image="image",
+        )
+    with pytest.raises(DockerCommandError, match="does not exist"):
+        build_seed_argv(
+            make_profile(mounts=[{"type": "seed", "source": "missing", "target": "/home/codex/.codex/settings.json"}]),
+            "/home/codex/.codex/settings.json",
+            tmp_path / "work.toml",
+            image="image",
         )

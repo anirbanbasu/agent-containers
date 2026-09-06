@@ -58,5 +58,5 @@ def test_standalone_sdist_to_installed_wheel(tmp_path: Path) -> None:
     python = venv / "bin" / "python"
     run("uv", "pip", "install", "--python", str(python), str(wheel), cwd=tmp_path)
     script = venv / "bin" / "agent-containers"
-    assert run(str(script), "--version", cwd=tmp_path).stdout.startswith("agent-containers ")
-    assert "not implemented yet" in run(str(python), "-m", "agent_containers", cwd=tmp_path).stdout
+    assert run(str(script), "--version", cwd=tmp_path).stdout.splitlines()[-1].startswith("agent-containers ")
+    assert "apply" in run(str(python), "-m", "agent_containers", cwd=tmp_path).stdout

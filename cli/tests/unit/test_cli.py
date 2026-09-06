@@ -2,6 +2,7 @@
 
 import runpy
 import sys
+from datetime import UTC, datetime
 from importlib.metadata import version
 from pathlib import Path
 from unittest.mock import patch
@@ -9,7 +10,9 @@ from unittest.mock import patch
 import pytest
 from typer.testing import CliRunner
 
-from agent_containers.cli import app
+from agent_containers.cli import _LOGO, app
+from agent_containers.lifecycle import LifecycleError
+from agent_containers.state import DeploymentRecord
 
 
 @pytest.mark.parametrize("args", [[], ["--help"], ["--version"]])
@@ -18,10 +21,11 @@ def test_informational_commands_do_not_spawn_processes(args: list[str]) -> None:
     with patch("subprocess.Popen", side_effect=AssertionError("unexpected subprocess")):
         result = CliRunner().invoke(app, args)
     assert result.exit_code == 0, result.output
+    assert result.output.startswith(_LOGO)
     if args == ["--version"]:
-        assert result.output.strip() == f"agent-containers {version('agent-containers')}"
+        assert result.output.rstrip().endswith(f"agent-containers {version('agent-containers')}")
     else:
-        assert "not implemented yet" in result.output
+        assert "apply" in result.output
 
 
 def test_unknown_command_fails() -> None:
@@ -37,7 +41,8 @@ def test_validate_reads_a_profile_without_subprocess(tmp_path: Path) -> None:
     with patch("subprocess.Popen", side_effect=AssertionError("unexpected subprocess")):
         result = CliRunner().invoke(app, ["validate", str(profile)])
     assert result.exit_code == 0, result.output
-    assert result.output.strip() == "Valid profile: work (codex)"
+    assert result.output.startswith(_LOGO)
+    assert result.output.rstrip().endswith("Valid profile: work (codex)")
 
 
 def test_validate_rejects_invalid_profile(tmp_path: Path) -> None:
@@ -71,10 +76,41 @@ def test_plan_reports_invalid_state(tmp_path: Path) -> None:
     assert "state" in result.output.lower()
 
 
+def test_apply_delegates_to_the_lifecycle_without_starting_docker(tmp_path: Path) -> None:
+    """Apply parses its profile then leaves Docker work to the tested lifecycle layer."""
+    profile = tmp_path / "work.toml"
+    profile.write_text('name = "work"\nagent = "codex"\n', encoding="utf-8")
+    record = DeploymentRecord(
+        deployment_id="work-1",
+        image="agent-containers/codex:test",
+        profile_digest="a" * 64,
+        profile_snapshot={},
+        launch_digest="a" * 64,
+        created_at=datetime.now(UTC),
+        selected=True,
+    )
+    with patch("agent_containers.cli.apply_profile", return_value=record):
+        result = CliRunner().invoke(app, ["apply", str(profile)])
+    assert result.exit_code == 0, result.output
+    assert "Selected deployment: work-1" in result.output
+
+
+def test_apply_reports_lifecycle_failures(tmp_path: Path) -> None:
+    """Docker lifecycle errors are rendered as ordinary CLI parameter errors."""
+    profile = tmp_path / "work.toml"
+    profile.write_text('name = "work"\nagent = "codex"\n', encoding="utf-8")
+    with patch("agent_containers.cli.apply_profile", side_effect=LifecycleError("build failed")):
+        result = CliRunner().invoke(app, ["apply", str(profile)])
+    assert result.exit_code != 0
+    assert "build failed" in result.output
+
+
 def test_module_entry_point(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     """The python -m entry point invokes the same installed CLI."""
     monkeypatch.setattr(sys, "argv", ["agent-containers", "--version"])
     with pytest.raises(SystemExit) as exc:
         runpy.run_module("agent_containers", run_name="__main__")
     assert exc.value.code == 0
-    assert capsys.readouterr().out.strip() == f"agent-containers {version('agent-containers')}"
+    output = capsys.readouterr().out
+    assert output.startswith(_LOGO)
+    assert output.rstrip().endswith(f"agent-containers {version('agent-containers')}")

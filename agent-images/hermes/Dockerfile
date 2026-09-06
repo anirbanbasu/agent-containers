@@ -49,7 +49,10 @@ RUN bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
 # rootfs.
 ENV HOME=/opt/data
 ENV npm_config_prefix=/opt/data/.npm-global
-ENV PATH="/opt/data/.local/bin:/opt/data/.npm-global/bin:${PATH}"
+# Home-managed installations intentionally precede profile-managed tools. The
+# latter are image-owned under /opt so a populated data volume cannot hide a
+# rebuilt profile image's requested versions.
+ENV PATH="/opt/data/.local/bin:/opt/data/.npm-global/bin:/opt/agent-tools/bin:/opt/agent-tools/npm/bin:${PATH}"
 
 # $HOME (uv's default cache location) and /workspace are deliberately
 # separate mounts in this containment model, so uv's hardlink/reflink
@@ -57,10 +60,17 @@ ENV PATH="/opt/data/.local/bin:/opt/data/.npm-global/bin:${PATH}"
 # explicit rather than have uv warn about it on every install.
 ENV UV_LINK_MODE=copy
 
-# packages-npm.txt / tools-uv.txt — see packages-apt.txt above.
+# packages-npm.txt / tools-uv.txt — see packages-apt.txt above. These managed
+# tools are deliberately separate from /opt/data, the upstream persistent home.
 COPY packages-npm.txt /tmp/packages-npm.txt
 COPY tools-uv.txt /tmp/tools-uv.txt
-RUN su hermes -s /bin/bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
+RUN mkdir -p /opt/agent-tools/npm /opt/agent-tools/uv-tools /opt/agent-tools/bin \
+    && chown -R hermes:hermes /opt/agent-tools \
+    && su hermes -s /bin/bash -c 'export \
+        npm_config_prefix=/opt/agent-tools/npm \
+        UV_TOOL_DIR=/opt/agent-tools/uv-tools \
+        UV_TOOL_BIN_DIR=/opt/agent-tools/bin; \
+        . /usr/local/lib/agent/install-additional-packages.sh \
         && install_npm_packages /tmp/packages-npm.txt \
         && install_uv_tools /tmp/tools-uv.txt' \
     && rm -f /tmp/packages-npm.txt /tmp/tools-uv.txt
