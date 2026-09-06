@@ -6,6 +6,7 @@ import os
 import subprocess
 import sys
 import tempfile
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -27,6 +28,14 @@ from agent_containers.state import (
 
 class LifecycleError(ValueError):
     """Raised when a state file is not safe to apply for a profile."""
+
+
+@dataclass(frozen=True)
+class DoctorReport:
+    """Read-only host and selected-deployment diagnostics."""
+
+    lines: tuple[str, ...]
+    healthy: bool
 
 
 def build_user_ids() -> tuple[int, int]:
@@ -98,6 +107,28 @@ def rollback_preview(record: DeploymentRecord) -> list[str]:
     ]
 
 
+def doctor_profile(profile: Profile, state_path: Path | None = None) -> DoctorReport:
+    """Inspect local Docker/state prerequisites without building or mutating resources."""
+    lines: list[str] = []
+    docker_available = _probe("docker", "version", "--format", "{{.Server.Version}}")
+    lines.append(f"Docker daemon: {'available' if docker_available else 'unavailable'}")
+    target_state_path = state_path or default_state_path(profile)
+    if not target_state_path.exists():
+        lines.append(f"Deployment state: absent ({target_state_path})")
+        return DoctorReport(tuple(lines), healthy=False)
+    state = load_state(target_state_path)
+    if state.profile_name != profile.name:
+        raise LifecycleError(f"state belongs to profile {state.profile_name!r}, not {profile.name!r}")
+    selected = state.selected_deployment
+    if selected is None:
+        lines.append("Selected deployment: absent")
+        return DoctorReport(tuple(lines), healthy=False)
+    image_available = docker_available and _probe("docker", "image", "inspect", selected.image)
+    lines.append(f"Selected deployment: {selected.deployment_id} ({selected.image})")
+    lines.append(f"Selected image: {'available' if image_available else 'unavailable'}")
+    return DoctorReport(tuple(lines), healthy=docker_available and image_available)
+
+
 def _build_image(profile: Profile) -> str:
     """Build a profile context in an automatically removed private directory."""
     image = default_image_tag(profile)
@@ -132,3 +163,8 @@ def _new_record(profile: Profile, image: str) -> DeploymentRecord:
 def _docker(*argv: str) -> None:
     """Run Docker without shell interpolation or captured credential-bearing output."""
     subprocess.run(argv, check=True)
+
+
+def _probe(*argv: str) -> bool:
+    """Return whether a harmless Docker inspection succeeds without raising."""
+    return subprocess.run(argv, check=False, capture_output=True, text=True).returncode == 0

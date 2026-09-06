@@ -11,7 +11,7 @@ import pytest
 from typer.testing import CliRunner
 
 from agent_containers.cli import _LOGO, app
-from agent_containers.lifecycle import LifecycleError
+from agent_containers.lifecycle import DoctorReport, LifecycleError
 from agent_containers.state import DeploymentRecord
 
 
@@ -138,6 +138,27 @@ def test_rollback_reports_lifecycle_failures(tmp_path: Path) -> None:
         result = CliRunner().invoke(app, ["rollback", str(profile)])
     assert result.exit_code != 0
     assert "no previous image" in result.output
+
+
+def test_doctor_renders_read_only_report(tmp_path: Path) -> None:
+    """Doctor exits nonzero for unhealthy diagnostics without changing state."""
+    profile = tmp_path / "work.toml"
+    profile.write_text('name = "work"\nagent = "codex"\n', encoding="utf-8")
+    report = DoctorReport(("Docker daemon: unavailable",), healthy=False)
+    with patch("agent_containers.cli.doctor_profile", return_value=report):
+        result = CliRunner().invoke(app, ["doctor", str(profile)])
+    assert result.exit_code == 1
+    assert "unavailable" in result.output
+
+
+def test_doctor_reports_invalid_state(tmp_path: Path) -> None:
+    """State/profile mismatch errors remain clear CLI failures."""
+    profile = tmp_path / "work.toml"
+    profile.write_text('name = "work"\nagent = "codex"\n', encoding="utf-8")
+    with patch("agent_containers.cli.doctor_profile", side_effect=LifecycleError("state mismatch")):
+        result = CliRunner().invoke(app, ["doctor", str(profile)])
+    assert result.exit_code != 0
+    assert "state mismatch" in result.output
 
 
 def test_module_entry_point(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:

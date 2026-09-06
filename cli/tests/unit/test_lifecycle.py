@@ -12,6 +12,7 @@ from agent_containers.lifecycle import (
     _new_record,
     apply_profile,
     build_user_ids,
+    doctor_profile,
     rollback_preview,
     rollback_profile,
 )
@@ -144,3 +145,46 @@ def test_rollback_rejects_unselected_or_mismatched_state(tmp_path: Path) -> None
     save_state(mismatched_path, DeploymentState(profile_name="other"))
     with pytest.raises(LifecycleError, match="belongs"):
         rollback_profile(profile, mismatched_path)
+
+
+def test_doctor_reports_absent_state_and_selected_image(tmp_path: Path) -> None:
+    """Doctor distinguishes unconfigured profiles from inspectable deployments."""
+    profile = make_profile()
+    absent = doctor_profile(profile, tmp_path / "missing.json")
+    assert not absent.healthy
+    assert "absent" in "\n".join(absent.lines)
+    unselected_path = tmp_path / "unselected.json"
+    save_state(unselected_path, DeploymentState(profile_name="work"))
+    unselected = doctor_profile(profile, unselected_path)
+    assert not unselected.healthy
+    assert "Selected deployment: absent" in unselected.lines
+    state_path = tmp_path / "state.json"
+    save_state(state_path, DeploymentState(profile_name="work", deployments=[_new_record(profile, "image")]))
+    with patch("agent_containers.lifecycle._probe", side_effect=[True, True]):
+        available = doctor_profile(profile, state_path)
+    assert available.healthy
+    assert "Selected image: available" in available.lines
+
+
+def test_doctor_reports_unavailable_docker_and_rejects_mismatched_state(tmp_path: Path) -> None:
+    """Docker failure is diagnostic, while mismatched state remains unsafe input."""
+    profile = make_profile()
+    state_path = tmp_path / "state.json"
+    save_state(state_path, DeploymentState(profile_name="work", deployments=[_new_record(profile, "image")]))
+    with patch("agent_containers.lifecycle._probe", return_value=False):
+        unavailable = doctor_profile(profile, state_path)
+    assert not unavailable.healthy
+    assert "Selected image: unavailable" in unavailable.lines
+    mismatch = tmp_path / "mismatch.json"
+    save_state(mismatch, DeploymentState(profile_name="other"))
+    with pytest.raises(LifecycleError, match="belongs"):
+        doctor_profile(profile, mismatch)
+
+
+def test_doctor_probe_reports_failed_subprocess() -> None:
+    """A nonzero inspection result is diagnostic rather than an exception."""
+    from agent_containers.lifecycle import _probe
+
+    completed = subprocess.CompletedProcess(("docker", "version"), returncode=1)
+    with patch("agent_containers.lifecycle.subprocess.run", return_value=completed):
+        assert not _probe("docker", "version")

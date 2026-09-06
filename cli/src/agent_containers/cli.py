@@ -12,7 +12,14 @@ from pydantic import ValidationError
 from typer.core import TyperGroup
 
 from agent_containers.docker import DockerCommandError
-from agent_containers.lifecycle import LifecycleError, apply_profile, rollback_preview, rollback_profile
+from agent_containers.lifecycle import (
+    DoctorReport,
+    LifecycleError,
+    apply_profile,
+    doctor_profile,
+    rollback_preview,
+    rollback_profile,
+)
 from agent_containers.planner import build_plan
 from agent_containers.profile import load_profile
 from agent_containers.state import load_state
@@ -160,3 +167,26 @@ def rollback(
         raise typer.BadParameter(str(exc), param_hint="profile/state") from exc
     for line in rollback_preview(record):
         typer.echo(line)
+
+
+@app.command()
+def doctor(
+    profile: Annotated[
+        Path,
+        typer.Argument(exists=True, dir_okay=False, readable=True, help="TOML profile whose deployment is inspected."),
+    ],
+    state: Annotated[
+        Path | None,
+        typer.Option("--state", dir_okay=False, help="Override the XDG deployment-state JSON path."),
+    ] = None,
+) -> None:
+    """Check Docker, recorded deployment state, and the selected image without mutating them."""
+    try:
+        document = load_profile(profile)
+        report: DoctorReport = doctor_profile(document, state)
+    except (LifecycleError, OSError, tomllib.TOMLDecodeError, ValidationError, ValueError) as exc:
+        raise typer.BadParameter(str(exc), param_hint="profile/state") from exc
+    for line in report.lines:
+        typer.echo(line)
+    if not report.healthy:
+        raise typer.Exit(1)

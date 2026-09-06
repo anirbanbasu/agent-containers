@@ -102,6 +102,10 @@ previous retained image and launch record. It previews restored egress,
 proxy/CA, and endpoint choices. It never restores persistent-home data or stops
 an existing agent session.
 
+`agent-containers doctor PROFILE.toml` is read-only. It reports Docker-daemon
+availability, the expected deployment-state file, and whether the selected
+image can be inspected; it creates, starts, and changes nothing.
+
 Before building a distribution, run `uv run --project cli python cli/scripts/bundle_image_assets.py`; 
 `just build-cli` does this automatically.
 The generated package-data directory is ignored, derived only from canonical
