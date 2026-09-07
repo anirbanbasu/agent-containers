@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "agent-containers-cli"
-version = "0.1.0.dev0"
+version = "0.1.0.dev1"
 description = "Deterministic onboarding and maintenance for hardened coding-agent containers"
 license = "MIT"
 license-files = ["LICEN[CS]E*"]

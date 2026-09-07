@@ -53,7 +53,7 @@ and parser errors.
 
 ## Safety and verification
 
-Preserve the repository's containment contract. Package selection must not
+The CLI preserves hardened-container defaults. Package selection must not
 silently expand runtime egress. Credentials must not appear in profiles, build
 arguments, images, logs, or command output; profiles reference runtime inputs.
 
@@ -80,23 +80,6 @@ stores credential values. A Langfuse endpoint must be present in the profile's
 egress allowlist (or be reached through a configured gateway). Langfuse is one
 of many possible OpenTelemetry backends, not a default telemetry provider.
 
-Unit and distribution tests must run without Docker. Integration tests require
-Docker and disposable resources, without real account logins. Offline plans and
-diagnostics must distinguish recorded state from inspected live state and mark
-runtime checks unavailable when Docker cannot be reached.
-
-Use direct Docker commands, not Compose, and package with `uv build` and the
-native `uv_build` backend, not Hatchling, with Python 3.12 or newer. Use `ty`
-for type checking and Ruff for linting/formatting. Both live in the `dev`
-dependency group; pytest and coverage live in `test`.
-
-From this directory, install contributor dependencies with
-`uv sync --group test --python 3.12`. Root `just test-cli` runs unit and packaging
-tests under coverage; `just check-cli` runs Ruff and ty. Coverage must reach 100%.
-Do not suppress type or coverage errors without a demonstrated, documented need.
-The packaging test builds a standalone source distribution and installs its
-rebuilt wheel in a fresh temporary environment; dependency downloads may be needed.
-
 The CLI prints its required ASCII banner before every invocation. Deployment
 state defaults to `$XDG_STATE_HOME/agent-containers/` (or
 `~/.local/state/agent-containers/`). On macOS Docker Desktop, `apply` keeps the
@@ -104,22 +87,21 @@ host UID but uses image GID `1000`: the conventional macOS GID 20 collides with
 an existing Linux image group, and the project deliberately retains its
 Dockerfile collision rejection rather than silently joining that group.
 
-If the host mounts `/tmp` with `noexec`, use a dedicated executable temporary
-directory for pytest's `--basetemp` option. Pytest owns and clears that directory:
-never point it at an existing directory containing your files. No mount flags
-need changing. Tests still install outside the repository and use a fresh venv.
-
-The test suite covers CLI behavior, profile/state validation, generated build
-contexts, Docker argv construction, lifecycle transitions, and standalone
-sdist-to-wheel installation at 100% source coverage. It does not establish all
-runtime containment or agent compatibility claims; broader Docker integration
-tests remain to be implemented.
-
 Profile-managed npm and uv tools are installed into image-owned locations
 outside the persistent home during image creation only. Runtime root filesystems
 stay read-only, with the existing explicit writable mounts preserved. Manual
 home installations take PATH precedence; diagnostics must warn when they shadow
 image-managed executables. Do not delete existing home tools.
+
+## Development
+
+When developing from the source checkout, install contributor dependencies with
+`uv sync --project cli --group test`. The repository's `just test-cli` and
+`just check-cli` recipes run the unit, packaging, coverage, Ruff, and type checks.
+The packaging test builds and installs the wheel in temporary environments; it
+does not require Docker or real account logins. Docker integration tests are
+explicit and disposable. If `/tmp` is mounted `noexec`, use a dedicated
+executable temporary directory for pytest's `--basetemp` option.
 
 ## Current commands
 
