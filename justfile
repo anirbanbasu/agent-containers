@@ -13,6 +13,7 @@ check-cli:
 
 # Build the Python source distribution and wheel locally; never publishes.
 build-cli:
+    rm -rf cli/dist
     uv run --project cli python cli/scripts/bundle_image_assets.py
     uv build --project cli
 

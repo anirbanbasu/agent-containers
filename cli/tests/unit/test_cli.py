@@ -10,7 +10,7 @@ from unittest.mock import patch
 import pytest
 from typer.testing import CliRunner
 
-from agent_containers.cli import _LOGO, app
+from agent_containers.cli import _LOGO, _resolve_configuration_conflict, app
 from agent_containers.creation import ProfileCreationError
 from agent_containers.lifecycle import DoctorReport, LifecycleError
 from agent_containers.profile import Profile
@@ -25,7 +25,7 @@ def test_informational_commands_do_not_spawn_processes(args: list[str]) -> None:
     assert result.exit_code == 0, result.output
     assert result.output.startswith(_LOGO)
     if args == ["--version"]:
-        assert result.output.rstrip().endswith(f"agent-containers {version('agent-containers')}")
+        assert result.output.rstrip().endswith(f"agent-containers {version('agent-containers-cli')}")
     else:
         assert "apply" in result.output
 
@@ -80,6 +80,30 @@ def test_create_reports_existing_profile(tmp_path: Path) -> None:
         result = CliRunner().invoke(app, ["create", str(profile_path)])
     assert result.exit_code != 0
     assert "already exists" in result.output
+
+
+def test_create_validates_optional_configuration_import(tmp_path: Path) -> None:
+    """Create validates a supplied native configuration before writing the profile."""
+    profile_path = tmp_path / "new.toml"
+    source = tmp_path / "settings.json"
+    source.write_text("{}", encoding="utf-8")
+    document = Profile(name="new", agent="codex", configuration_import={"source": str(source)})
+    with (
+        patch("agent_containers.cli.prompt_profile", return_value=document),
+        patch(
+            "agent_containers.cli.load_import_document", return_value=({}, "/home/codex/.codex/config.toml")
+        ) as validate,
+        patch("agent_containers.cli.write_profile"),
+    ):
+        result = CliRunner().invoke(app, ["create", str(profile_path), "--configuration-import", str(source)])
+    assert result.exit_code == 0, result.output
+    validate.assert_called_once()
+
+
+def test_configuration_conflict_prompt_does_not_echo_values(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Interactive conflict resolution asks only whether the imported value wins."""
+    monkeypatch.setattr("agent_containers.cli.typer.confirm", lambda *_args, **_kwargs: True)
+    assert _resolve_configuration_conflict("api_key", "secret", "new-secret")
 
 
 def test_plan_without_state_is_read_only(tmp_path: Path) -> None:
@@ -197,4 +221,4 @@ def test_module_entry_point(monkeypatch: pytest.MonkeyPatch, capsys: pytest.Capt
     assert exc.value.code == 0
     output = capsys.readouterr().out
     assert output.startswith(_LOGO)
-    assert output.rstrip().endswith(f"agent-containers {version('agent-containers')}")
+    assert output.rstrip().endswith(f"agent-containers {version('agent-containers-cli')}")

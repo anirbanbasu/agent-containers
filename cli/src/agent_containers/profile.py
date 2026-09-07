@@ -296,6 +296,40 @@ class MountConfig(BaseModel):
         return value
 
 
+class ConfigurationImport(BaseModel):
+    """Optional agent-native configuration imported into the home volume."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source: str = Field(min_length=1)
+    format: str | None = None
+    target: str | None = None
+
+    @field_validator("source", "target")
+    @classmethod
+    def paths_are_trimmed(cls, value: str | None) -> str | None:
+        """Reject whitespace-only import paths."""
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("configuration import paths must not be blank")
+        return cleaned
+
+    @field_validator("format")
+    @classmethod
+    def format_is_supported(cls, value: str | None) -> str | None:
+        """Keep format overrides within the native adapter set."""
+        if value is None:
+            return None
+        normalized = value.strip().lower().lstrip(".")
+        if normalized == "yml":
+            normalized = "yaml"
+        if normalized not in {"json", "jsonc", "toml", "yaml"}:
+            raise ValueError("configuration import format must be json, jsonc, toml, or yaml")
+        return normalized
+
+
 class Profile(BaseModel):
     """Complete desired configuration for one named agent deployment."""
 
@@ -311,6 +345,7 @@ class Profile(BaseModel):
     egress: EgressConfig = Field(default_factory=EgressConfig)
     decant: DecantConfig = Field(default_factory=DecantConfig)
     langfuse: LangfuseConfig = Field(default_factory=LangfuseConfig)
+    configuration_import: ConfigurationImport | None = None
     configuration_mounts: list[MountConfig] = Field(default_factory=list)
     mounts: list[MountConfig] = Field(default_factory=list)
 
@@ -349,6 +384,13 @@ class Profile(BaseModel):
         for index, target in enumerate(targets):
             if index and (target == targets[index - 1] or target.startswith(f"{targets[index - 1]}/")):
                 raise ValueError(f"mount targets overlap: {targets[index - 1]} and {target}")
+        return self
+
+    @model_validator(mode="after")
+    def configuration_sources_are_exclusive(self) -> Self:
+        """Keep native imports and advanced mounts from targeting the same config implicitly."""
+        if self.configuration_import is not None and self.configuration_mounts:
+            raise ValueError("configuration_import and configuration_mounts are mutually exclusive")
         return self
 
     @property

@@ -80,8 +80,12 @@ def build_plan(profile: Profile, state: DeploymentState | None = None, profile_p
         changed_image.append("langfuse")
     changed = changed_image + changed_launch
     if digest != selected.profile_digest and not changed:
-        changed_image.append("proxy CA contents")
-        changed.append("proxy CA contents")
+        if profile.proxy is not None and (profile.proxy.ca_file is not None or profile.proxy.ca_dir is not None):
+            changed_image.append("proxy CA contents")
+            changed.append("proxy CA contents")
+        elif profile.configuration_import is not None:
+            changed_launch.append("configuration import contents")
+            changed.append("configuration import contents")
     if not changed:
         actions = [PlanAction.NOOP]
     else:

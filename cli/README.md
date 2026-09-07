@@ -1,15 +1,29 @@
 # agent-containers CLI
 
-The Python package is tested on Python 3.14 (with Python 3.12+ support). It
-validates profiles, produces offline plans, materializes bundled image recipes,
-and applies a direct-Docker deployment without launching an agent session.
+`agent-containers` is a Python CLI for creating and maintaining user-scoped
+deployments of hardened coding-agent containers. It validates human-editable
+TOML profiles, builds profile-specific images, records deployment state, and
+generates shell shortcuts. `apply` uses direct Docker commands and does not
+launch an agent session.
 
-This directory will contain the standalone Python project for deterministic
-onboarding and maintenance of this repository's hardened agent images. The
-distribution and executable name is `agent-containers`; the Python import
-package will be `agent_containers`.
+The package supports Python 3.12+ and is published as the
+`agent-containers-cli` distribution with the `agent_containers` import package.
 
-## Agreed scope
+Full lifecycle documentation is available in the
+[onboarding CLI guide](https://github.com/anirbanbasu/agent-containers/blob/main/docs/onboarding/cli.md).
+
+## Install
+
+Install the published CLI with `uv`:
+
+```sh
+uv tool install agent-containers-cli
+```
+
+Every invocation prints the onboarding banner, including `--help`, `--version`,
+and parser errors.
+
+## What it manages
 
 - Human-editable, versioned TOML profiles, with separate machine-managed
   deployment state. Interactive prompts and noninteractive inputs use the same
@@ -34,8 +48,8 @@ package will be `agent_containers`.
 - Explicit application and updates, retained prior deployments, and rollback of
   the selected image and managed launch configuration. Rollback does not restore
   mutable home-volume data or terminate existing sessions automatically.
-- Image recipes bundled from canonical `../agent-images/` sources in both wheel
-  and source distributions. No maintained duplicate or installed-package edits.
+- Profile-specific images are built from the image recipes bundled with the
+  distribution. The package does not seed credentials, plugins, or skills.
 
 ## Safety and verification
 
@@ -107,17 +121,40 @@ stay read-only, with the existing explicit writable mounts preserved. Manual
 home installations take PATH precedence; diagnostics must warn when they shadow
 image-managed executables. Do not delete existing home tools.
 
-The private implementation handoff is maintained in
-`../tmp-onboarding-codex.log`; the original discussion is in
-`../tmp-onboarding.md`. Both are intentionally ignored by Git.
-
 ## Current commands
 
 `agent-containers create PROFILE.toml` interactively prompts for every profile
 section, validates the resulting model, and writes a new TOML file atomically.
 It refuses to replace an existing file and never contacts Docker. Secrets are
 never prompted for; provider authentication is represented only by an
-environment-variable name.
+environment-variable name. The wizard displays its six stages—identity,
+packages, configuration, network, integrations, and mounts—and prints the
+selected agent's official configuration guide when no native import is used.
+
+To validate and record an optional native configuration for merging during
+`apply`, pass its source file to `create`:
+
+```sh
+agent-containers create \
+  --configuration-import ~/.config/agent-containers/claude-settings.json \
+  ~/.config/agent-containers/profiles/work.toml
+```
+
+Claude Code accepts JSON/JSONC, Codex TOML, OpenCode JSON/JSONC, and Hermes
+YAML. The source is parsed during `create`; credentials remain in the source
+file and are never copied into the profile.
+
+During `apply`, an import is merged into the agent's configuration file in the
+persistent home volume rather than mounted over it. Existing object keys not
+present in the import are preserved. Scalar, type, and array conflicts prompt
+for a choice without printing the conflicting values. The previous file is
+backed up as `.agent-containers.bak`, then replaced atomically with its mode
+and ownership preserved. Imported hooks, plugins, and dependencies are not
+executed or installed automatically.
+
+Advanced users can instead use `configuration_mounts` for continuous host
+control. Native imports and configuration mounts are mutually exclusive in a
+profile.
 
 `agent-containers validate PROFILE.toml` parses and validates a profile without
 contacting Docker or changing files.

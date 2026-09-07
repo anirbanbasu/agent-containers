@@ -11,6 +11,7 @@ import typer
 from pydantic import ValidationError
 from typer.core import TyperGroup
 
+from agent_containers.configuration import ConfigurationError, load_import_document
 from agent_containers.creation import ProfileCreationError, prompt_profile, write_profile
 from agent_containers.docker import DockerCommandError
 from agent_containers.lifecycle import (
@@ -54,7 +55,7 @@ app = typer.Typer(
 def show_version(value: bool) -> None:
     """Read installed distribution metadata, avoiding a second version constant."""
     if value:
-        typer.echo(f"agent-containers {version('agent-containers')}")
+        typer.echo(f"agent-containers {version('agent-containers-cli')}")
         raise typer.Exit()
 
 
@@ -92,12 +93,24 @@ def create(
         Path,
         typer.Argument(dir_okay=False, help="New TOML profile path to create interactively."),
     ],
+    configuration_import: Annotated[
+        Path | None,
+        typer.Option(
+            "--configuration-import",
+            exists=True,
+            dir_okay=False,
+            readable=True,
+            help="Optional agent-native JSON/JSONC/TOML/YAML configuration to validate and import on apply.",
+        ),
+    ] = None,
 ) -> None:
-    """Interactively create a validated TOML profile without contacting Docker."""
+    """Interactively create a validated TOML profile and optionally validate native configuration."""
     try:
-        document = prompt_profile(profile)
+        document = prompt_profile(profile, configuration_import)
+        if document.configuration_import is not None:
+            load_import_document(document, profile)
         write_profile(profile, document)
-    except (OSError, ProfileCreationError, ValidationError, ValueError) as exc:
+    except (ConfigurationError, OSError, ProfileCreationError, ValidationError, ValueError) as exc:
         raise typer.BadParameter(str(exc), param_hint="profile") from exc
     typer.echo(f"Created profile: {profile.expanduser().resolve()} ({document.name}/{document.agent.value})")
 
@@ -141,7 +154,13 @@ def apply(
             typer.echo(
                 "Note: macOS Docker Desktop builds retain the host UID and use image GID 1000 to avoid collisions."
             )
-        record = apply_profile(document, profile, state, default_shortcuts_path())
+        record = apply_profile(
+            document,
+            profile,
+            state,
+            default_shortcuts_path(),
+            configuration_resolver=_resolve_configuration_conflict,
+        )
     except (
         DockerCommandError,
         LifecycleError,
@@ -154,6 +173,14 @@ def apply(
     ) as exc:
         raise typer.BadParameter(str(exc), param_hint="profile/state") from exc
     typer.echo(f"Selected deployment: {record.deployment_id} ({record.image})")
+
+
+def _resolve_configuration_conflict(path: str, _existing: object, _incoming: object) -> bool:
+    """Resolve one native-config conflict without echoing potentially sensitive values."""
+    return typer.confirm(
+        f"Configuration conflict at {path or '<root>'}. Use the imported value?",
+        default=False,
+    )
 
 
 @app.command()

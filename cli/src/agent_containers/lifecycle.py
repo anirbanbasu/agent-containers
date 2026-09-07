@@ -3,14 +3,25 @@
 from __future__ import annotations
 
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
 from agent_containers.build_context import prepare_build_contexts
+from agent_containers.configuration import (
+    ConfigurationConflict,
+    ConfigurationError,
+    configuration_target,
+    load_import_document,
+    merge_documents,
+    parse_document,
+    serialize_document,
+)
 from agent_containers.docker import (
     build_image_argv,
     build_seed_argv,
@@ -81,6 +92,7 @@ def apply_profile(
     profile_path: Path,
     state_path: Path | None = None,
     shortcuts_path: Path | None = None,
+    configuration_resolver: Callable[[str, object, object], bool] | None = None,
 ) -> DeploymentRecord:
     """Build or verify a deployment, seed it safely, then atomically select it."""
     target_state_path = state_path or default_state_path(profile)
@@ -94,6 +106,10 @@ def apply_profile(
         image = _build_image(profile, profile_path)
     else:
         _docker("docker", "image", "inspect", image)
+    if profile.configuration_import is not None:
+        # Reconcile even a no-op deployment: the persistent volume may have
+        # been edited or restored since the last apply.
+        _apply_configuration_import(profile, profile_path, image, configuration_resolver)
     if not plan.is_noop:
         record = _new_record(profile, image, profile_path)
         if shortcuts_path is not None:
@@ -120,6 +136,120 @@ def apply_profile(
             render_decant_shortcut(profile, decant_sources)
         update_shortcuts(shortcuts_path, profile, selected, profile_path, decant_sources)
     return selected
+
+
+def _apply_configuration_import(
+    profile: Profile,
+    profile_path: Path,
+    image: str,
+    resolver: Callable[[str, object, object], bool] | None = None,
+) -> None:
+    """Merge an optional native configuration into the persistent home volume."""
+    if profile.configuration_import is None:
+        return
+    incoming, target = load_import_document(profile, profile_path)
+    home_path, _, format_name = configuration_target(profile)
+    home_volume = profile.home_volume or default_home_volume(profile)
+    existing_text = _read_home_file(image, home_volume, home_path, target)
+    existing = parse_document(existing_text, format_name) if existing_text is not None else None
+    try:
+        merged = merge_documents(existing, incoming, resolver)
+    except ConfigurationConflict as conflict:
+        raise LifecycleError(str(conflict)) from conflict
+    except ConfigurationError as exc:
+        raise LifecycleError(str(exc)) from exc
+    _write_home_file(image, home_volume, home_path, target, serialize_document(merged, format_name))
+
+
+def _read_home_file(image: str, volume: str, home_path: str, target: str) -> str | None:
+    """Read one config file from a volume with a disposable networkless helper."""
+    script = f"if [ -f {shlex.quote(target)} ]; then cat {shlex.quote(target)}; fi"
+    result = subprocess.run(
+        _volume_helper_argv(image, volume, home_path, script),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise LifecycleError(
+            f"could not read existing configuration from home volume {volume}: {result.stderr.strip()}"
+        )
+    return result.stdout if result.stdout else None
+
+
+def _write_home_file(image: str, volume: str, home_path: str, target: str, content: str) -> None:
+    """Atomically back up and replace a config file while preserving ownership."""
+    with tempfile.TemporaryDirectory(prefix="agent-containers-config-") as temporary:
+        source = Path(temporary) / "incoming"
+        source.write_text(content, encoding="utf-8")
+        script = f"""set -eu
+target={shlex.quote(target)}
+mkdir -p "$(dirname "$target")"
+if [ -e "$target" ]; then
+  cp -p "$target" "$target.agent-containers.bak"
+  mode=$(stat -c '%a' "$target")
+  owner=$(stat -c '%u:%g' "$target")
+else
+  mode=600
+  owner=$(stat -c '%u:%g' "$(dirname "$target")")
+fi
+install -m "$mode" /tmp/agent-config "$target.agent-containers.tmp"
+chown "$owner" "$target.agent-containers.tmp"
+mv "$target.agent-containers.tmp" "$target"
+"""
+        result = subprocess.run(
+            _volume_helper_argv(
+                image,
+                volume,
+                home_path,
+                script,
+                bind_source=source,
+                write=True,
+            ),
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise LifecycleError(
+                f"could not write imported configuration to home volume {volume}: {result.stderr.strip()}"
+            )
+
+
+def _volume_helper_argv(
+    image: str,
+    volume: str,
+    home_path: str,
+    script: str,
+    *,
+    bind_source: Path | None = None,
+    write: bool = False,
+) -> list[str]:
+    """Build a minimal root helper command for volume-only config access."""
+    argv = [
+        "docker",
+        "run",
+        "--rm",
+        "--network=none",
+        "--user",
+        "0:0",
+        "--security-opt=no-new-privileges",
+        "--read-only",
+        "--tmpfs",
+        "/tmp",
+        "--tmpfs",
+        "/run",
+        "--cap-drop=ALL",
+        "--cap-add=DAC_OVERRIDE",
+        "--cap-add=CHOWN",
+        "--cap-add=FOWNER",
+        "--mount",
+        f"type=volume,src={volume},dst={home_path}{'' if write else ',readonly'}",
+    ]
+    if bind_source is not None:
+        argv.extend(["--mount", f"type=bind,src={bind_source},dst=/tmp/agent-config,readonly"])
+    argv.extend(["--entrypoint", "/bin/sh", image, "-ceu", script])
+    return argv
 
 
 def rollback_profile(

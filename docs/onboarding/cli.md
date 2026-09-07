@@ -15,8 +15,11 @@ agent during `apply`.
 The supported installation is through `uv`:
 
 ```sh
-uv tool install agent-containers
+uv tool install agent-containers-cli
 ```
+
+The published distribution is named `agent-containers-cli`; it installs the
+`agent-containers` executable and the `agent_containers` Python package.
 
 For development from this repository:
 
@@ -40,6 +43,25 @@ The wizard uses the same strict validation model as noninteractive use. It
 refuses to replace an existing file, writes atomically with restrictive
 permissions, and never asks for credential values. Provider and observability
 credentials are represented by environment-variable names only.
+
+At the beginning, the wizard displays the six stages it will cover—identity,
+packages, configuration, network, integrations, and mounts—and reports progress
+as it advances. Agent configuration is optional. When an import is not supplied,
+the wizard prints a link to the selected agent's official configuration guide.
+
+To validate and record an agent-native configuration for import during `apply`,
+pass its source file to `create`:
+
+```sh
+agent-containers create \
+  --configuration-import ~/.config/agent-containers/claude-settings.json \
+  ~/.config/agent-containers/profiles/work.toml
+```
+
+The supported native formats are JSON/JSONC for Claude Code, TOML for Codex,
+JSON/JSONC for OpenCode, and YAML for Hermes. The source is parsed during
+`create`; credentials and other values remain in the source file and are never
+copied into the profile.
 
 Validate without contacting Docker or changing state:
 
@@ -72,6 +94,26 @@ it, and a mount does not install plugins or hooks referenced by that file.
 Keep build-time integrations in the package or image configuration and mount
 any separate hook files explicitly. The CLI preserves the existing lower-level
 `mounts` field for gateway inputs and other advanced cases.
+
+### Native configuration import
+
+An import is merged into the selected agent's configuration file in its
+persistent home volume; it is not mounted over that file. Existing object keys
+that are absent from the import are preserved. If a scalar, type, or array
+value differs, `apply` shows the configuration path and asks whether the
+imported value should replace the existing value. Values themselves are not
+printed, so secrets are not echoed. Library callers that cannot resolve a
+conflict are refused safely instead of making a partial change.
+
+Before replacement, the existing file is saved as a
+`.agent-containers.bak` file in the same volume. The new file is written via a
+networkless disposable Docker helper, with the volume read-only during
+inspection and ownership/mode preserved during the atomic replacement. Imported
+configuration is not executed: plugin declarations, hooks, and dependencies
+must still be installed or mounted through their normal explicit mechanisms.
+
+For advanced users who need continuous host control, `configuration_mounts`
+remains available and is mutually exclusive with native import for a profile.
 
 ## Plan and apply
 

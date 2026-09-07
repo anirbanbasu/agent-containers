@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from agent_containers.profile import Profile, load_profile, resolve_mount_source
+from agent_containers.profile import ConfigurationImport, Profile, load_profile, resolve_mount_source
 
 
 def test_profile_accepts_complete_work_configuration(tmp_path: Path) -> None:
@@ -178,3 +178,28 @@ def test_seed_mount_is_explicitly_distinct() -> None:
         }
     )
     assert profile.mounts[0].type.value == "seed"
+
+
+def test_configuration_import_validates_optional_fields_and_conflicts() -> None:
+    """Native import formats normalize while imports and advanced mounts stay exclusive."""
+    profile = Profile(
+        name="local",
+        agent="hermes",
+        configuration_import={"source": "config.yml", "format": ".yml"},
+    )
+    assert profile.configuration_import is not None
+    assert profile.configuration_import.format == "yaml"
+    assert profile.configuration_import.target is None
+    optional = ConfigurationImport(source="x", target=None, format=None)
+    assert optional.target is None and optional.format is None
+    with pytest.raises(ValidationError, match="must not be blank"):
+        Profile(name="local", agent="codex", configuration_import={"source": " "})
+    with pytest.raises(ValidationError, match="must be json"):
+        Profile(name="local", agent="codex", configuration_import={"source": "x", "format": "ini"})
+    with pytest.raises(ValidationError, match="mutually exclusive"):
+        Profile(
+            name="local",
+            agent="codex",
+            configuration_import={"source": "x"},
+            configuration_mounts=[{"source": "x", "target": "/home/codex/.codex/config.toml"}],
+        )

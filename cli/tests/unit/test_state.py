@@ -130,6 +130,19 @@ def test_plan_detects_rotated_proxy_ca_contents(tmp_path: Path) -> None:
     assert plan.changed_sections == ["proxy CA contents"]
 
 
+def test_plan_detects_changed_configuration_import_contents(tmp_path: Path) -> None:
+    """Changing an imported file schedules a launch-time merge."""
+    source = tmp_path / "settings.json"
+    source.write_text("{}", encoding="utf-8")
+    profile_path = tmp_path / "work.toml"
+    profile = make_profile(configuration_import={"source": source.name})
+    state = make_state(profile, profile_path)
+    source.write_text('{"model":"new"}', encoding="utf-8")
+    plan = build_plan(profile, state, profile_path)
+    assert plan.actions == [PlanAction.UPDATE_LAUNCH]
+    assert plan.changed_sections == ["configuration import contents"]
+
+
 def test_profile_digest_covers_ca_directory_and_rejects_bad_inputs(tmp_path: Path) -> None:
     """Directory contents participate in identity and invalid sources fail safely."""
     ca_dir = tmp_path / "certs"
@@ -148,6 +161,19 @@ def test_profile_digest_covers_ca_directory_and_rejects_bad_inputs(tmp_path: Pat
     empty_dir.mkdir()
     with pytest.raises(ValueError, match="CA directory is empty"):
         profile_digest(make_profile(proxy={"ca_dir": "empty-certs"}), profile_path)
+
+
+def test_profile_digest_covers_native_configuration_source(tmp_path: Path) -> None:
+    """Changing an imported source invalidates the deployment launch digest."""
+    source = tmp_path / "settings.json"
+    source.write_text("{}", encoding="utf-8")
+    profile = make_profile(configuration_import={"source": source.name})
+    profile_path = tmp_path / "work.toml"
+    first = profile_digest(profile, profile_path)
+    source.write_text('{"model":"new"}', encoding="utf-8")
+    assert profile_digest(profile, profile_path) != first
+    missing = make_profile(configuration_import={"source": "missing.json"})
+    assert profile_digest(missing, profile_path) != first
 
 
 def test_state_rejects_two_selected_records() -> None:

@@ -51,7 +51,7 @@ def test_standalone_sdist_to_installed_wheel(tmp_path: Path) -> None:
     with zipfile.ZipFile(wheel) as archive:
         assert "agent_containers/cli.py" in archive.namelist()
         assert "agent_containers/_assets/agent-images/claude-code/Dockerfile" in archive.namelist()
-        assert "agent_containers-0.1.0.dev0.dist-info/licenses/LICENSE" in archive.namelist()
+        assert "agent_containers_cli-0.1.0.dev0.dist-info/licenses/LICENSE" in archive.namelist()
         (metadata,) = (name for name in archive.namelist() if name.endswith(".dist-info/METADATA"))
         metadata_text = archive.read(metadata).decode()
         assert "Requires-Python: >=3.12" in metadata_text

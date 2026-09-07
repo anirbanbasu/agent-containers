@@ -88,7 +88,20 @@ def profile_digest(profile: Profile, profile_path: Path | None = None) -> str:
     snapshot = profile_snapshot(profile)
     if profile_path is not None and profile.proxy is not None:
         snapshot["_proxy_ca_digest"] = _proxy_ca_digest(profile, profile_path)
+    if profile_path is not None and profile.configuration_import is not None:
+        source = Path(profile.configuration_import.source).expanduser()
+        if not source.is_absolute():
+            source = (profile_path.parent / source).resolve()
+        snapshot["_configuration_import_digest"] = _file_digest(source)
     return digest_snapshot(snapshot)
+
+
+def _file_digest(path: Path) -> str:
+    """Hash an optional imported file without exposing its contents."""
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError:
+        return "missing"
 
 
 def load_state(path: Path) -> DeploymentState:

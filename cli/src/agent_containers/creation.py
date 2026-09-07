@@ -11,6 +11,7 @@ import typer
 
 from agent_containers.profile import (
     AgentName,
+    ConfigurationImport,
     DecantConfig,
     EgressConfig,
     LangfuseConfig,
@@ -27,11 +28,25 @@ class ProfileCreationError(ValueError):
     """Raised when an interactive profile cannot be written safely."""
 
 
-def prompt_profile(path: Path) -> Profile:
+_CONFIGURATION_DOCS = {
+    AgentName.CLAUDE_CODE: "https://code.claude.com/docs/en/settings",
+    AgentName.CODEX: "https://developers.openai.com/codex/config-basic/",
+    AgentName.OPENCODE: "https://opencode.ai/v2/docs/config",
+    AgentName.HERMES: "https://hermes-agent.nousresearch.com/docs/user-guide/configuration/",
+}
+
+
+def prompt_profile(path: Path, configuration_import: Path | None = None) -> Profile:
     """Prompt for every profile section and return the validated model."""
+    typer.echo("Onboarding roadmap: identity → packages → configuration → network → integrations → mounts")
+    typer.echo("Progress: 1/6 identity")
     name = typer.prompt("Profile name", default=path.stem)
     agent = typer.prompt("Agent", default=AgentName.CODEX.value)
+    documentation_url = _CONFIGURATION_DOCS.get(agent.strip().lower())
+    if documentation_url is not None:
+        typer.echo(f"Optional native configuration guide: {documentation_url}")
     home_volume = _optional_prompt("Home Docker volume name (blank uses a user-scoped default)")
+    typer.echo("Progress: 2/6 packages")
     packages = PackageSet(
         apt=_csv_prompt("APT packages (comma-separated)"),
         npm=_csv_prompt("NPM packages (comma-separated)"),
@@ -44,11 +59,20 @@ def prompt_profile(path: Path) -> Profile:
     configuration_mounts = (
         _prompt_mounts("Number of configuration mounts", "Configuration mount") if host_managed_configuration else []
     )
+    imported_configuration = (
+        ConfigurationImport(source=str(configuration_import.expanduser().resolve()))
+        if configuration_import is not None
+        else None
+    )
+    typer.echo("Progress: 3/6 configuration")
     provider = None if host_managed_configuration else _prompt_provider()
+    typer.echo("Progress: 4/6 network")
     proxy = _prompt_proxy()
     egress = _prompt_egress()
+    typer.echo("Progress: 5/6 integrations")
     decant = _prompt_decant()
     langfuse = LangfuseConfig() if host_managed_configuration else _prompt_langfuse()
+    typer.echo("Progress: 6/6 mounts")
     mounts = _prompt_mounts()
     return Profile(
         name=name,
@@ -60,6 +84,7 @@ def prompt_profile(path: Path) -> Profile:
         egress=egress,
         decant=decant,
         langfuse=langfuse,
+        configuration_import=imported_configuration,
         configuration_mounts=configuration_mounts,
         mounts=mounts,
     )
