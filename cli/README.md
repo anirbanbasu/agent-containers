@@ -18,9 +18,11 @@ package will be `agent_containers`.
   and macOS Docker Desktop. Support claims require actual integration tests.
 - All four optional package categories: apt packages, npm packages, isolated uv
   tools, and system Python libraries installed with uv.
-- Explicit custom file/directory mounts and copy-once configuration seeds,
-  without duplicating each agent's settings schema. Relative input paths resolve
-  against the profile directory; the workspace defaults to the launch directory.
+- Explicit configuration mounts, additional file/directory mounts, and
+  copy-once configuration seeds, without duplicating each agent's settings
+  schema. Relative input paths resolve against the profile directory; the
+  workspace defaults to the launch directory. Configuration mounts can own
+  provider and observability settings while build-time plugins remain explicit.
 - Composable hosted/local/custom model endpoints, HTTP(S) proxies, CA trust,
   egress gateways, and experimental observability integrations. Decant is
   experimental and currently limited to Claude Code and Codex; it is disabled

@@ -51,7 +51,7 @@ def test_prompt_profile_collects_all_sections(monkeypatch: pytest.MonkeyPatch, t
         "Mount source": "settings.json",
         "Mount target": "/home/codex/settings.json",
     }
-    confirms = iter([True, True, True, True, True])
+    confirms = iter([False, True, True, True, True, True])
     monkeypatch.setattr("agent_containers.creation.typer.prompt", lambda label, **_: answers[label])
     monkeypatch.setattr("agent_containers.creation.typer.confirm", lambda *_args, **_kwargs: next(confirms))
     profile = prompt_profile(tmp_path / "work.toml")
@@ -85,7 +85,7 @@ def test_prompt_profile_uses_safe_defaults_for_optional_sections(
         "Gateway host": "",
         "Number of custom mounts": 0,
     }
-    confirms = iter([False, False, False, False])
+    confirms = iter([False, False, False, False, False])
     monkeypatch.setattr("agent_containers.creation.typer.prompt", lambda label, **_: answers[label])
     monkeypatch.setattr("agent_containers.creation.typer.confirm", lambda *_args, **_kwargs: next(confirms))
     profile = prompt_profile(tmp_path / "minimal.toml")
@@ -94,6 +94,37 @@ def test_prompt_profile_uses_safe_defaults_for_optional_sections(
     assert profile.egress.mode == "deny"
     assert not profile.decant.enabled
     assert profile.mounts == []
+
+
+def test_prompt_profile_can_delegate_provider_and_observability_to_configuration_mounts(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Host-managed settings avoid duplicating provider and Langfuse prompts."""
+    answers = {
+        "Profile name": "local",
+        "Agent": "claude-code",
+        "Home Docker volume name (blank uses a user-scoped default)": "",
+        "APT packages (comma-separated)": "",
+        "NPM packages (comma-separated)": "",
+        "uv tools (comma-separated)": "",
+        "uv libraries (comma-separated)": "",
+        "Number of configuration mounts": 1,
+        "Mount type (bind/directory/seed)": "bind",
+        "Mount source": "claude-settings.json",
+        "Mount target": "/home/claude/.claude/settings.json",
+        "Number of custom mounts": 0,
+        "Egress mode (deny/allowlist/unrestricted)": "deny",
+        "Gateway host": "",
+    }
+    confirms = iter([True, True, False, False])
+    monkeypatch.setattr("agent_containers.creation.typer.prompt", lambda label, **_: answers[label])
+    monkeypatch.setattr("agent_containers.creation.typer.confirm", lambda *_args, **_kwargs: next(confirms))
+
+    profile = prompt_profile(tmp_path / "local.toml")
+
+    assert profile.provider is None
+    assert not profile.langfuse.enabled
+    assert profile.configuration_mounts[0].target == "/home/claude/.claude/settings.json"
 
 
 def test_write_profile_is_atomic_and_refuses_replacement(tmp_path: Path) -> None:

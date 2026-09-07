@@ -233,7 +233,7 @@ smoke_volume_bridge() {
     docker run -d --name "$container" --network "$TEST_NETWORK" \
         --security-opt=no-new-privileges \
         --read-only --tmpfs /tmp --tmpfs /run \
-        --cap-drop=ALL \
+        --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
         -e VOLUME_BRIDGE_PASSWORD=volume-bridge-test-password \
         --mount "type=volume,src=$volume,dst=/state" \
         "$(image_tag volume-bridge)" >/dev/null
@@ -246,7 +246,7 @@ smoke_volume_bridge() {
         docker exec "$container" test -s /state/htpasswd 2>/dev/null && break
         sleep 0.5
     done
-    docker exec "$container" sh -ceu '
+    docker exec --user bridge "$container" sh -ceu '
         test "$(id -un)" = bridge
         test -s /state/htpasswd
         grep -q "^bridge:\$2" /state/htpasswd

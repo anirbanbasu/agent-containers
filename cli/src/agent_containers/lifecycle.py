@@ -295,7 +295,7 @@ def _resolve_decant_sources(
 
 def _apply_seeds(profile: Profile, profile_path: Path, image: str) -> None:
     """Copy new seed inputs only after the image is available for its adapter."""
-    for mount in profile.mounts:
+    for mount in profile.effective_mounts:
         if mount.type == MountType.SEED:
             _docker(*build_seed_argv(profile, mount.target, profile_path, image=image, home_volume=profile.home_volume))
 

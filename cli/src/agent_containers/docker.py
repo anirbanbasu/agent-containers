@@ -48,7 +48,10 @@ _SEED_USER_IDS = {
 _SEED_COPY_SCRIPT = """set -eu
 test ! -e "$SEED_TARGET"
 mkdir -p "$(dirname "$SEED_TARGET")"
-cp -a /tmp/agent-seed "$SEED_TARGET"
+# Do not preserve host-side metadata from a bind-mounted source. The source's
+# ownership, mode, or timestamps may not be preservable under the helper's
+# deliberately minimal capability set.
+cp -R --no-preserve=mode,ownership,timestamps /tmp/agent-seed "$SEED_TARGET"
 chown -R "$SEED_UID:$SEED_UID" "$SEED_TARGET"
 """
 _HERMES_BASE_URL_ENV = {
@@ -184,7 +187,7 @@ def build_seed_argv(
     home_volume: str | None = None,
 ) -> tuple[str, ...]:
     """Build a networkless, create-only copy-once seed command without running it."""
-    mount = next((item for item in profile.mounts if item.target == mount_target), None)
+    mount = next((item for item in profile.effective_mounts if item.target == mount_target), None)
     if mount is None or mount.type != MountType.SEED:
         raise DockerCommandError(f"seed mount is not configured: {mount_target}")
     home_path = _HOME_PATHS[profile.agent]
@@ -474,7 +477,8 @@ def _append_langfuse_args(argv: list[str], profile: Profile) -> None:
     if profile.egress.gateway_host is None:
         if profile.egress.mode == "deny":
             raise DockerCommandError("Langfuse requires an egress allowlist entry or gateway")
-        if profile.egress.mode == "allowlist" and host not in {entry.lower() for entry in profile.egress.hosts}:
+        allowlist = {entry.strip().lower() for entry in profile.egress.hosts}
+        if profile.egress.mode == "allowlist" and "*" not in allowlist and host not in allowlist:
             raise DockerCommandError(f"Langfuse host must be included in egress hosts: {host}")
     base_url_value = _url_value(base_url)
     base_environment = "LANGFUSE_BASEURL" if profile.agent == AgentName.OPENCODE else "LANGFUSE_BASE_URL"
@@ -505,9 +509,11 @@ def _append_mount_args(argv: list[str], profile: Profile, profile_path: Path) ->
     """Append explicit bind/directory mounts and reject copy-once seeds."""
     targets = {"/etc/ssl/certs/ca-certificates.crt"}
     if profile.egress.gateway_host is not None:
-        key_mount = next((mount for mount in profile.mounts if mount.target == "/etc/agent/gateway-key"), None)
+        key_mount = next(
+            (mount for mount in profile.effective_mounts if mount.target == "/etc/agent/gateway-key"), None
+        )
         known_hosts_mount = next(
-            (mount for mount in profile.mounts if mount.target == "/etc/agent/gateway-known-hosts"), None
+            (mount for mount in profile.effective_mounts if mount.target == "/etc/agent/gateway-known-hosts"), None
         )
         if profile.egress.gateway_key_file is None and key_mount is None:
             raise DockerCommandError("gateway key input is required when gateway mode is enabled")
@@ -530,7 +536,7 @@ def _append_mount_args(argv: list[str], profile: Profile, profile_path: Path) ->
         )
         argv.extend(["-v", f"{hosts_source}:/etc/agent/gateway-known-hosts:ro"])
         targets.add("/etc/agent/gateway-known-hosts")
-    for mount in profile.mounts:
+    for mount in profile.effective_mounts:
         if mount.type == MountType.SEED:
             raise DockerCommandError(f"seed mount requires apply before run: {mount.target}")
         if mount.target in targets:

@@ -24,10 +24,14 @@ configure_egress_allowlist() {
     _egress_is_ipv4() { [[ "$1" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}(/[0-9]{1,2})?$ ]]; }
     _egress_is_ipv6() { [[ "$1" == *:* ]]; }
 
-    if [ "${#allowlist[@]}" -eq 1 ] && [ "${allowlist[0]}" = "*" ]; then
-        echo "[egress-allowlist] AGENT_ALLOWED_EGRESS=* — no egress restrictions applied (IPv4 and IPv6)." >&2
-        return 0
-    fi
+    local entry
+    for entry in "${allowlist[@]}"; do
+        entry="$(echo "$entry" | xargs)"
+        if [ "$entry" = "*" ]; then
+            echo "[egress-allowlist] AGENT_ALLOWED_EGRESS contains * — no egress restrictions applied (IPv4 and IPv6)." >&2
+            return 0
+        fi
+    done
 
     if [ "${#allowlist[@]}" -eq 0 ]; then
         echo "[egress-allowlist] No allowlist configured (\$AGENT_ALLOWED_EGRESS unset, no $allowlist_file mount)." >&2
@@ -74,7 +78,6 @@ configure_egress_allowlist() {
         # upstream resolver even though the matching IP egress is blocked).
     } > "$dnsmasq_conf"
 
-    local entry
     for entry in "${allowlist[@]}"; do
         entry="$(echo "$entry" | xargs)" # trim whitespace
         if _egress_is_ipv6 "$entry"; then

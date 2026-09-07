@@ -38,11 +38,17 @@ def prompt_profile(path: Path) -> Profile:
         uv_tools=_csv_prompt("uv tools (comma-separated)"),
         uv_libraries=_csv_prompt("uv libraries (comma-separated)"),
     )
-    provider = _prompt_provider()
+    host_managed_configuration = typer.confirm(
+        "Use host-managed configuration for provider and observability?", default=False
+    )
+    configuration_mounts = (
+        _prompt_mounts("Number of configuration mounts", "Configuration mount") if host_managed_configuration else []
+    )
+    provider = None if host_managed_configuration else _prompt_provider()
     proxy = _prompt_proxy()
     egress = _prompt_egress()
     decant = _prompt_decant()
-    langfuse = _prompt_langfuse()
+    langfuse = LangfuseConfig() if host_managed_configuration else _prompt_langfuse()
     mounts = _prompt_mounts()
     return Profile(
         name=name,
@@ -54,6 +60,7 @@ def prompt_profile(path: Path) -> Profile:
         egress=egress,
         decant=decant,
         langfuse=langfuse,
+        configuration_mounts=configuration_mounts,
         mounts=mounts,
     )
 
@@ -151,11 +158,11 @@ def _prompt_langfuse() -> LangfuseConfig:
     )
 
 
-def _prompt_mounts() -> list[MountConfig]:
-    count = typer.prompt("Number of custom mounts", default=0, type=int)
+def _prompt_mounts(count_label: str = "Number of custom mounts", item_label: str = "Mount") -> list[MountConfig]:
+    count = typer.prompt(count_label, default=0, type=int)
     mounts: list[MountConfig] = []
     for index in range(count):
-        typer.echo(f"Mount {index + 1} of {count}")
+        typer.echo(f"{item_label} {index + 1} of {count}")
         mounts.append(
             MountConfig(
                 type=typer.prompt("Mount type (bind/directory/seed)", default=MountType.BIND.value),

@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_containers.docker import build_run_argv
+from agent_containers.docker import build_run_argv, default_home_volume, default_image_tag
 from agent_containers.lifecycle import apply_profile, rollback_profile
 from agent_containers.profile import Profile
 from agent_containers.state import load_state
@@ -132,9 +132,14 @@ def test_apply_refuses_to_overwrite_an_existing_seed_target(tmp_path: Path) -> N
 
         assert load_state(state_path).selected_deployment == selected_before
     finally:
-        if record is not None and record.home_volume is not None:
-            subprocess.run(["docker", "volume", "rm", "-f", record.home_volume], check=False, capture_output=True)
-            subprocess.run(["docker", "image", "rm", "-f", record.image], check=False, capture_output=True)
+        home_volume = (
+            record.home_volume
+            if record is not None and record.home_volume is not None
+            else default_home_volume(profile)
+        )
+        image = record.image if record is not None else default_image_tag(profile, profile_path)
+        subprocess.run(["docker", "volume", "rm", "-f", home_volume], check=False, capture_output=True)
+        subprocess.run(["docker", "image", "rm", "-f", image], check=False, capture_output=True)
 
 
 def test_launch_only_update_can_be_rolled_back(tmp_path: Path) -> None:

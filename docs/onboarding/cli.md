@@ -49,9 +49,29 @@ agent-containers validate ~/.config/agent-containers/profiles/work.toml
 
 Profiles contain the selected agent, complete replacement package lists,
 provider settings, proxy and certificate inputs, egress policy, optional
-mounts/seeds, and an optional explicit home-volume name. If no volume is
+configuration mounts, additional mounts/seeds, and an optional explicit
+home-volume name. If no volume is
 specified, the CLI derives a Docker-safe name from the image, profile,
 sanitized host username, and host UID.
+
+When provider and observability settings already live in a host-managed agent
+configuration file, the interactive creator can record those inputs under
+`configuration_mounts` and omit the duplicate provider and Langfuse fields:
+
+```toml
+[[configuration_mounts]]
+type = "bind"
+source = "claude-settings-api.json"
+target = "/home/claude/.claude/settings.json"
+read_only = true
+```
+
+Configuration mounts are still ordinary Docker inputs. The source must exist
+before `apply`; a read-only primary settings file may fail if the agent rewrites
+it, and a mount does not install plugins or hooks referenced by that file.
+Keep build-time integrations in the package or image configuration and mount
+any separate hook files explicitly. The CLI preserves the existing lower-level
+`mounts` field for gateway inputs and other advanced cases.
 
 ## Plan and apply
 
@@ -124,7 +144,9 @@ and state file untouched.
 The CLI preserves deny-by-default egress. An explicit allowlist must include
 each provider, registry, proxy, gateway bootstrap, or observability endpoint
 the profile needs. A Langfuse endpoint is rejected unless it is allowlisted or
-reached through a configured gateway.
+reached through a configured gateway. An allowlist containing `*` is an
+explicit unrestricted-egress choice and satisfies this endpoint check; the
+runtime treats `*` as unrestricted even when additional entries are present.
 
 `proxy.ca_file` accepts one certificate; `proxy.ca_dir` accepts a directory of
 certificates. The selected certificates are copied into the profile-owned build

@@ -311,6 +311,7 @@ class Profile(BaseModel):
     egress: EgressConfig = Field(default_factory=EgressConfig)
     decant: DecantConfig = Field(default_factory=DecantConfig)
     langfuse: LangfuseConfig = Field(default_factory=LangfuseConfig)
+    configuration_mounts: list[MountConfig] = Field(default_factory=list)
     mounts: list[MountConfig] = Field(default_factory=list)
 
     @field_validator("schema_version")
@@ -344,11 +345,16 @@ class Profile(BaseModel):
     @model_validator(mode="after")
     def mounts_do_not_conflict(self) -> Self:
         """Reject duplicate or nested targets Docker would resolve ambiguously."""
-        targets = sorted(mount.target.rstrip("/") for mount in self.mounts)
+        targets = sorted(mount.target.rstrip("/") for mount in self.effective_mounts)
         for index, target in enumerate(targets):
             if index and (target == targets[index - 1] or target.startswith(f"{targets[index - 1]}/")):
                 raise ValueError(f"mount targets overlap: {targets[index - 1]} and {target}")
         return self
+
+    @property
+    def effective_mounts(self) -> list[MountConfig]:
+        """Return configuration and legacy mounts in Docker launch order."""
+        return [*self.configuration_mounts, *self.mounts]
 
     @model_validator(mode="after")
     def experimental_integrations_are_supported(self) -> Self:

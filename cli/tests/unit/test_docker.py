@@ -172,7 +172,7 @@ def test_command_handles_proxy_ca_and_custom_mount(tmp_path: Path) -> None:
             "no_proxy": ["localhost", "127.0.0.1"],
             "ca_file": "corp-ca.pem",
         },
-        mounts=[{"source": "settings.json", "target": "/home/codex/settings.json"}],
+        configuration_mounts=[{"source": "settings.json", "target": "/home/codex/settings.json"}],
     )
     argv = build_run_argv(profile, tmp_path, profile_path)
     assert "HTTP_PROXY=http://proxy.example.test:8080" in argv
@@ -290,6 +290,16 @@ def test_langfuse_runtime_exports_secret_references_and_requires_egress(tmp_path
     assert "LANGFUSE_BASE_URL=https://self-hosted.langfuse.example.test" in argv
     assert "LANGFUSE_TRACING_ENVIRONMENT=development" in argv
     assert "LANGFUSE_USER_ID=alice" in argv
+    wildcard_argv = build_run_argv(
+        make_profile(
+            agent="claude-code",
+            langfuse={"enabled": True, "base_url": "https://self-hosted.langfuse.example.test"},
+            egress={"hosts": ["*", "other.example.test"]},
+        ),
+        tmp_path,
+        tmp_path / "work.toml",
+    )
+    assert "AGENT_ALLOWED_EGRESS=*,other.example.test" in wildcard_argv
     with pytest.raises(DockerCommandError, match="allowlist entry or gateway"):
         build_run_argv(
             make_profile(
@@ -588,6 +598,7 @@ def test_seed_command_is_networkless_create_only_and_home_scoped(tmp_path: Path)
     assert "--cap-add=DAC_OVERRIDE" in argv
     assert "SEED_TARGET=/home/codex/.codex/settings.json" in argv
     assert "test ! -e" in argv[-1]
+    assert "--no-preserve=mode,ownership,timestamps" in argv[-1]
     with pytest.raises(DockerCommandError, match="not configured"):
         build_seed_argv(profile, "/home/codex/.codex/other.json", tmp_path / "work.toml", image="image")
     with pytest.raises(DockerCommandError, match="persistent home"):

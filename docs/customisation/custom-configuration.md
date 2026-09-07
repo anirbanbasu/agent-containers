@@ -40,6 +40,24 @@ may create a directory at a missing source path. Keep credentials out of
 checked-in configuration; use runtime environment variables or authentication
 state in the persistent home volume.
 
+The onboarding CLI records settings supplied this way under
+`configuration_mounts`:
+
+```toml
+[[configuration_mounts]]
+type = "bind"
+source = "claude-settings.json"
+target = "/home/claude/.claude/settings.json"
+read_only = true
+```
+
+This field is a convenience for settings owned by the host. It is rendered as
+the same Docker bind or directory mount as the lower-level `mounts` field, and
+the two fields cannot overlap. The interactive creator can use it to skip
+duplicating provider and observability settings in the profile. It does not
+install plugins, executable hooks, or other build-time dependencies referenced
+by the mounted file.
+
 If configuration selects a model provider, MCP server, or other network
 service, allow only its required host or IP with `AGENT_ALLOWED_EGRESS` or the
 mounted egress-policy file. A service on the host or LAN must be reachable
