@@ -303,8 +303,8 @@ specific image's `CONTAINED_<IMAGE>_EGRESS` variable only with the hosts its
 selected provider, MCP server, source-control integration, or package
 registry requires. Quote a wildcard value, for example
 `CONTAINED_HERMES_EGRESS='*'`, when unrestricted egress is intentional.
-An allowlist containing `*` is unrestricted even if other entries are present;
-omit it when you want the remaining hosts to be enforced.
+The wildcard must be the sole entry; combining `*` with named hosts refuses to
+start the container because the policy is ambiguous.
 If `$HOME/.config/agent-containers/<agent>-egress-allowlist.txt` exists, the
 matching function instead mounts it read-only at
 `/etc/agent/egress-allowlist.txt`; the source may be a symlink to a regular

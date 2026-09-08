@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_containers.build_context import _materialize_proxy_cas, prepare_build_contexts
+from agent_containers.build_context import _append_line, _materialize_proxy_cas, prepare_build_contexts
 from agent_containers.profile import Profile
 
 
@@ -13,6 +13,14 @@ def make_profile(**overrides: object) -> Profile:
     payload: dict[str, object] = {"name": "work", "agent": "codex"}
     payload.update(overrides)
     return Profile.model_validate(payload)
+
+
+def test_append_line_does_not_duplicate_existing_entries(tmp_path: Path) -> None:
+    """Generated integration selections remain stable across repeated preparation."""
+    path = tmp_path / "plugins.txt"
+    path.write_text("existing\nselected\n", encoding="utf-8")
+    _append_line(path, "selected")
+    assert path.read_text(encoding="utf-8") == "existing\nselected\n"
 
 
 def test_prepare_contexts_replaces_all_optional_package_lists(tmp_path: Path) -> None:

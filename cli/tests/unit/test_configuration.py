@@ -84,6 +84,11 @@ def test_load_import_document_detects_format_from_source(tmp_path: Path) -> None
     toml_profile = Profile(name="work", agent="codex", configuration_import={"source": toml_source.name})
     assert load_import_document(toml_profile, tmp_path / "work.toml")[0] == {"name": "test"}
 
+    other_source = tmp_path / "settings.conf"
+    other_source.write_text('{"name":"other"}', encoding="utf-8")
+    other_profile = Profile(name="work", agent="claude-code", configuration_import={"source": other_source.name})
+    assert load_import_document(other_profile, tmp_path / "work.toml")[0] == {"name": "other"}
+
     yaml_source = tmp_path / "settings.yaml"
     yaml_source.write_text("name: test\n", encoding="utf-8")
     fake_yaml = types.SimpleNamespace(safe_load=lambda text: {"name": text.strip().split(": ")[1]})

@@ -8,6 +8,7 @@ import pytest
 from agent_containers.build_context import BuildContexts
 from agent_containers.docker import (
     DockerCommandError,
+    _provider_agent_args,
     build_decant_run_argv,
     build_image_argv,
     build_run_argv,
@@ -19,7 +20,7 @@ from agent_containers.docker import (
     default_image_tag,
     shell_command,
 )
-from agent_containers.profile import Profile
+from agent_containers.profile import Profile, ProviderConfig
 
 
 def make_profile(**overrides: object) -> Profile:
@@ -239,6 +240,42 @@ def test_provider_overrides_use_agent_surfaces(tmp_path: Path) -> None:
     )
 
 
+def test_optional_provider_and_proxy_fields_have_no_spurious_arguments(tmp_path: Path) -> None:
+    """Absent optional endpoint, model, CA and Langfuse gateway fields stay absent."""
+    claude = build_run_argv(
+        make_profile(agent="claude-code", provider={"kind": "anthropic"}),
+        tmp_path,
+        tmp_path / "work.toml",
+    )
+    assert not any(item.startswith("ANTHROPIC_") for item in claude)
+    hermes = build_run_argv(
+        make_profile(agent="hermes", provider={"kind": "custom"}),
+        tmp_path,
+        tmp_path / "work.toml",
+    )
+    assert hermes[-2:] == ("--provider", "custom")
+    proxy = build_run_argv(
+        make_profile(proxy={"http": "http://proxy.example.test:8080"}),
+        tmp_path,
+        tmp_path / "work.toml",
+    )
+    assert "HTTP_PROXY=http://proxy.example.test:8080" in proxy
+    opencode = build_run_argv(
+        make_profile(agent="opencode", provider={"kind": "custom", "model": "local-model"}),
+        tmp_path,
+        tmp_path / "work.toml",
+    )
+    assert "AGENT_OPENCODE_CONFIG_JSON=" in " ".join(opencode)
+
+
+def test_hermes_empty_provider_kind_is_ignored_after_internal_state_restore() -> None:
+    """A malformed historical snapshot cannot create an empty provider flag."""
+    profile = make_profile(agent="hermes").model_copy(
+        update={"provider": ProviderConfig.model_construct(kind="", endpoint=None, model=None, api_key_env=None)}
+    )
+    assert _provider_agent_args(profile) == []
+
+
 def test_opencode_provider_uses_secret_free_per_run_config(tmp_path: Path) -> None:
     """OpenCode receives an ephemeral config without embedding credential values."""
     argv = build_run_argv(
@@ -290,16 +327,17 @@ def test_langfuse_runtime_exports_secret_references_and_requires_egress(tmp_path
     assert "LANGFUSE_BASE_URL=https://self-hosted.langfuse.example.test" in argv
     assert "LANGFUSE_TRACING_ENVIRONMENT=development" in argv
     assert "LANGFUSE_USER_ID=alice" in argv
-    wildcard_argv = build_run_argv(
+    unrestricted_argv = build_run_argv(
         make_profile(
             agent="claude-code",
             langfuse={"enabled": True, "base_url": "https://self-hosted.langfuse.example.test"},
-            egress={"hosts": ["*", "other.example.test"]},
+            egress={"mode": "unrestricted"},
         ),
         tmp_path,
         tmp_path / "work.toml",
+        permit_unrestricted=True,
     )
-    assert "AGENT_ALLOWED_EGRESS=*,other.example.test" in wildcard_argv
+    assert "AGENT_ALLOWED_EGRESS=*" in unrestricted_argv
     with pytest.raises(DockerCommandError, match="allowlist entry or gateway"):
         build_run_argv(
             make_profile(
@@ -419,6 +457,11 @@ def test_command_handles_gateway_and_explicit_unrestricted_mode(tmp_path: Path) 
     assert "AGENT_GATEWAY_BOOTSTRAP_ALLOW=192.0.2.10" in argv
     assert any("gateway-key:/etc/agent/gateway-key:ro" in item for item in argv)
     assert any("gateway-known-hosts:/etc/agent/gateway-known-hosts:ro" in item for item in argv)
+    gateway_with_langfuse = make_profile(
+        egress=gateway.egress.model_dump(),
+        langfuse={"enabled": True, "base_url": "https://langfuse.example.test"},
+    )
+    assert "TRACE_TO_LANGFUSE=true" in build_run_argv(gateway_with_langfuse, tmp_path, tmp_path / "work.toml")
     with pytest.raises(DockerCommandError, match="explicit"):
         build_run_argv(make_profile(egress={"mode": "unrestricted"}), tmp_path, tmp_path / "work.toml")
     allowed = build_run_argv(
@@ -597,8 +640,9 @@ def test_seed_command_is_networkless_create_only_and_home_scoped(tmp_path: Path)
     assert "--cap-add=CHOWN" in argv
     assert "--cap-add=DAC_OVERRIDE" in argv
     assert "SEED_TARGET=/home/codex/.codex/settings.json" in argv
-    assert "test ! -e" in argv[-1]
+    assert "hash_tree" in argv[-1]
     assert "--no-preserve=mode,ownership,timestamps" in argv[-1]
+    assert "SEED_ON_CONFLICT=keep" in argv
     with pytest.raises(DockerCommandError, match="not configured"):
         build_seed_argv(profile, "/home/codex/.codex/other.json", tmp_path / "work.toml", image="image")
     with pytest.raises(DockerCommandError, match="persistent home"):

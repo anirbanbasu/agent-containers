@@ -7,3 +7,5 @@ site/
 tmp-*
 tmp/
 .env
+.coverage
+.coverage.*

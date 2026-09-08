@@ -24,14 +24,21 @@ configure_egress_allowlist() {
     _egress_is_ipv4() { [[ "$1" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}(/[0-9]{1,2})?$ ]]; }
     _egress_is_ipv6() { [[ "$1" == *:* ]]; }
 
-    local entry
-    for entry in "${allowlist[@]}"; do
-        entry="$(echo "$entry" | xargs)"
-        if [ "$entry" = "*" ]; then
+    local index entry wildcard=0
+    for index in "${!allowlist[@]}"; do
+        allowlist[index]="$(echo "${allowlist[index]}" | xargs)"
+        if [ "${allowlist[index]}" = "*" ]; then
+            wildcard=1
+        fi
+    done
+    if [ "$wildcard" -eq 1 ]; then
+        if [ "${#allowlist[@]}" -eq 1 ]; then
             echo "[egress-allowlist] AGENT_ALLOWED_EGRESS contains * — no egress restrictions applied (IPv4 and IPv6)." >&2
             return 0
         fi
-    done
+        echo "[egress-allowlist] refusing to start: '*' combined with named hosts is ambiguous. Use '*' alone to disable filtering, or name each host." >&2
+        exit 1
+    fi
 
     if [ "${#allowlist[@]}" -eq 0 ]; then
         echo "[egress-allowlist] No allowlist configured (\$AGENT_ALLOWED_EGRESS unset, no $allowlist_file mount)." >&2

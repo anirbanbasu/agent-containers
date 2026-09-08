@@ -155,3 +155,12 @@ def test_update_shortcuts_removes_disabled_decant_block(tmp_path: Path) -> None:
     text = path.read_text(encoding="utf-8")
     assert "agent_containers_analytics()" in text
     assert "agent_containers_decant_analytics()" not in text
+
+
+def test_update_shortcuts_rejects_truncated_generated_block(tmp_path: Path) -> None:
+    """A hand-truncated managed block reports the affected profile."""
+    path = tmp_path / "profiles.sh"
+    path.write_text("# BEGIN agent-containers profile work-codex\n", encoding="utf-8")
+    profile = make_profile()
+    with pytest.raises(ShortcutError, match="work-codex.*profiles.sh"):
+        update_shortcuts(path, profile, make_record(profile), tmp_path / "work.toml")

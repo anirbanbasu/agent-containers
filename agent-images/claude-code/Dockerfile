@@ -7,25 +7,6 @@ ARG TARGETARCH
 COPY --from=shared install-workload-base.sh /usr/local/lib/agent/install-workload-base.sh
 RUN TARGETARCH="$TARGETARCH" bash /usr/local/lib/agent/install-workload-base.sh
 
-# Optional profile-managed organisational CAs. The canonical context carries
-# only a marker; onboarding replaces this directory with the selected file or
-# certificate directory before building. The merged system bundle is then
-# available to curl/git/OpenSSL clients on the read-only runtime rootfs.
-COPY proxy-ca.d/ /tmp/agent-containers-proxy-ca/
-RUN set -eu; \
-    mkdir -p /usr/local/share/ca-certificates/custom; \
-    found=0; \
-    for cert in /tmp/agent-containers-proxy-ca/*; do \
-        [ -f "$cert" ] || continue; \
-        name="$(basename "$cert")"; \
-        [ "$name" = ".keep" ] && continue; \
-        case "$name" in *.crt) ;; *) name="${name%.*}.crt" ;; esac; \
-        cp "$cert" "/usr/local/share/ca-certificates/custom/$name"; \
-        found=1; \
-    done; \
-    if [ "$found" -eq 1 ]; then update-ca-certificates; fi; \
-    rm -rf /tmp/agent-containers-proxy-ca
-
 # User-configurable default software (gh, jq, ripgrep, ...) — see
 # packages-apt.txt. Kept as a separate RUN from the baseline block above so
 # the required-infra list stays untouched by editing that file.
@@ -121,6 +102,24 @@ RUN gosu claude claude plugin marketplace add anthropics/claude-plugins-official
         gosu claude claude plugin install "${plugin}" --scope user; \
     done < /tmp/plugins.txt \
     && rm /tmp/plugin-marketplaces.txt /tmp/plugins.txt
+
+# Optional profile-managed organisational CAs are installed after all
+# networked build steps. No build-time proxy arguments are used, so rotating a
+# CA only invalidates this trailing trust-store layer.
+COPY proxy-ca.d/ /tmp/agent-containers-proxy-ca/
+RUN set -eu; \
+    mkdir -p /usr/local/share/ca-certificates/custom; \
+    found=0; \
+    for cert in /tmp/agent-containers-proxy-ca/*; do \
+        [ -f "$cert" ] || continue; \
+        name="$(basename "$cert")"; \
+        [ "$name" = ".keep" ] && continue; \
+        case "$name" in *.crt) ;; *) name="${name%.*}.crt" ;; esac; \
+        cp "$cert" "/usr/local/share/ca-certificates/custom/$name"; \
+        found=1; \
+    done; \
+    if [ "$found" -eq 1 ]; then update-ca-certificates; fi; \
+    rm -rf /tmp/agent-containers-proxy-ca
 
 # Everything above this line is UID/GID-independent and layer-cacheable
 # across hosts: the claude account exists at the fixed placeholder UID/GID

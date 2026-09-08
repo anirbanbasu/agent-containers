@@ -1,0 +1,34 @@
+name: cli
+
+on:
+  pull_request:
+    paths:
+      - "cli/**"
+      - "justfile"
+      - ".github/workflows/cli.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+
+      - name: Check CLI
+        run: |
+          uv run --project cli --group test ruff check cli
+          uv run --project cli --group test ruff format --check cli
+          uv run --project cli --group test ty check --project cli
+
+      - name: Test CLI
+        env:
+          COVERAGE_RCFILE: cli/pyproject.toml
+        run: |
+          uv run --project cli --group test coverage run -m pytest cli/tests/unit cli/tests/packaging
+          uv run --project cli --group test coverage report

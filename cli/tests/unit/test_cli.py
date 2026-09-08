@@ -2,6 +2,7 @@
 
 import runpy
 import sys
+import tomllib
 from datetime import UTC, datetime
 from importlib.metadata import version
 from pathlib import Path
@@ -10,7 +11,7 @@ from unittest.mock import patch
 import pytest
 from typer.testing import CliRunner
 
-from agent_containers.cli import _LOGO, _resolve_configuration_conflict, app
+from agent_containers.cli import _LOGO, app
 from agent_containers.creation import ProfileCreationError
 from agent_containers.lifecycle import DoctorReport, LifecycleError
 from agent_containers.profile import Profile
@@ -100,10 +101,62 @@ def test_create_validates_optional_configuration_import(tmp_path: Path) -> None:
     validate.assert_called_once()
 
 
-def test_configuration_conflict_prompt_does_not_echo_values(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Interactive conflict resolution asks only whether the imported value wins."""
-    monkeypatch.setattr("agent_containers.cli.typer.confirm", lambda *_args, **_kwargs: True)
-    assert _resolve_configuration_conflict("api_key", "secret", "new-secret")
+def test_noninteractive_create_merges_config_and_replaces_lists(tmp_path: Path) -> None:
+    """Typed create options override a partial TOML without appending lists."""
+    profile_path = tmp_path / "new.toml"
+    config = tmp_path / "base.toml"
+    config.write_text(
+        'name = "base"\nagent = "codex"\n[packages]\napt = ["curl"]\n[egress]\nhosts = ["old.example.test"]\n',
+        encoding="utf-8",
+    )
+    result = CliRunner().invoke(
+        app,
+        [
+            "--non-interactive",
+            "create",
+            str(profile_path),
+            "--config",
+            str(config),
+            "--name",
+            "work",
+            "--agent",
+            "codex",
+            "--apt",
+            "jq",
+            "--egress-host",
+            "new.example.test",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    with profile_path.open("rb") as profile_file:
+        document = tomllib.load(profile_file)
+    assert document["name"] == "work"
+    assert document["packages"]["apt"] == ["jq"]
+    assert document["egress"]["hosts"] == ["new.example.test"]
+
+
+def test_noninteractive_create_reports_all_missing_fields(tmp_path: Path) -> None:
+    """Non-interactive create identifies every required input in stable form."""
+    config = tmp_path / "partial.toml"
+    config.write_text('name = "work"\n[provider]\nkind = "custom"\n', encoding="utf-8")
+    result = CliRunner().invoke(
+        app, ["--non-interactive", "create", str(tmp_path / "new.toml"), "--config", str(config)]
+    )
+    assert result.exit_code != 0
+    assert "missing: agent" in result.stderr
+    assert "missing: provider.api_key_env" in result.stderr
+
+
+def test_noninteractive_create_rejects_unknown_config_keys(tmp_path: Path) -> None:
+    """Typos in a partial config name the source path and offending key."""
+    config = tmp_path / "partial.toml"
+    config.write_text('name = "work"\nagent = "codex"\n[egres]\nmode = "deny"\n', encoding="utf-8")
+    result = CliRunner().invoke(
+        app, ["--non-interactive", "create", str(tmp_path / "new.toml"), "--config", str(config)]
+    )
+    assert result.exit_code != 0
+    assert "unknown key" in result.stderr
+    assert "Profile.egres" in result.stderr
 
 
 def test_plan_without_state_is_read_only(tmp_path: Path) -> None:
@@ -115,6 +168,32 @@ def test_plan_without_state_is_read_only(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     assert "create-image" in result.output
     assert "not inspected" in result.output
+
+
+def test_plan_json_is_stdout_only_and_has_warning_codes(tmp_path: Path) -> None:
+    """JSON planning remains parseable while the unconditional banner is stderr."""
+    profile = tmp_path / "work.toml"
+    profile.write_text('name = "work"\nagent = "codex"\n[egress]\nmode = "unrestricted"\n', encoding="utf-8")
+    result = CliRunner().invoke(app, ["plan", str(profile), "--json"])
+    assert result.exit_code == 0, result.stderr
+    import json
+
+    payload = json.loads(result.stdout)
+    assert payload["schema_version"] == 1
+    assert {warning["code"] for warning in payload["warnings"]} >= {"unrestricted_egress"}
+    assert result.stderr.startswith(_LOGO)
+
+
+def test_validate_warns_for_non_loopback_decant(tmp_path: Path) -> None:
+    """Validation surfaces a LAN-facing Decant bind without rejecting it."""
+    profile = tmp_path / "work.toml"
+    profile.write_text(
+        'name = "work"\nagent = "codex"\n[decant]\nenabled = true\nsource_profiles = ["source"]\nbind_address = "0.0.0.0"\n',
+        encoding="utf-8",
+    )
+    result = CliRunner().invoke(app, ["validate", str(profile)])
+    assert result.exit_code == 0, result.stderr
+    assert "non-loopback" in result.stderr
 
 
 def test_plan_reports_invalid_state(tmp_path: Path) -> None:
@@ -145,6 +224,55 @@ def test_apply_delegates_to_the_lifecycle_without_starting_docker(tmp_path: Path
         result = CliRunner().invoke(app, ["apply", str(profile)])
     assert result.exit_code == 0, result.output
     assert "Selected deployment: work-1" in result.output
+
+
+def test_apply_notes_macos_uid_gid_compatibility(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Apply documents the macOS-specific image group choice when applicable."""
+    profile = tmp_path / "work.toml"
+    profile.write_text('name = "work"\nagent = "codex"\n', encoding="utf-8")
+    record = DeploymentRecord(
+        deployment_id="work-1",
+        image="agent-containers/codex:test",
+        profile_digest="a" * 64,
+        profile_snapshot={},
+        launch_digest="a" * 64,
+        created_at=datetime.now(UTC),
+        selected=True,
+    )
+    monkeypatch.setattr("agent_containers.cli.sys.platform", "darwin")
+    with patch("agent_containers.cli.apply_profile", return_value=record):
+        result = CliRunner().invoke(app, ["apply", str(profile)])
+    assert result.exit_code == 0, result.output
+    assert "macOS Docker Desktop" in result.output
+    monkeypatch.setattr("agent_containers.cli.sys.platform", "linux")
+    with patch("agent_containers.cli.apply_profile", return_value=record):
+        result = CliRunner().invoke(app, ["apply", str(profile)])
+    assert result.exit_code == 0, result.output
+    assert "macOS Docker Desktop" not in result.output
+
+
+def test_noninteractive_global_flag_reaches_apply_context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The global no-prompt setting is available to lifecycle subcommands."""
+    profile = tmp_path / "work.toml"
+    profile.write_text('name = "work"\nagent = "codex"\n', encoding="utf-8")
+    seen: list[bool] = []
+    monkeypatch.setattr(
+        "agent_containers.cli._is_non_interactive",
+        lambda ctx: seen.append(bool(ctx.obj["non_interactive"])) or True,
+    )
+    record = DeploymentRecord(
+        deployment_id="work-1",
+        image="agent-containers/codex:test",
+        profile_digest="a" * 64,
+        profile_snapshot={},
+        launch_digest="a" * 64,
+        created_at=datetime.now(UTC),
+        selected=True,
+    )
+    with patch("agent_containers.cli.apply_profile", return_value=record):
+        result = CliRunner().invoke(app, ["--non-interactive", "apply", str(profile)])
+    assert result.exit_code == 0, result.output
+    assert seen == [True]
 
 
 def test_apply_reports_lifecycle_failures(tmp_path: Path) -> None:
@@ -203,6 +331,16 @@ def test_doctor_renders_read_only_report(tmp_path: Path) -> None:
     assert "unavailable" in result.output
 
 
+def test_doctor_healthy_report_exits_zero(tmp_path: Path) -> None:
+    """Healthy doctor output takes the successful CLI branch."""
+    profile = tmp_path / "work.toml"
+    profile.write_text('name = "work"\nagent = "codex"\n', encoding="utf-8")
+    report = DoctorReport(("Docker daemon: available",), healthy=True)
+    with patch("agent_containers.cli.doctor_profile", return_value=report):
+        result = CliRunner().invoke(app, ["doctor", str(profile)])
+    assert result.exit_code == 0
+
+
 def test_doctor_reports_invalid_state(tmp_path: Path) -> None:
     """State/profile mismatch errors remain clear CLI failures."""
     profile = tmp_path / "work.toml"
@@ -219,6 +357,7 @@ def test_module_entry_point(monkeypatch: pytest.MonkeyPatch, capsys: pytest.Capt
     with pytest.raises(SystemExit) as exc:
         runpy.run_module("agent_containers", run_name="__main__")
     assert exc.value.code == 0
-    output = capsys.readouterr().out
-    assert output.startswith(_LOGO)
-    assert output.rstrip().endswith(f"agent-containers {version('agent-containers-cli')}")
+    captured = capsys.readouterr()
+    assert captured.out == f"agent-containers {version('agent-containers-cli')}\n"
+    assert captured.err.startswith(_LOGO)
+    runpy.run_module("agent_containers", run_name="not_main")

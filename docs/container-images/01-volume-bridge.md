@@ -352,8 +352,12 @@ re-run.
 
 Save the following as `Dockerfile` and `entrypoint.sh` in an empty directory:
 
+This Decant launch does not carry the workload hardening flags: its entrypoint
+must start as root to renumber the `decant` account, it runs no model, and both
+source mounts are read-only.
+
 ```dockerfile
-FROM ghcr.io/dosu-ai/decant:latest
+FROM ghcr.io/dosu-ai/decant:latest@sha256:7f3653ca8d6be7d06c8b1933d2547869588a63bfa95e966e8a0145cc25234bec
 
 USER root
 COPY entrypoint.sh /usr/local/bin/decant-entrypoint.sh
@@ -461,7 +465,7 @@ docker run --rm \
   -v decant-data:/var/lib/decant \
   -v "$HOME/agent-sessions/claude/.claude:/sources/claude:ro" \
   -v "$HOME/agent-sessions/codex/.codex:/sources/codex:ro" \
-  ghcr.io/dosu-ai/decant:latest
+  ghcr.io/dosu-ai/decant:latest@sha256:7f3653ca8d6be7d06c8b1933d2547869588a63bfa95e966e8a0145cc25234bec
 ```
 
 The preceding commands create the `$HOME/agent-sessions/claude` and

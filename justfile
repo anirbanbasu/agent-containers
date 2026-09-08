@@ -2,8 +2,8 @@ set dotenv-load := true
 
 # Run Python unit and packaging tests (no Docker required).
 test-cli:
-    cd cli && uv run --group test coverage run -m pytest tests/unit tests/packaging
-    cd cli && uv run --group test coverage report
+    COVERAGE_RCFILE=cli/pyproject.toml uv run --project cli --group test coverage run -m pytest cli/tests/unit cli/tests/packaging
+    COVERAGE_RCFILE=cli/pyproject.toml uv run --project cli --group test coverage report
 
 # Check Python style and types without modifying source files.
 check-cli:

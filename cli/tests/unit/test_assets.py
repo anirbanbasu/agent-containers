@@ -39,3 +39,10 @@ def test_materialize_copies_nested_resource_directories(tmp_path: Path) -> None:
     destination = tmp_path / "destination"
     _copy_tree(tmp_path / "source", destination)
     assert (destination / "nested" / "file.txt").read_text(encoding="utf-8") == "content"
+
+
+def test_available_contexts_reports_missing_generated_assets(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A dev checkout without generated assets explains how to create them."""
+    monkeypatch.setattr("agent_containers.assets.bundled_image_root", lambda: tmp_path / "missing")
+    with pytest.raises(ValueError, match="bundle_image_assets.py"):
+        available_image_contexts()

@@ -10,7 +10,7 @@ from typing import Any
 
 import tomlkit
 
-from agent_containers.profile import AgentName, ConfigurationImport, Profile, resolve_mount_source
+from agent_containers.profile import AgentName, Profile, resolve_mount_source
 
 ConfigurationDocument = dict[str, Any] | list[Any]
 ConflictResolver = Callable[[str, Any, Any], bool]
@@ -64,7 +64,7 @@ def load_import_document(profile: Profile, profile_path: Path) -> tuple[Configur
     imported = profile.configuration_import
     if imported is None:
         raise ConfigurationError("profile has no configuration import")
-    source = resolve_mount_source(profile, _as_mount(imported), profile_path)
+    source = resolve_mount_source(imported.source, profile_path)
     if not source.is_file():
         raise ConfigurationError(f"configuration import source does not exist: {source}")
     _, target, default_format = configuration_target(profile)
@@ -152,11 +152,6 @@ def _merge_value(existing: Any, incoming: Any, path: str, resolver: ConflictReso
     if resolver is None:
         raise ConfigurationConflict(path, existing, incoming)
     return incoming if resolver(path, existing, incoming) else existing
-
-
-def _as_mount(imported: ConfigurationImport):
-    """Adapt the profile import source to the shared relative-source resolver."""
-    return type("ImportSource", (), {"source": imported.source})()
 
 
 def _strip_json_comments(text: str) -> str:

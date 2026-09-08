@@ -11,6 +11,8 @@ from agent_containers.configuration import ConfigurationError
 from agent_containers.lifecycle import (
     LifecycleError,
     _apply_configuration_import,
+    _apply_seeds,
+    _inspect_tool_shadows,
     _new_record,
     _read_home_file,
     _resolve_decant_sources,
@@ -220,7 +222,7 @@ def test_configuration_import_merges_and_writes_a_backup(tmp_path: Path, monkeyp
     source = tmp_path / "settings.toml"
     source.write_text('model = "new"\nkeep = false\n', encoding="utf-8")
     profile = make_profile(
-        configuration_import={"source": source.name},
+        configuration_import={"source": source.name, "on_conflict": "replace"},
         home_volume="codex-home",
     )
     writes: list[str] = []
@@ -232,32 +234,53 @@ def test_configuration_import_merges_and_writes_a_backup(tmp_path: Path, monkeyp
         "agent_containers.lifecycle._write_home_file",
         lambda *_args: writes.append(_args[-1]),
     )
-    _apply_configuration_import(profile, tmp_path / "work.toml", "image", lambda path, _old, _new: path == "model")
+    _apply_configuration_import(profile, tmp_path / "work.toml", "image")
     assert 'model = "new"' in writes[0]
     assert "extra = true" in writes[0]
 
 
-def test_configuration_import_refuses_unresolved_conflicts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Non-interactive library callers receive a safe refusal for conflicts."""
+def test_configuration_import_keeps_existing_values_by_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The default policy is deterministic and reports paths without values."""
     source = tmp_path / "settings.toml"
     source.write_text('model = "new"\n', encoding="utf-8")
     profile = make_profile(configuration_import={"source": source.name})
     monkeypatch.setattr("agent_containers.lifecycle._read_home_file", lambda *_args: 'model = "old"\n')
-    with pytest.raises(LifecycleError, match="configuration conflict"):
-        _apply_configuration_import(profile, tmp_path / "work.toml", "image")
+    writes: list[str] = []
+    monkeypatch.setattr("agent_containers.lifecycle._write_home_file", lambda *args: writes.append(args[-1]))
+    _apply_configuration_import(profile, tmp_path / "work.toml", "image")
+    assert 'model = "old"' in writes[0]
+    error = capsys.readouterr().err
+    assert "model" in error
+    assert "new" not in error
     monkeypatch.setattr(
         "agent_containers.lifecycle.merge_documents",
         lambda *_args: (_ for _ in ()).throw(ValueError("bad merge")),
     )
     with pytest.raises(ValueError, match="bad merge"):
-        _apply_configuration_import(profile, tmp_path / "work.toml", "image", lambda *_args: True)
+        _apply_configuration_import(profile, tmp_path / "work.toml", "image")
     monkeypatch.setattr(
         "agent_containers.lifecycle.merge_documents",
         lambda *_args: (_ for _ in ()).throw(ConfigurationError("invalid merge")),
     )
     with pytest.raises(LifecycleError, match="invalid merge"):
-        _apply_configuration_import(profile, tmp_path / "work.toml", "image", lambda *_args: True)
+        _apply_configuration_import(profile, tmp_path / "work.toml", "image")
     _apply_configuration_import(make_profile(), tmp_path / "work.toml", "image")
+
+
+def test_configuration_import_merges_with_an_empty_existing_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A zero-byte existing config is an empty document, not an absent file."""
+    source = tmp_path / "settings.toml"
+    source.write_text('model = "new"\n', encoding="utf-8")
+    profile = make_profile(configuration_import={"source": source.name})
+    writes: list[str] = []
+    monkeypatch.setattr("agent_containers.lifecycle._read_home_file", lambda *_args: "")
+    monkeypatch.setattr("agent_containers.lifecycle._write_home_file", lambda *args: writes.append(args[-1]))
+    _apply_configuration_import(profile, tmp_path / "work.toml", "image")
+    assert writes == ['model = "new"\n']
 
 
 def test_apply_reconciles_configuration_import_on_a_noop(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -294,6 +317,7 @@ def test_configuration_volume_helpers_are_networkless_and_fail_safely(
     assert any("type=volume,src=volume,dst=/home/codex,readonly" in value for value in calls[0])
     assert any("type=volume,src=volume,dst=/home/codex" in value and "readonly" not in value for value in calls[-1])
     assert any("type=bind" in value for value in calls[-1])
+    assert "stat -c '%u:%g' /home/codex" in calls[-1][-1]
     assert "--cap-add=CHOWN" in _volume_helper_argv("image", "volume", "/home/codex", "true")
 
     class Failed(Result):
@@ -308,6 +332,54 @@ def test_configuration_volume_helpers_are_networkless_and_fail_safely(
         _write_home_file("image", "volume", "/home/codex", "/home/codex/config.json", "{}\n")
 
 
+def test_read_home_file_distinguishes_empty_and_absent_files(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The volume helper preserves zero-byte content while marking absence."""
+
+    class Result:
+        returncode = 0
+        stderr = ""
+
+        def __init__(self, stdout: str) -> None:
+            self.stdout = stdout
+
+    outputs = iter(["", "__AGENT_CONTAINERS_FILE_ABSENT__"])
+    monkeypatch.setattr(
+        "agent_containers.lifecycle.subprocess.run",
+        lambda *_args, **_kwargs: Result(next(outputs)),
+    )
+    assert _read_home_file("image", "volume", "/home/codex", "/home/codex/empty") == ""
+    assert _read_home_file("image", "volume", "/home/codex", "/home/codex/missing") is None
+
+
+def test_seed_application_without_seeds_is_a_noop(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Re-running the seed stage safely handles profiles with no seed mounts."""
+    calls: list[object] = []
+    monkeypatch.setattr("agent_containers.lifecycle._docker", lambda *args: calls.append(args))
+    _apply_seeds(make_profile(), tmp_path / "work.toml", "image")
+    assert calls == []
+
+
+def test_seed_application_skips_non_seed_mounts(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Only seed mounts invoke the privileged copy helper."""
+    calls: list[object] = []
+    monkeypatch.setattr("agent_containers.lifecycle._docker", lambda *args: calls.append(args))
+    profile = make_profile(mounts=[{"type": "bind", "source": "settings.json", "target": "/tmp/settings.json"}])
+    _apply_seeds(profile, tmp_path / "work.toml", "image")
+    assert calls == []
+
+
+def test_inspect_tool_shadows_parses_home_and_managed_tools(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Doctor identifies only executable names present in both tool trees."""
+
+    class Result:
+        returncode = 0
+        stderr = ""
+        stdout = "home\truff\nmanaged\truff\nhome\tonly-home\nother\tignored\nmalformed\n"
+
+    monkeypatch.setattr("agent_containers.lifecycle.subprocess.run", lambda *_args, **_kwargs: Result())
+    assert _inspect_tool_shadows("image", "volume", "codex") == ("ruff",)
+
+
 def test_rollback_inspects_previous_image_and_warns_about_home_data(tmp_path: Path) -> None:
     """Rollback only changes the selected managed deployment after inspection."""
     profile = make_profile(egress={"mode": "allowlist", "hosts": ["api.example.test"]})
@@ -317,7 +389,7 @@ def test_rollback_inspects_previous_image_and_warns_about_home_data(tmp_path: Pa
     state = DeploymentState(profile_name="work", deployments=[previous.model_copy(update={"selected": False}), current])
     save_state(state_path, state)
     with patch("agent_containers.lifecycle.subprocess.run") as run:
-        restored = rollback_profile(profile, state_path)
+        restored = rollback_profile(profile, state_path, profile_path=tmp_path / "work.toml")
     assert restored.deployment_id == previous.deployment_id
     assert run.call_args.args[0] == ("docker", "image", "inspect", previous.image)
     preview = "\n".join(rollback_preview(restored))
@@ -336,7 +408,7 @@ def test_rollback_updates_profile_shortcut(tmp_path: Path) -> None:
     state = DeploymentState(profile_name="work", deployments=[previous.model_copy(update={"selected": False}), current])
     save_state(state_path, state)
     with patch("agent_containers.lifecycle.subprocess.run"):
-        rollback_profile(profile, state_path, shortcuts_path, tmp_path / "work.toml")
+        rollback_profile(profile, state_path, shortcuts_path, profile_path=tmp_path / "work.toml")
     assert "agent-containers/codex:previous" in shortcuts_path.read_text(encoding="utf-8")
 
 
@@ -349,7 +421,7 @@ def test_rollback_refreshes_direct_decant_shortcut(tmp_path: Path) -> None:
     current = _new_record(profile, "agent-containers/codex:current")
     save_state(state_path, DeploymentState(profile_name="work", deployments=[previous, current]))
     with patch("agent_containers.lifecycle.subprocess.run"):
-        rollback_profile(profile, state_path, shortcuts_path, tmp_path / "work.toml")
+        rollback_profile(profile, state_path, shortcuts_path, profile_path=tmp_path / "work.toml")
     text = shortcuts_path.read_text(encoding="utf-8")
     assert "agent_containers_decant_work()" in text
     assert "agent-containers/codex:previous" in text
@@ -377,7 +449,7 @@ def test_rollback_preflights_shortcut_before_state_change(tmp_path: Path) -> Non
         DeploymentState(profile_name="work", deployments=[previous.model_copy(update={"selected": False}), current]),
     )
     with patch("agent_containers.lifecycle.subprocess.run"), pytest.raises(ShortcutError, match="gateway key"):
-        rollback_profile(profile, state_path, shortcuts_path, tmp_path / "work.toml")
+        rollback_profile(profile, state_path, shortcuts_path, profile_path=tmp_path / "work.toml")
     assert load_state(state_path).selected_deployment == current
 
 
@@ -387,7 +459,7 @@ def test_rollback_refuses_missing_prior_deployment(tmp_path: Path) -> None:
     state_path = tmp_path / "state.json"
     save_state(state_path, DeploymentState(profile_name="work", deployments=[_new_record(profile, "image")]))
     with pytest.raises(LifecycleError, match="no prior"):
-        rollback_profile(profile, state_path)
+        rollback_profile(profile, state_path, profile_path=tmp_path / "work.toml")
 
 
 def test_rollback_rejects_unselected_or_mismatched_state(tmp_path: Path) -> None:
@@ -396,11 +468,11 @@ def test_rollback_rejects_unselected_or_mismatched_state(tmp_path: Path) -> None
     unselected_path = tmp_path / "unselected.json"
     save_state(unselected_path, DeploymentState(profile_name="work"))
     with pytest.raises(LifecycleError, match="selected"):
-        rollback_profile(profile, unselected_path)
+        rollback_profile(profile, unselected_path, profile_path=tmp_path / "work.toml")
     mismatched_path = tmp_path / "mismatched.json"
     save_state(mismatched_path, DeploymentState(profile_name="other"))
     with pytest.raises(LifecycleError, match="belongs"):
-        rollback_profile(profile, mismatched_path)
+        rollback_profile(profile, mismatched_path, profile_path=tmp_path / "work.toml")
 
 
 def test_doctor_reports_absent_state_and_selected_image(tmp_path: Path) -> None:

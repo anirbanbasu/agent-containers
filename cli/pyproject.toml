@@ -4,15 +4,16 @@ build-backend = "uv_build"
 
 [project]
 name = "agent-containers-cli"
-version = "0.1.0.dev1"
+version = "0.1.0.dev2"
 description = "Deterministic onboarding and maintenance for hardened coding-agent containers"
 license = "MIT"
 license-files = ["LICEN[CS]E*"]
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "pydantic>=2.11,<3",
+    "click>=8.0,<9",
     "PyYAML>=6.0,<7",
+    "pydantic>=2.11,<3",
     "tomlkit>=0.13,<1",
     "typer>=0.16,<1",
 ]
@@ -81,6 +82,7 @@ possibly-unresolved-reference = "warn"
 
 [tool.coverage.run]
 source = ["agent_containers"]
+branch = true
 omit = ["tests/*"]
 
 [tool.coverage.report]

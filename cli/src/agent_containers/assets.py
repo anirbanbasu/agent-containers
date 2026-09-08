@@ -15,7 +15,12 @@ def bundled_image_root() -> Traversable:
 
 def available_image_contexts() -> tuple[str, ...]:
     """List bundled image directories in stable order."""
-    return tuple(sorted(item.name for item in bundled_image_root().iterdir() if item.is_dir()))
+    try:
+        return tuple(sorted(item.name for item in bundled_image_root().iterdir() if item.is_dir()))
+    except FileNotFoundError as exc:
+        raise ValueError(
+            "bundled image contexts are missing; run scripts/bundle_image_assets.py from the repository"
+        ) from exc
 
 
 def materialize_image_context(name: str, destination: Path) -> Path:

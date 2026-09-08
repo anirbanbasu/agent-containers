@@ -140,6 +140,11 @@ class EgressConfig(BaseModel):
         cleaned = [value.strip() for value in values]
         if any(not value for value in cleaned):
             raise ValueError("egress hosts must not be blank")
+        if "*" in cleaned:
+            raise ValueError(
+                "'*' is not a hostname. To disable egress filtering entirely, set mode = \"unrestricted\" "
+                "and remove the '*' entry. To allow specific hosts, name each one."
+            )
         return cleaned
 
     @field_validator("gateway_bootstrap_allow")
@@ -159,6 +164,8 @@ class EgressConfig(BaseModel):
     @model_validator(mode="after")
     def gateway_requires_port(self) -> Self:
         """Require a complete gateway address when either part is supplied."""
+        if self.mode == "unrestricted" and self.hosts:
+            raise ValueError("egress hosts must be empty when mode is unrestricted")
         if (self.gateway_host is None) != (self.gateway_port is None):
             raise ValueError("gateway_host and gateway_port must be supplied together")
         options = (
@@ -230,6 +237,16 @@ class DecantConfig(BaseModel):
             raise ValueError("Decant bind_address must be a single-line host address")
         return cleaned
 
+    @property
+    def bind_address_is_loopback(self) -> bool:
+        """Whether Decant is bound only to a local interface."""
+        if self.bind_address.lower() == "localhost":
+            return True
+        try:
+            return ipaddress.ip_address(self.bind_address).is_loopback
+        except ValueError:
+            return False
+
     @model_validator(mode="after")
     def enabled_requires_sources(self) -> Self:
         """Require explicit source profiles when Decant is opted in."""
@@ -269,7 +286,7 @@ class LangfuseConfig(BaseModel):
 
 
 class MountConfig(BaseModel):
-    """A custom file/directory input or copy-once seed."""
+    """A custom file/directory input or content-idempotent seed."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -277,6 +294,7 @@ class MountConfig(BaseModel):
     source: str = Field(min_length=1)
     target: str = Field(min_length=1)
     read_only: bool = True
+    on_conflict: str = "keep"
 
     @field_validator("source", "target")
     @classmethod
@@ -295,6 +313,22 @@ class MountConfig(BaseModel):
             raise ValueError("mount target must be an absolute path other than /")
         return value
 
+    @field_validator("on_conflict")
+    @classmethod
+    def conflict_policy_is_supported(cls, value: str) -> str:
+        """Accept only explicit seed replacement policies."""
+        normalized = value.strip().lower()
+        if normalized not in {"keep", "replace"}:
+            raise ValueError("mount on_conflict must be keep or replace")
+        return normalized
+
+    @model_validator(mode="after")
+    def conflict_policy_requires_seed(self) -> Self:
+        """Prevent seed-only replacement policy from altering bind mounts."""
+        if self.type != MountType.SEED and self.on_conflict != "keep":
+            raise ValueError("mount on_conflict is only supported for seed mounts")
+        return self
+
 
 class ConfigurationImport(BaseModel):
     """Optional agent-native configuration imported into the home volume."""
@@ -304,6 +338,7 @@ class ConfigurationImport(BaseModel):
     source: str = Field(min_length=1)
     format: str | None = None
     target: str | None = None
+    on_conflict: str = "keep"
 
     @field_validator("source", "target")
     @classmethod
@@ -327,6 +362,15 @@ class ConfigurationImport(BaseModel):
             normalized = "yaml"
         if normalized not in {"json", "jsonc", "toml", "yaml"}:
             raise ValueError("configuration import format must be json, jsonc, toml, or yaml")
+        return normalized
+
+    @field_validator("on_conflict")
+    @classmethod
+    def conflict_policy_is_supported(cls, value: str) -> str:
+        """Accept only deterministic native-import conflict policies."""
+        normalized = value.strip().lower()
+        if normalized not in {"keep", "replace"}:
+            raise ValueError("configuration import on_conflict must be keep or replace")
         return normalized
 
 
@@ -418,8 +462,7 @@ def load_profile(path: Path) -> Profile:
         return Profile.model_validate(tomllib.load(profile_file))
 
 
-def resolve_mount_source(profile: Profile, mount: MountConfig, profile_path: Path) -> Path:
-    """Resolve a relative mount source against the profile file directory."""
-    del profile
-    source = Path(mount.source).expanduser()
+def resolve_mount_source(source_value: str, profile_path: Path) -> Path:
+    """Resolve a relative source against the profile file directory."""
+    source = Path(source_value).expanduser()
     return source if source.is_absolute() else (profile_path.parent / source).resolve()

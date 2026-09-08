@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import re
 from enum import StrEnum
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from agent_containers.profile import Profile
-from agent_containers.state import DeploymentState, profile_digest, profile_snapshot
+from agent_containers.state import DeploymentState, profile_content_digests, profile_digest, profile_snapshot
 
 
 class PlanAction(StrEnum):
@@ -54,12 +55,64 @@ class Plan(BaseModel):
             lines.extend(f"- {warning}" for warning in self.warnings)
         return lines
 
+    def json_payload(self) -> dict[str, object]:
+        """Return the versioned machine-readable plan interface."""
+        return {
+            "schema_version": 1,
+            "profile_name": self.profile_name,
+            "actions": [
+                {"kind": action.value, "reason": reason}
+                for action, reason in _action_reasons(self.actions, self.changed_sections)
+            ],
+            "warnings": [_warning_payload(warning) for warning in self.warnings],
+        }
+
+
+def _action_reasons(actions: list[PlanAction], changed_sections: list[str]) -> list[tuple[PlanAction, str]]:
+    """Associate each existing plan action with a stable reason string."""
+    if actions == [PlanAction.NOOP]:
+        return [(PlanAction.NOOP, "profile matches selected deployment")]
+    image_reasons = [
+        section for section in changed_sections if section in {"agent", "packages", "langfuse", "proxy CA contents"}
+    ]
+    launch_reasons = [section for section in changed_sections if section not in image_reasons]
+    reasons: list[tuple[PlanAction, str]] = []
+    for action in actions:
+        if action == PlanAction.CREATE_IMAGE:
+            reason = "initial deployment"
+        elif action == PlanAction.UPDATE_IMAGE:
+            reason = ", ".join(image_reasons) or "profile image changed"
+        elif action == PlanAction.UPDATE_LAUNCH:
+            reason = ", ".join(launch_reasons) or "profile launch changed"
+        else:
+            reason = "profile changed"
+        reasons.append((action, reason))
+    return reasons
+
+
+def _warning_payload(warning: str) -> dict[str, str]:
+    """Convert human warning text into a stable machine-readable code."""
+    if warning == "Unrestricted egress is enabled.":
+        return {"code": "unrestricted_egress"}
+    if warning == "Decant is bound to a non-loopback address.":
+        return {"code": "decant_non_loopback_bind"}
+    if warning == "Live Docker state was not inspected.":
+        return {"code": "live_state_unchecked"}
+    if warning == "No selected deployment is recorded.":
+        return {"code": "no_selected_deployment"}
+    code = re.sub(r"[^a-z0-9]+", "_", warning.lower()).strip("_")
+    return {"code": code or "unknown_warning"}
+
 
 def build_plan(profile: Profile, state: DeploymentState | None = None, profile_path: Path | None = None) -> Plan:
     """Compare a profile with recorded state without contacting Docker."""
     snapshot = profile_snapshot(profile)
     digest = profile_digest(profile, profile_path)
     warnings = ["Live Docker state was not inspected."]
+    if profile.egress.mode == "unrestricted":
+        warnings.append("Unrestricted egress is enabled.")
+    if profile.decant.enabled and not profile.decant.bind_address_is_loopback:
+        warnings.append("Decant is bound to a non-loopback address.")
     if state is None or state.selected_deployment is None:
         return Plan(
             profile_name=profile.name,
@@ -72,7 +125,16 @@ def build_plan(profile: Profile, state: DeploymentState | None = None, profile_p
     selected = state.selected_deployment
     previous = selected.profile_snapshot
     image_sections = ["agent", "packages"]
-    launch_sections = ["home_volume", "provider", "proxy", "egress", "decant", "configuration_mounts", "mounts"]
+    launch_sections = [
+        "home_volume",
+        "provider",
+        "proxy",
+        "egress",
+        "decant",
+        "configuration_import",
+        "configuration_mounts",
+        "mounts",
+    ]
     changed_image = [section for section in image_sections if snapshot.get(section) != previous.get(section)]
     changed_launch = [section for section in launch_sections if snapshot.get(section) != previous.get(section)]
     langfuse_changed = snapshot.get("langfuse") != previous.get("langfuse")
@@ -80,10 +142,27 @@ def build_plan(profile: Profile, state: DeploymentState | None = None, profile_p
         changed_image.append("langfuse")
     changed = changed_image + changed_launch
     if digest != selected.profile_digest and not changed:
-        if profile.proxy is not None and (profile.proxy.ca_file is not None or profile.proxy.ca_dir is not None):
+        current_content = profile_content_digests(profile, profile_path) if profile_path is not None else {}
+        previous_proxy_ca = previous.get("_proxy_ca_digest")
+        if (
+            "_proxy_ca_digest" in current_content
+            and previous_proxy_ca is not None
+            and current_content["_proxy_ca_digest"] != previous_proxy_ca
+        ):
             changed_image.append("proxy CA contents")
             changed.append("proxy CA contents")
-        elif profile.configuration_import is not None:
+        previous_import = previous.get("_configuration_import_digest")
+        if (
+            "_configuration_import_digest" in current_content
+            and previous_import is not None
+            and current_content["_configuration_import_digest"] != previous_import
+        ):
+            changed_launch.append("configuration import contents")
+            changed.append("configuration import contents")
+        if "_proxy_ca_digest" in current_content and previous_proxy_ca is None and profile.configuration_import is None:
+            changed_image.append("proxy CA contents")
+            changed.append("proxy CA contents")
+        if "_configuration_import_digest" in current_content and previous_import is None and profile.proxy is None:
             changed_launch.append("configuration import contents")
             changed.append("configuration import contents")
     if not changed:

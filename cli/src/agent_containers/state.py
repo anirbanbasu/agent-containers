@@ -60,7 +60,7 @@ class DeploymentState(BaseModel):
         return next((record for record in self.deployments if record.selected), None)
 
 
-def profile_snapshot(profile: Profile) -> dict[str, Any]:
+def profile_snapshot(profile: Profile, profile_path: Path | None = None) -> dict[str, Any]:
     """Produce a JSON-compatible desired profile snapshot."""
     snapshot = profile.model_dump(mode="json")
     # Keep snapshots made before the optional explicit volume field compatible
@@ -74,7 +74,14 @@ def profile_snapshot(profile: Profile) -> dict[str, Any]:
             decant.pop("image", None)
         if decant.get("data_volume") is None:
             decant.pop("data_volume", None)
+    if profile_path is not None:
+        snapshot.update(profile_content_digests(profile, profile_path))
     return snapshot
+
+
+def profile_from_snapshot(snapshot: dict[str, Any]) -> Profile:
+    """Restore a profile while ignoring private content-digest metadata."""
+    return Profile.model_validate({key: value for key, value in snapshot.items() if not key.startswith("_")})
 
 
 def digest_snapshot(snapshot: dict[str, Any]) -> str:
@@ -85,15 +92,21 @@ def digest_snapshot(snapshot: dict[str, Any]) -> str:
 
 def profile_digest(profile: Profile, profile_path: Path | None = None) -> str:
     """Return the canonical digest, including deployment CA input contents."""
-    snapshot = profile_snapshot(profile)
-    if profile_path is not None and profile.proxy is not None:
-        snapshot["_proxy_ca_digest"] = _proxy_ca_digest(profile, profile_path)
-    if profile_path is not None and profile.configuration_import is not None:
+    snapshot = profile_snapshot(profile, profile_path)
+    return digest_snapshot(snapshot)
+
+
+def profile_content_digests(profile: Profile, profile_path: Path) -> dict[str, str]:
+    """Return content digests retained to explain future profile changes."""
+    digests: dict[str, str] = {}
+    if profile.proxy is not None and (profile.proxy.ca_file is not None or profile.proxy.ca_dir is not None):
+        digests["_proxy_ca_digest"] = _proxy_ca_digest(profile, profile_path)
+    if profile.configuration_import is not None:
         source = Path(profile.configuration_import.source).expanduser()
         if not source.is_absolute():
             source = (profile_path.parent / source).resolve()
-        snapshot["_configuration_import_digest"] = _file_digest(source)
-    return digest_snapshot(snapshot)
+        digests["_configuration_import_digest"] = _file_digest(source)
+    return digests
 
 
 def _file_digest(path: Path) -> str:

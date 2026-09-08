@@ -8,8 +8,34 @@ permissions:
   contents: read
 
 jobs:
-  release-build:
+  cli-check:
     runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+
+      - name: Check CLI
+        run: |
+          uv run --project cli --group test ruff check cli
+          uv run --project cli --group test ruff format --check cli
+          uv run --project cli --group test ty check --project cli
+
+      - name: Test CLI
+        env:
+          COVERAGE_RCFILE: cli/pyproject.toml
+        run: |
+          uv run --project cli --group test coverage run -m pytest cli/tests/unit cli/tests/packaging
+          uv run --project cli --group test coverage report
+
+  release-build:
+    needs: cli-check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -26,8 +52,6 @@ jobs:
           uv build --project cli
 
       - name: Upload distributions
-        env:
-          UV_PUBLISH_TOKEN: ${{ secrets.UV_PUBLISH_TOKEN }}
         run: |
-          # Requires UV_PUBLISH_TOKEN repository secret to be set
+          # Uses PyPI trusted publishing via the workflow's OIDC identity.
           uv publish --project cli cli/dist/*

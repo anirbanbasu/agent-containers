@@ -7,22 +7,6 @@ ARG TARGETARCH
 COPY --from=shared install-workload-base.sh /usr/local/lib/agent/install-workload-base.sh
 RUN TARGETARCH="$TARGETARCH" bash /usr/local/lib/agent/install-workload-base.sh
 
-# Optional profile-managed organisational CAs; see claude-code/Dockerfile.
-COPY proxy-ca.d/ /tmp/agent-containers-proxy-ca/
-RUN set -eu; \
-    mkdir -p /usr/local/share/ca-certificates/custom; \
-    found=0; \
-    for cert in /tmp/agent-containers-proxy-ca/*; do \
-        [ -f "$cert" ] || continue; \
-        name="$(basename "$cert")"; \
-        [ "$name" = ".keep" ] && continue; \
-        case "$name" in *.crt) ;; *) name="${name%.*}.crt" ;; esac; \
-        cp "$cert" "/usr/local/share/ca-certificates/custom/$name"; \
-        found=1; \
-    done; \
-    if [ "$found" -eq 1 ]; then update-ca-certificates; fi; \
-    rm -rf /tmp/agent-containers-proxy-ca
-
 COPY --from=shared install-additional-packages.sh /usr/local/lib/agent/install-additional-packages.sh
 COPY packages-apt.txt /tmp/packages-apt.txt
 RUN bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
@@ -40,7 +24,7 @@ RUN bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
         && install_uv_packages /tmp/packages-uv.txt' \
     && rm -f /tmp/packages-uv.txt
 
-RUN npm install -g opencode-ai
+RUN npm install -g opencode-ai @ai-sdk/openai-compatible
 
 # The opencode account is created here, at a fixed placeholder UID/GID
 # (1000:1000), purely so the root-only installers below (npm, uv tool) have
@@ -78,6 +62,24 @@ RUN mkdir -p /opt/agent-tools/npm /opt/agent-tools/uv-tools /opt/agent-tools/bin
         && install_npm_packages /tmp/packages-npm.txt \
         && install_uv_tools /tmp/tools-uv.txt' \
     && rm -f /tmp/packages-npm.txt /tmp/tools-uv.txt
+
+# Optional profile-managed organisational CAs are installed after all
+# networked build steps. No build-time proxy arguments are used, so rotating a
+# CA only invalidates this trailing trust-store layer.
+COPY proxy-ca.d/ /tmp/agent-containers-proxy-ca/
+RUN set -eu; \
+    mkdir -p /usr/local/share/ca-certificates/custom; \
+    found=0; \
+    for cert in /tmp/agent-containers-proxy-ca/*; do \
+        [ -f "$cert" ] || continue; \
+        name="$(basename "$cert")"; \
+        [ "$name" = ".keep" ] && continue; \
+        case "$name" in *.crt) ;; *) name="${name%.*}.crt" ;; esac; \
+        cp "$cert" "/usr/local/share/ca-certificates/custom/$name"; \
+        found=1; \
+    done; \
+    if [ "$found" -eq 1 ]; then update-ca-certificates; fi; \
+    rm -rf /tmp/agent-containers-proxy-ca
 
 # Everything above this line is UID/GID-independent and layer-cacheable
 # across hosts: the opencode account exists at the fixed placeholder

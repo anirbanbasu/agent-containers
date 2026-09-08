@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import os
 import tempfile
+import tomllib
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
+import click
 import tomlkit
 import typer
 
@@ -28,6 +32,54 @@ class ProfileCreationError(ValueError):
     """Raised when an interactive profile cannot be written safely."""
 
 
+class MissingProfileFields(ProfileCreationError):
+    """Raised when non-interactive profile inputs omit required fields."""
+
+    def __init__(self, fields: list[str]) -> None:
+        super().__init__("missing: " + ", ".join(fields))
+        self.fields = fields
+
+
+@dataclass(frozen=True)
+class ProfileOptionValues:
+    """Flat CLI options that can be reused by create and future edit commands."""
+
+    name: str | None = None
+    agent: str | None = None
+    home_volume: str | None = None
+    apt: tuple[str, ...] | None = None
+    npm: tuple[str, ...] | None = None
+    uv_tools: tuple[str, ...] | None = None
+    uv_libraries: tuple[str, ...] | None = None
+    egress_mode: str | None = None
+    egress_hosts: tuple[str, ...] | None = None
+    gateway_host: str | None = None
+    gateway_port: int | None = None
+    gateway_user: str | None = None
+    gateway_access_hostname: str | None = None
+    gateway_bootstrap_allow: tuple[str, ...] | None = None
+    gateway_key_file: str | None = None
+    gateway_known_hosts_file: str | None = None
+    configuration_import: Path | None = None
+
+    def has_values(self) -> bool:
+        """Whether at least one flat option was supplied."""
+        return any(value is not None for value in self.__dict__.values())
+
+
+_PARTIAL_NESTED_MODELS: dict[str, set[str]] = {
+    "packages": set(PackageSet.model_fields),
+    "provider": set(ProviderConfig.model_fields),
+    "proxy": set(ProxyConfig.model_fields),
+    "egress": set(EgressConfig.model_fields),
+    "decant": set(DecantConfig.model_fields),
+    "langfuse": set(LangfuseConfig.model_fields),
+    "configuration_import": set(ConfigurationImport.model_fields),
+    "configuration_mounts": set(MountConfig.model_fields),
+    "mounts": set(MountConfig.model_fields),
+}
+
+
 _CONFIGURATION_DOCS = {
     AgentName.CLAUDE_CODE: "https://code.claude.com/docs/en/settings",
     AgentName.CODEX: "https://developers.openai.com/codex/config-basic/",
@@ -41,7 +93,9 @@ def prompt_profile(path: Path, configuration_import: Path | None = None) -> Prof
     typer.echo("Onboarding roadmap: identity → packages → configuration → network → integrations → mounts")
     typer.echo("Progress: 1/6 identity")
     name = typer.prompt("Profile name", default=path.stem)
-    agent = typer.prompt("Agent", default=AgentName.CODEX.value)
+    agent = typer.prompt(
+        "Agent", default=AgentName.CODEX.value, type=click.Choice([agent.value for agent in AgentName])
+    )
     documentation_url = _CONFIGURATION_DOCS.get(agent.strip().lower())
     if documentation_url is not None:
         typer.echo(f"Optional native configuration guide: {documentation_url}")
@@ -90,6 +144,101 @@ def prompt_profile(path: Path, configuration_import: Path | None = None) -> Prof
     )
 
 
+def profile_from_options(
+    path: Path,
+    options: ProfileOptionValues,
+    config_path: Path | None = None,
+    *,
+    non_interactive: bool = False,
+) -> Profile:
+    """Build a profile from a partial TOML and flat options with safe precedence."""
+    data: dict[str, Any] = {}
+    if config_path is not None:
+        try:
+            with config_path.expanduser().resolve().open("rb") as config_file:
+                loaded = tomllib.load(config_file)
+        except (OSError, tomllib.TOMLDecodeError) as exc:
+            raise ProfileCreationError(f"invalid --config {config_path}: {exc}") from exc
+        _validate_partial_keys(loaded, config_path)
+        data = loaded
+    _apply_options(data, options)
+    if options.name is None and "name" not in data and not non_interactive:
+        data["name"] = path.stem
+    missing = _missing_noninteractive_fields(data) if non_interactive else []
+    if missing:
+        raise MissingProfileFields(missing)
+    try:
+        return Profile.model_validate(data)
+    except ValueError as exc:
+        raise ProfileCreationError(str(exc)) from exc
+
+
+def _validate_partial_keys(value: object, config_path: Path, model_name: str = "Profile") -> None:
+    """Reject unknown keys in a partial config before defaults are merged."""
+    if not isinstance(value, dict):
+        raise ProfileCreationError(f"--config {config_path}: root must be a TOML table")
+    allowed = set(Profile.model_fields) if model_name == "Profile" else _PARTIAL_NESTED_MODELS[model_name]
+    for key, nested in value.items():
+        if key not in allowed:
+            raise ProfileCreationError(f"--config {config_path}: unknown key {model_name}.{key}")
+        nested_model = key if model_name == "Profile" and key in _PARTIAL_NESTED_MODELS else None
+        if nested_model is None:
+            continue
+        if isinstance(nested, dict):
+            _validate_partial_keys(nested, config_path, nested_model)
+        elif isinstance(nested, list) and nested_model in {"mounts", "configuration_mounts"}:
+            for item in nested:
+                _validate_partial_keys(item, config_path, nested_model)
+        elif nested is not None:
+            raise ProfileCreationError(f"--config {config_path}: {nested_model} must be a TOML table")
+
+
+def _apply_options(data: dict[str, Any], options: ProfileOptionValues) -> None:
+    """Apply explicit flags over config values, replacing repeated lists."""
+    for field in ("name", "agent", "home_volume"):
+        value = getattr(options, field)
+        if value is not None:
+            data[field] = value
+    packages = data.setdefault("packages", {})
+    if not isinstance(packages, dict):
+        raise ProfileCreationError("--config packages must be a TOML table")
+    for option, field in (("apt", "apt"), ("npm", "npm"), ("uv_tools", "uv_tools"), ("uv_libraries", "uv_libraries")):
+        value = getattr(options, option)
+        if value is not None:
+            packages[field] = list(value)
+    egress = data.setdefault("egress", {})
+    if not isinstance(egress, dict):
+        raise ProfileCreationError("--config egress must be a TOML table")
+    for option, field in (
+        ("egress_mode", "mode"),
+        ("egress_hosts", "hosts"),
+        ("gateway_host", "gateway_host"),
+        ("gateway_port", "gateway_port"),
+        ("gateway_user", "gateway_user"),
+        ("gateway_access_hostname", "gateway_access_hostname"),
+        ("gateway_bootstrap_allow", "gateway_bootstrap_allow"),
+        ("gateway_key_file", "gateway_key_file"),
+        ("gateway_known_hosts_file", "gateway_known_hosts_file"),
+    ):
+        value = getattr(options, option)
+        if value is not None:
+            egress[field] = list(value) if isinstance(value, tuple) else value
+    if options.configuration_import is not None:
+        imported = data.setdefault("configuration_import", {})
+        if not isinstance(imported, dict):
+            raise ProfileCreationError("--config configuration_import must be a TOML table")
+        imported["source"] = str(options.configuration_import.expanduser().resolve())
+
+
+def _missing_noninteractive_fields(data: dict[str, Any]) -> list[str]:
+    """Return stable dotted paths for required values absent from CLI input."""
+    missing = [field for field in ("name", "agent") if not data.get(field)]
+    provider = data.get("provider")
+    if isinstance(provider, dict) and provider and not provider.get("api_key_env"):
+        missing.append("provider.api_key_env")
+    return missing
+
+
 def write_profile(path: Path, profile: Profile) -> None:
     """Write a new profile atomically and refuse to replace an existing file."""
     path = path.expanduser().resolve()
@@ -134,7 +283,11 @@ def _prompt_proxy() -> ProxyConfig | None:
 
 
 def _prompt_egress() -> EgressConfig:
-    mode = typer.prompt("Egress mode (deny/allowlist/unrestricted)", default="allowlist")
+    mode = typer.prompt(
+        "Egress mode (deny/allowlist/unrestricted)",
+        default="allowlist",
+        type=click.Choice(["deny", "allowlist", "unrestricted"]),
+    )
     hosts = _csv_prompt("Egress hosts (comma-separated)") if mode.strip().lower() == "allowlist" else []
     gateway_host = _optional_prompt("Gateway host")
     gateway_port = typer.prompt("Gateway port", type=int) if gateway_host is not None else None

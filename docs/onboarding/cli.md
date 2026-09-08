@@ -28,8 +28,18 @@ uv sync --project cli --group test
 uv run --project cli agent-containers --help
 ```
 
-Every invocation prints the onboarding banner, including `--help`,
+Every invocation prints the onboarding banner to stderr, including `--help`,
 `--version`, and parser errors.
+
+For unattended creation, pass `--non-interactive` before the command and use
+typed options such as `--name`, `--agent`, `--apt`, `--npm`, `--uv-tool`,
+`--uv-package`, `--egress-mode`, `--egress-host`, and the flat `--gateway-*`
+options. Repeated package and host options replace the corresponding list from
+`--config`, rather than appending to it. A partial TOML supplied with
+`--config PATH` is merged first; flags override it, and model defaults fill the
+remaining optional fields. Unknown keys are rejected before validation, and
+non-interactive creation reports every missing required field instead of
+prompting.
 
 ## Create and validate a profile
 
@@ -100,10 +110,10 @@ any separate hook files explicitly. The CLI preserves the existing lower-level
 An import is merged into the selected agent's configuration file in its
 persistent home volume; it is not mounted over that file. Existing object keys
 that are absent from the import are preserved. If a scalar, type, or array
-value differs, `apply` shows the configuration path and asks whether the
-imported value should replace the existing value. Values themselves are not
-printed, so secrets are not echoed. Library callers that cannot resolve a
-conflict are refused safely instead of making a partial change.
+value differs, `on_conflict = "keep"` (the default) preserves the existing
+value and `on_conflict = "replace"` takes the imported value. `apply` reports
+conflicting paths and their resolution on stderr; values themselves are not
+printed, so secrets are not echoed.
 
 Before replacement, the existing file is saved as a
 `.agent-containers.bak` file in the same volume. The new file is written via a
@@ -123,7 +133,7 @@ Inspect the offline change plan first:
 agent-containers plan ~/.config/agent-containers/profiles/work.toml
 ```
 
-Apply builds the profile-owned image, performs copy-once seeds, selects the
+Apply builds the profile-owned image, reconciles seeds by content, and selects the
 deployment only after those steps succeed, and refreshes the generated profile
 shortcut:
 
@@ -131,11 +141,20 @@ shortcut:
 agent-containers apply ~/.config/agent-containers/profiles/work.toml
 ```
 
-Copy-once seeds run in a short-lived, networkless helper with only the
+Seeds run in a short-lived, networkless helper with only the
 capabilities needed to inspect and chown the mounted home volume. This includes
 `DAC_OVERRIDE` so a remapped host UID cannot block a seed targeted inside a
 mode-0700 home directory; the workload container itself still starts with all
-capabilities dropped.
+capabilities dropped. A missing target is copied, an unchanged target is a
+no-op, and a changed target is kept by default with an error. Set
+`on_conflict = "replace"` on that `type = "seed"` mount to back up and replace
+the target.
+
+`plan --json` emits one versioned JSON document with `schema_version = 1`, the
+profile name, ordered `{kind, reason}` actions, and warning objects such as
+`{"code":"unrestricted_egress"}` and
+`{"code":"decant_non_loopback_bind"}`. Skills may pin to this schema; breaking
+payload changes increment `schema_version`.
 
 The default deployment record is stored under
 `$XDG_STATE_HOME/agent-containers/` or `~/.local/state/agent-containers/`.
@@ -186,9 +205,9 @@ and state file untouched.
 The CLI preserves deny-by-default egress. An explicit allowlist must include
 each provider, registry, proxy, gateway bootstrap, or observability endpoint
 the profile needs. A Langfuse endpoint is rejected unless it is allowlisted or
-reached through a configured gateway. An allowlist containing `*` is an
-explicit unrestricted-egress choice and satisfies this endpoint check; the
-runtime treats `*` as unrestricted even when additional entries are present.
+reached through a configured gateway. To disable egress filtering, set
+`egress.mode = "unrestricted"` and leave `egress.hosts` empty. A wildcard host
+entry is rejected; name each host explicitly for an allowlist.
 
 `proxy.ca_file` accepts one certificate; `proxy.ca_dir` accepts a directory of
 certificates. The selected certificates are copied into the profile-owned build

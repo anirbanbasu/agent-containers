@@ -19,6 +19,14 @@ class DockerCommandError(ValueError):
     """Raised when a profile cannot be represented safely as a Docker run."""
 
 
+class WorkspaceMountToken(str):
+    """Rendered workspace bind mount marker with a subprocess-safe value."""
+
+
+class WorkspaceTargetToken(str):
+    """Rendered workspace working-directory marker with a subprocess-safe value."""
+
+
 _HOME_PATHS = {
     AgentName.CLAUDE_CODE: "/home/claude",
     AgentName.OPENCODE: "/home/opencode",
@@ -46,8 +54,31 @@ _SEED_USER_IDS = {
     AgentName.HERMES: 10000,
 }
 _SEED_COPY_SCRIPT = """set -eu
-test ! -e "$SEED_TARGET"
+hash_tree() {
+    if [ -d "$1" ]; then
+        # Symlinks are deliberately not covered; seeds compare regular files
+        # and their relative paths, matching the copy semantics below.
+        ( cd "$1" && find . -type f -print0 | sort -z \
+            | xargs -0 -r sha256sum | sha256sum | cut -d' ' -f1 )
+    else
+        sha256sum < "$1" | cut -d' ' -f1
+    fi
+}
+
 mkdir -p "$(dirname "$SEED_TARGET")"
+if [ -e "$SEED_TARGET" ]; then
+    source_digest=$(hash_tree /tmp/agent-seed)
+    target_digest=$(hash_tree "$SEED_TARGET")
+    if [ "$source_digest" = "$target_digest" ]; then
+        exit 0
+    fi
+    if [ "$SEED_ON_CONFLICT" = "keep" ]; then
+        echo "seed target already differs: $SEED_TARGET (set on_conflict = replace to replace it)" >&2
+        exit 1
+    fi
+    cp -R "$SEED_TARGET" "$SEED_TARGET.agent-containers.bak"
+    rm -rf "$SEED_TARGET"
+fi
 # Do not preserve host-side metadata from a bind-mounted source. The source's
 # ownership, mode, or timestamps may not be preservable under the helper's
 # deliberately minimal capability set.
@@ -193,7 +224,7 @@ def build_seed_argv(
     home_path = _HOME_PATHS[profile.agent]
     if not mount.target.startswith(f"{home_path}/"):
         raise DockerCommandError(f"seed target must be inside the persistent home: {mount.target}")
-    source = resolve_mount_source(profile, mount, profile_path)
+    source = resolve_mount_source(mount.source, profile_path)
     if not source.exists():
         raise DockerCommandError(f"seed source does not exist: {source}")
     home = home_volume or profile.home_volume or default_home_volume(profile)
@@ -226,6 +257,8 @@ def build_seed_argv(
         f"SEED_TARGET={mount.target}",
         "-e",
         f"SEED_UID={uid}",
+        "-e",
+        f"SEED_ON_CONFLICT={mount.on_conflict}",
         "--entrypoint",
         "/bin/sh",
         image,
@@ -270,9 +303,9 @@ def build_run_argv(
         "-v",
         f"{home}:{_HOME_PATHS[profile.agent]}",
         "-v",
-        f"{workspace}:{workspace_target}",
+        WorkspaceMountToken(f"{workspace}:{workspace_target}"),
         "-w",
-        workspace_target,
+        WorkspaceTargetToken(workspace_target),
     ]
     if profile.agent == AgentName.HERMES:
         argv.extend(["--cap-add=CHOWN", "--cap-add=DAC_OVERRIDE"])
@@ -305,6 +338,8 @@ def _append_network_args(argv: list[str], profile: Profile) -> None:
             argv.extend(["-e", f"AGENT_GATEWAY_ACCESS_HOSTNAME={profile.egress.gateway_access_hostname}"])
         if profile.egress.gateway_bootstrap_allow:
             argv.extend(["-e", f"AGENT_GATEWAY_BOOTSTRAP_ALLOW={','.join(profile.egress.gateway_bootstrap_allow)}"])
+    elif profile.egress.mode == "unrestricted":
+        argv.extend(["-e", "AGENT_ALLOWED_EGRESS=*"])
     elif profile.egress.mode == "allowlist" and profile.egress.hosts:
         argv.extend(["-e", f"AGENT_ALLOWED_EGRESS={','.join(profile.egress.hosts)}"])
     if profile.provider and profile.provider.api_key_env:
@@ -398,13 +433,15 @@ def _append_proxy_args(argv: list[str], profile: Profile, profile_path: Path) ->
     if profile.proxy.http is not None or profile.proxy.https is not None:
         argv.extend(["-e", "NODE_USE_ENV_PROXY=1"])
     if profile.proxy.ca_file is not None:
-        _resolve_input_file(profile_path, profile.proxy.ca_file, "proxy CA")
+        _require_input_file(profile_path, profile.proxy.ca_file, "proxy CA")
     if profile.proxy.ca_dir is not None:
-        _resolve_input_directory(profile_path, profile.proxy.ca_dir, "proxy CA directory")
+        _require_input_directory(profile_path, profile.proxy.ca_dir, "proxy CA directory")
     if profile.proxy.ca_file is not None or profile.proxy.ca_dir is not None:
         target = "/etc/ssl/certs/ca-certificates.crt"
         argv.extend(
             [
+                # Keep the bundle path explicit for clients whose CA lookup
+                # does not follow the distribution's default.
                 "-e",
                 f"SSL_CERT_FILE={target}",
                 "-e",
@@ -478,7 +515,7 @@ def _append_langfuse_args(argv: list[str], profile: Profile) -> None:
         if profile.egress.mode == "deny":
             raise DockerCommandError("Langfuse requires an egress allowlist entry or gateway")
         allowlist = {entry.strip().lower() for entry in profile.egress.hosts}
-        if profile.egress.mode == "allowlist" and "*" not in allowlist and host not in allowlist:
+        if profile.egress.mode == "allowlist" and host not in allowlist:
             raise DockerCommandError(f"Langfuse host must be included in egress hosts: {host}")
     base_url_value = _url_value(base_url)
     base_environment = "LANGFUSE_BASEURL" if profile.agent == AgentName.OPENCODE else "LANGFUSE_BASE_URL"
@@ -523,15 +560,15 @@ def _append_mount_args(argv: list[str], profile: Profile, profile_path: Path) ->
             if mount is not None:
                 if not mount.read_only:
                     raise DockerCommandError(f"{label} mount must be read-only")
-                if not resolve_mount_source(profile, mount, profile_path).is_file():
-                    source = resolve_mount_source(profile, mount, profile_path)
+                if not resolve_mount_source(mount.source, profile_path).is_file():
+                    source = resolve_mount_source(mount.source, profile_path)
                     raise DockerCommandError(f"{label} does not exist: {source}")
     if profile.egress.gateway_key_file is not None:
-        key_source = _resolve_input_file(profile_path, profile.egress.gateway_key_file, "gateway key")
+        key_source = _require_input_file(profile_path, profile.egress.gateway_key_file, "gateway key")
         argv.extend(["-v", f"{key_source}:/etc/agent/gateway-key:ro"])
         targets.add("/etc/agent/gateway-key")
     if profile.egress.gateway_known_hosts_file is not None:
-        hosts_source = _resolve_input_file(
+        hosts_source = _require_input_file(
             profile_path, profile.egress.gateway_known_hosts_file, "gateway known-hosts file"
         )
         argv.extend(["-v", f"{hosts_source}:/etc/agent/gateway-known-hosts:ro"])
@@ -542,12 +579,12 @@ def _append_mount_args(argv: list[str], profile: Profile, profile_path: Path) ->
         if mount.target in targets:
             raise DockerCommandError(f"mount target conflicts with generated mount: {mount.target}")
         targets.add(mount.target)
-        source = resolve_mount_source(profile, mount, profile_path)
+        source = resolve_mount_source(mount.source, profile_path)
         access = "ro" if mount.read_only else "rw"
         argv.extend(["-v", f"{source}:{mount.target}:{access}"])
 
 
-def _resolve_input_file(profile_path: Path, value: str, label: str) -> Path:
+def _require_input_file(profile_path: Path, value: str, label: str) -> Path:
     """Resolve a profile-relative file input and reject Docker-created directories."""
     source = (profile_path.expanduser().resolve().parent / value).resolve()
     if not source.is_file():
@@ -555,7 +592,7 @@ def _resolve_input_file(profile_path: Path, value: str, label: str) -> Path:
     return source
 
 
-def _resolve_input_directory(profile_path: Path, value: str, label: str) -> Path:
+def _require_input_directory(profile_path: Path, value: str, label: str) -> Path:
     """Resolve a profile-relative directory input and reject Docker-created paths."""
     source = (profile_path.expanduser().resolve().parent / value).resolve()
     if not source.is_dir():

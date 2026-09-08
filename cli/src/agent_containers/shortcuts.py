@@ -10,15 +10,14 @@ from pathlib import Path
 
 from agent_containers.docker import (
     DockerCommandError,
+    WorkspaceMountToken,
+    WorkspaceTargetToken,
     build_decant_run_argv,
     build_run_argv,
     legacy_home_volume,
 )
 from agent_containers.profile import AgentName, Profile
-from agent_containers.state import DeploymentRecord
-
-_WORKSPACE_MOUNT = object()
-_WORKSPACE_TARGET = object()
+from agent_containers.state import DeploymentRecord, profile_from_snapshot
 
 
 class ShortcutError(ValueError):
@@ -52,21 +51,25 @@ def render_shortcut(profile: Profile, record: DeploymentRecord, profile_path: Pa
             profile_path,
             image=record.image,
             home_volume=record.home_volume or legacy_home_volume(profile),
+            permit_unrestricted=profile.egress.mode == "unrestricted",
         )
     except DockerCommandError as exc:
         raise ShortcutError(str(exc)) from exc
-    workspace_mount = f"{workspace}:/workspace/{workspace.name}"
-    tokens: list[str | object] = [
-        _WORKSPACE_MOUNT
-        if token == workspace_mount
-        else _WORKSPACE_TARGET
-        if token == f"/workspace/{workspace.name}"
-        else token
-        for token in argv
-    ]
+    tokens: list[str | object] = [token for token in argv]
     rendered = " \\\n    ".join(_render_token(token) for token in tokens)
     name = shortcut_function_name(profile)
-    return f'# BEGIN agent-containers profile {profile.name}\n{name}() {{\n  {rendered} "$@"\n}}\n# END agent-containers profile {profile.name}\n'
+    notice = (
+        f"  echo \"[agent-containers] egress filtering is DISABLED for profile '{profile.name}'\" >&2\n"
+        if profile.egress.mode == "unrestricted"
+        else ""
+    )
+    return (
+        f"# BEGIN agent-containers profile {profile.name}\n"
+        f"{name}() {{\n"
+        f'{notice}  {rendered} "$@"\n'
+        f"}}\n"
+        f"# END agent-containers profile {profile.name}\n"
+    )
 
 
 def render_decant_shortcut(profile: Profile, source_records: Mapping[str, DeploymentRecord]) -> str:
@@ -77,7 +80,7 @@ def render_decant_shortcut(profile: Profile, source_records: Mapping[str, Deploy
         if record is None:
             raise ShortcutError(f"Decant source profile state is unavailable: {source_name}")
         try:
-            source_profile = Profile.model_validate(record.profile_snapshot)
+            source_profile = profile_from_snapshot(record.profile_snapshot)
         except ValueError as exc:
             raise ShortcutError(f"Decant source profile state is invalid: {source_name}") from exc
         if source_profile.agent not in {AgentName.CLAUDE_CODE, AgentName.CODEX}:
@@ -143,7 +146,11 @@ def _replace_block(existing: str, key: str, block: str) -> str:
     end = f"# END agent-containers {key}\n"
     if begin in existing:
         start = existing.index(begin)
-        finish = existing.index(end, start) + len(end)
+        try:
+            finish = existing.index(end, start) + len(end)
+        except ValueError as exc:
+            profile_name = key.removeprefix("profile ")
+            raise ShortcutError(f"incomplete generated block for profile {profile_name} in profiles.sh") from exc
         replacement = block
         return existing[:start] + replacement + existing[finish:]
     if not block:
@@ -152,8 +159,8 @@ def _replace_block(existing: str, key: str, block: str) -> str:
 
 
 def _render_token(token: str | object) -> str:
-    if token is _WORKSPACE_MOUNT:
+    if isinstance(token, WorkspaceMountToken):
         return '"$PWD:/workspace/$(basename "$PWD")"'
-    if token is _WORKSPACE_TARGET:
+    if isinstance(token, WorkspaceTargetToken):
         return '"/workspace/$(basename "$PWD")"'
     return shlex.quote(str(token))

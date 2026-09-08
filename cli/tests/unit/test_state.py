@@ -2,10 +2,12 @@
 
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
+from unittest.mock import patch
 
 import pytest
 
-from agent_containers.planner import PlanAction, build_plan
+from agent_containers.planner import Plan, PlanAction, build_plan
 from agent_containers.profile import Profile
 from agent_containers.state import (
     DeploymentRecord,
@@ -28,7 +30,7 @@ def make_profile(**overrides: object) -> Profile:
 
 def make_state(profile: Profile, profile_path: Path | None = None) -> DeploymentState:
     """Create a selected record representing an applied profile."""
-    snapshot = profile_snapshot(profile)
+    snapshot = profile_snapshot(profile, profile_path)
     digest = profile_digest(profile, profile_path)
     record = DeploymentRecord(
         deployment_id="work-1",
@@ -66,12 +68,59 @@ def test_plan_initial_deployment_is_explicitly_offline() -> None:
     assert "No selected deployment" in "\n".join(plan.warnings)
 
 
+def test_plan_renders_human_and_versioned_json_forms() -> None:
+    """The plan model supplies complete human and machine-readable output."""
+    plan = Plan(
+        profile_name="work",
+        profile_digest="a" * 64,
+        actions=[PlanAction.CREATE_IMAGE, PlanAction.UPDATE_IMAGE, PlanAction.UPDATE_LAUNCH],
+        changed_sections=["packages", "provider"],
+        warnings=[
+            "Unrestricted egress is enabled.",
+            "Decant is bound to a non-loopback address.",
+            "Live Docker state was not inspected.",
+            "No selected deployment is recorded.",
+            "",
+        ],
+        live_state_checked=True,
+    )
+    lines = plan.summary_lines()
+    assert "Live Docker state checked: yes" in lines
+    payload = plan.json_payload()
+    assert payload["schema_version"] == 1
+    assert payload["actions"] == [
+        {"kind": "create-image", "reason": "initial deployment"},
+        {"kind": "update-image", "reason": "packages"},
+        {"kind": "update-launch", "reason": "provider"},
+    ]
+    warnings = cast(list[dict[str, str]], payload["warnings"])
+    assert {warning["code"] for warning in warnings} == {
+        "unrestricted_egress",
+        "decant_non_loopback_bind",
+        "live_state_unchecked",
+        "no_selected_deployment",
+        "unknown_warning",
+    }
+    mixed = Plan(profile_name="work", profile_digest="a" * 64, actions=[PlanAction.NOOP, PlanAction.UPDATE_LAUNCH])
+    mixed_actions = cast(list[dict[str, str]], mixed.json_payload()["actions"])
+    assert mixed_actions[1]["reason"] == "profile launch changed"
+
+
 def test_plan_noop_for_matching_selected_profile() -> None:
     """Matching recorded state produces a no-op."""
     profile = make_profile()
     plan = build_plan(profile, make_state(profile))
     assert plan.is_noop
     assert plan.changed_sections == []
+
+
+def test_plan_json_noop_and_empty_sections() -> None:
+    """No-op JSON plans have a stable reason and empty human sections."""
+    plan = Plan(profile_name="work", profile_digest="a" * 64, actions=[PlanAction.NOOP])
+    assert plan.summary_lines() == ["Profile: work", "Live Docker state checked: no", "Actions:", "- no-op"]
+    assert plan.json_payload()["actions"] == [{"kind": "no-op", "reason": "profile matches selected deployment"}]
+    empty = Plan(profile_name="work", profile_digest="a" * 64, actions=[])
+    assert empty.summary_lines() == ["Profile: work", "Live Docker state checked: no"]
 
 
 def test_default_home_volume_field_is_compatible_with_older_state() -> None:
@@ -130,6 +179,23 @@ def test_plan_detects_rotated_proxy_ca_contents(tmp_path: Path) -> None:
     assert plan.changed_sections == ["proxy CA contents"]
 
 
+def test_plan_warns_for_non_loopback_decant() -> None:
+    """Planning exposes the LAN bind warning alongside the offline warning."""
+    profile = make_profile(decant={"enabled": True, "source_profiles": ["source"], "bind_address": "0.0.0.0"})
+    assert "Decant is bound to a non-loopback address." in build_plan(profile).warnings
+
+
+def test_plan_legacy_state_falls_back_to_ca_content_detection(tmp_path: Path) -> None:
+    """Older state without private content metadata still detects a CA change."""
+    ca = tmp_path / "corp-ca.pem"
+    ca.write_text("CERT", encoding="utf-8")
+    profile = make_profile(proxy={"ca_file": ca.name})
+    state = make_state(profile)
+    ca.write_text("ROTATED", encoding="utf-8")
+    plan = build_plan(profile, state, tmp_path / "work.toml")
+    assert plan.changed_sections == ["proxy CA contents"]
+
+
 def test_plan_detects_changed_configuration_import_contents(tmp_path: Path) -> None:
     """Changing an imported file schedules a launch-time merge."""
     source = tmp_path / "settings.json"
@@ -141,6 +207,32 @@ def test_plan_detects_changed_configuration_import_contents(tmp_path: Path) -> N
     plan = build_plan(profile, state, profile_path)
     assert plan.actions == [PlanAction.UPDATE_LAUNCH]
     assert plan.changed_sections == ["configuration import contents"]
+
+
+def test_plan_reports_both_rotated_ca_and_import_contents(tmp_path: Path) -> None:
+    """Independent digest fallbacks preserve both content-change reasons."""
+    ca = tmp_path / "corp-ca.pem"
+    ca.write_text("CERTIFICATE-ONE", encoding="utf-8")
+    source = tmp_path / "settings.json"
+    source.write_text("{}", encoding="utf-8")
+    profile_path = tmp_path / "work.toml"
+    profile = make_profile(
+        proxy={"ca_file": ca.name},
+        configuration_import={"source": source.name},
+    )
+    state = make_state(profile, profile_path)
+    source.write_text('{"model":"new"}', encoding="utf-8")
+    plan = build_plan(profile, state, profile_path)
+    assert plan.actions == [PlanAction.UPDATE_LAUNCH]
+    assert plan.changed_sections == ["configuration import contents"]
+
+
+def test_plan_detects_removed_configuration_import() -> None:
+    """Removing an import is a launch change even when no file remains to hash."""
+    previous = make_profile(configuration_import={"source": "settings.json"})
+    plan = build_plan(make_profile(), make_state(previous))
+    assert plan.actions == [PlanAction.UPDATE_LAUNCH]
+    assert plan.changed_sections == ["configuration_import"]
 
 
 def test_profile_digest_covers_ca_directory_and_rejects_bad_inputs(tmp_path: Path) -> None:
@@ -174,6 +266,19 @@ def test_profile_digest_covers_native_configuration_source(tmp_path: Path) -> No
     assert profile_digest(profile, profile_path) != first
     missing = make_profile(configuration_import={"source": "missing.json"})
     assert profile_digest(missing, profile_path) != first
+    absolute = make_profile(configuration_import={"source": str(source)})
+    assert profile_digest(absolute, profile_path)
+
+
+def test_profile_snapshot_handles_optional_decant_shapes() -> None:
+    """Snapshot normalization handles both omitted and explicitly configured fields."""
+    explicit = profile_snapshot(
+        make_profile(decant={"enabled": True, "source_profiles": ["source"], "image": "decant", "data_volume": "data"})
+    )
+    assert explicit["decant"]["image"] == "decant"
+    assert explicit["decant"]["data_volume"] == "data"
+    with patch.object(Profile, "model_dump", return_value={"decant": None}):
+        assert profile_snapshot(make_profile()) == {"decant": None}
 
 
 def test_state_rejects_two_selected_records() -> None:

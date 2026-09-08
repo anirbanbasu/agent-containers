@@ -7,14 +7,12 @@ import shlex
 import subprocess
 import sys
 import tempfile
-from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
 from agent_containers.build_context import prepare_build_contexts
 from agent_containers.configuration import (
-    ConfigurationConflict,
     ConfigurationError,
     configuration_target,
     load_import_document,
@@ -40,6 +38,7 @@ from agent_containers.state import (
     load_state,
     new_deployment_id,
     profile_digest,
+    profile_from_snapshot,
     profile_snapshot,
     save_state,
 )
@@ -50,6 +49,7 @@ _DOCTOR_HOME_PATHS = {
     "codex": "/home/codex",
     "hermes": "/opt/data",
 }
+_MISSING_HOME_FILE = "__AGENT_CONTAINERS_FILE_ABSENT__"
 _TOOL_SHADOW_SCRIPT = """set -eu
 list_tools() {
     kind="$1"
@@ -92,7 +92,6 @@ def apply_profile(
     profile_path: Path,
     state_path: Path | None = None,
     shortcuts_path: Path | None = None,
-    configuration_resolver: Callable[[str, object, object], bool] | None = None,
 ) -> DeploymentRecord:
     """Build or verify a deployment, seed it safely, then atomically select it."""
     target_state_path = state_path or default_state_path(profile)
@@ -109,7 +108,7 @@ def apply_profile(
     if profile.configuration_import is not None:
         # Reconcile even a no-op deployment: the persistent volume may have
         # been edited or restored since the last apply.
-        _apply_configuration_import(profile, profile_path, image, configuration_resolver)
+        _apply_configuration_import(profile, profile_path, image)
     if not plan.is_noop:
         record = _new_record(profile, image, profile_path)
         if shortcuts_path is not None:
@@ -142,7 +141,6 @@ def _apply_configuration_import(
     profile: Profile,
     profile_path: Path,
     image: str,
-    resolver: Callable[[str, object, object], bool] | None = None,
 ) -> None:
     """Merge an optional native configuration into the persistent home volume."""
     if profile.configuration_import is None:
@@ -151,19 +149,47 @@ def _apply_configuration_import(
     home_path, _, format_name = configuration_target(profile)
     home_volume = profile.home_volume or default_home_volume(profile)
     existing_text = _read_home_file(image, home_volume, home_path, target)
-    existing = parse_document(existing_text, format_name) if existing_text is not None else None
+    existing = (
+        {} if existing_text == "" else parse_document(existing_text, format_name) if existing_text is not None else None
+    )
     try:
-        merged = merge_documents(existing, incoming, resolver)
-    except ConfigurationConflict as conflict:
-        raise LifecycleError(str(conflict)) from conflict
+        conflicts = _configuration_conflict_paths(existing, incoming) if existing is not None else []
+        for path in conflicts:
+            resolution = (
+                "replacing existing value"
+                if profile.configuration_import.on_conflict == "replace"
+                else "keeping existing value"
+            )
+            print(f"[agent-containers] configuration conflict at {path or '<root>'}: {resolution}", file=sys.stderr)
+        merged = merge_documents(
+            existing,
+            incoming,
+            lambda _path, _existing, _incoming: (
+                profile.configuration_import is not None and profile.configuration_import.on_conflict == "replace"
+            ),
+        )
     except ConfigurationError as exc:
         raise LifecycleError(str(exc)) from exc
     _write_home_file(image, home_volume, home_path, target, serialize_document(merged, format_name))
 
 
+def _configuration_conflict_paths(existing: object, incoming: object, path: str = "") -> list[str]:
+    """Find merge conflicts without exposing either configuration value."""
+    if isinstance(existing, dict) and isinstance(incoming, dict):
+        paths: list[str] = []
+        for key, value in incoming.items():
+            child = f"{path}.{key}" if path else str(key)
+            if key in existing:
+                paths.extend(_configuration_conflict_paths(existing[key], value, child))
+        return paths
+    return [] if existing == incoming else [path]
+
+
 def _read_home_file(image: str, volume: str, home_path: str, target: str) -> str | None:
     """Read one config file from a volume with a disposable networkless helper."""
-    script = f"if [ -f {shlex.quote(target)} ]; then cat {shlex.quote(target)}; fi"
+    script = (
+        f"if [ -f {shlex.quote(target)} ]; then cat {shlex.quote(target)}; else printf '%s' {_MISSING_HOME_FILE!r}; fi"
+    )
     result = subprocess.run(
         _volume_helper_argv(image, volume, home_path, script),
         check=False,
@@ -174,7 +200,7 @@ def _read_home_file(image: str, volume: str, home_path: str, target: str) -> str
         raise LifecycleError(
             f"could not read existing configuration from home volume {volume}: {result.stderr.strip()}"
         )
-    return result.stdout if result.stdout else None
+    return None if result.stdout == _MISSING_HOME_FILE else result.stdout
 
 
 def _write_home_file(image: str, volume: str, home_path: str, target: str, content: str) -> None:
@@ -191,7 +217,7 @@ if [ -e "$target" ]; then
   owner=$(stat -c '%u:%g' "$target")
 else
   mode=600
-  owner=$(stat -c '%u:%g' "$(dirname "$target")")
+  owner=$(stat -c '%u:%g' {shlex.quote(home_path)})
 fi
 install -m "$mode" /tmp/agent-config "$target.agent-containers.tmp"
 chown "$owner" "$target.agent-containers.tmp"
@@ -256,7 +282,8 @@ def rollback_profile(
     profile: Profile,
     state_path: Path | None = None,
     shortcuts_path: Path | None = None,
-    profile_path: Path | None = None,
+    *,
+    profile_path: Path,
 ) -> DeploymentRecord:
     """Select the immediately preceding retained image after verifying it exists."""
     target_state_path = state_path or default_state_path(profile)
@@ -270,12 +297,11 @@ def rollback_profile(
         raise LifecycleError("no prior deployment is retained for rollback")
     target = state.deployments[selected_index - 1]
     _docker("docker", "image", "inspect", target.image)
-    restored_profile = Profile.model_validate(target.profile_snapshot)
-    shortcut_profile_path = profile_path or Path.cwd() / "profile.toml"
+    restored_profile = profile_from_snapshot(target.profile_snapshot)
     if shortcuts_path is not None:
         # A historical profile may reference an input that no longer exists;
         # refuse before changing state so rollback cannot strand the shortcut.
-        render_shortcut(restored_profile, target, shortcut_profile_path)
+        render_shortcut(restored_profile, target, profile_path)
         decant_sources = _resolve_decant_sources(restored_profile, target, target_state_path)
         if restored_profile.decant.enabled:
             render_decant_shortcut(restored_profile, decant_sources)
@@ -286,7 +312,7 @@ def rollback_profile(
     ]
     save_state(target_state_path, state)
     if shortcuts_path is not None:
-        update_shortcuts(shortcuts_path, restored_profile, target, shortcut_profile_path, decant_sources)
+        update_shortcuts(shortcuts_path, restored_profile, target, profile_path, decant_sources)
     return state.selected_deployment or target
 
 
@@ -310,6 +336,7 @@ def rollback_preview(record: DeploymentRecord) -> list[str]:
 def doctor_profile(profile: Profile, state_path: Path | None = None) -> DoctorReport:
     """Inspect local Docker/state prerequisites without building or mutating resources."""
     lines: list[str] = []
+    lines.append(f"Egress mode: {profile.egress.mode}")
     docker_available = _probe("docker", "version", "--format", "{{.Server.Version}}")
     lines.append(f"Docker daemon: {'available' if docker_available else 'unavailable'}")
     target_state_path = state_path or default_state_path(profile)
@@ -438,7 +465,7 @@ def _new_record(profile: Profile, image: str, profile_path: Path | None = None) 
         image=image,
         home_volume=profile.home_volume or default_home_volume(profile),
         profile_digest=digest,
-        profile_snapshot=profile_snapshot(profile),
+        profile_snapshot=profile_snapshot(profile, profile_path),
         launch_digest=digest,
         created_at=datetime.now(UTC),
         selected=True,

@@ -96,8 +96,8 @@ def test_apply_builds_selects_and_launches_profile(tmp_path: Path) -> None:
             subprocess.run(["docker", "image", "rm", "-f", record.image], check=False, capture_output=True)
 
 
-def test_apply_refuses_to_overwrite_an_existing_seed_target(tmp_path: Path) -> None:
-    """A failed copy-once seed leaves the previously selected deployment active."""
+def test_apply_reconciles_an_existing_seed_target_by_content(tmp_path: Path) -> None:
+    """An unchanged seed is idempotent while modified data needs explicit replacement."""
     if os.environ.get("AGENT_CONTAINERS_RUN_INTEGRATION") != "1":
         pytest.skip("set AGENT_CONTAINERS_RUN_INTEGRATION=1 to run Docker integration tests")
     if shutil.which("docker") is None:
@@ -125,12 +125,44 @@ def test_apply_refuses_to_overwrite_an_existing_seed_target(tmp_path: Path) -> N
         record = apply_profile(profile, profile_path, state_path)
         selected_before = load_state(state_path).selected_deployment
         assert selected_before == record
+        assert selected_before is not None
+        home_volume = selected_before.home_volume
+        assert home_volume is not None
 
         changed_profile = Profile.model_validate({**profile.model_dump(), "egress": {"hosts": ["127.0.0.2"]}})
+        changed_record = apply_profile(changed_profile, profile_path, state_path)
+        assert changed_record is not None
+
+        modified = subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--network=none",
+                "-v",
+                f"{home_volume}:/home/codex",
+                "alpine:latest",
+                "sh",
+                "-c",
+                "echo changed > /home/codex/.codex/settings.json",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if modified.returncode != 0:
+            pytest.skip("test helper image unavailable")
         with pytest.raises(subprocess.CalledProcessError):
             apply_profile(changed_profile, profile_path, state_path)
 
-        assert load_state(state_path).selected_deployment == selected_before
+        replace_profile = Profile.model_validate(
+            {
+                **changed_profile.model_dump(),
+                "mounts": [{**changed_profile.mounts[0].model_dump(), "on_conflict": "replace"}],
+            }
+        )
+        apply_profile(replace_profile, profile_path, state_path)
+        assert load_state(state_path).selected_deployment is not None
     finally:
         home_volume = (
             record.home_volume
@@ -170,7 +202,7 @@ def test_launch_only_update_can_be_rolled_back(tmp_path: Path) -> None:
         assert load_state(state_path).selected_deployment == updated_record
         assert "127.0.0.2" in shortcuts_path.read_text(encoding="utf-8")
 
-        restored = rollback_profile(updated, state_path, shortcuts_path, profile_path)
+        restored = rollback_profile(updated, state_path, shortcuts_path, profile_path=profile_path)
         assert restored == selected_initial
         assert load_state(state_path).selected_deployment == selected_initial
         assert "127.0.0.1" in shortcuts_path.read_text(encoding="utf-8")
@@ -206,7 +238,7 @@ def test_image_update_retains_previous_build_for_rollback(tmp_path: Path) -> Non
         assert state.selected_deployment == records[1]
         assert len(state.deployments) == 2
 
-        restored = rollback_profile(updated, state_path)
+        restored = rollback_profile(updated, state_path, profile_path=profile_path)
         assert restored == records[0]
         assert load_state(state_path).selected_deployment == records[0]
     finally:

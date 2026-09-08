@@ -63,7 +63,7 @@ read_only = true
     assert profile.packages.uv_tools == ["ruff"]
     assert profile.proxy is not None
     assert profile.proxy.no_proxy == ["localhost", "127.0.0.1"]
-    assert resolve_mount_source(profile, profile.mounts[0], profile_path) == tmp_path / "claude-settings.json"
+    assert resolve_mount_source(profile.mounts[0].source, profile_path) == tmp_path / "claude-settings.json"
 
 
 def test_unknown_profile_fields_are_rejected() -> None:
@@ -178,6 +178,54 @@ def test_seed_mount_is_explicitly_distinct() -> None:
         }
     )
     assert profile.mounts[0].type.value == "seed"
+    assert profile.mounts[0].on_conflict == "keep"
+    replaced = Profile(
+        name="local",
+        agent="hermes",
+        mounts=[
+            {
+                "type": "seed",
+                "source": "settings",
+                "target": "/opt/data/config",
+                "on_conflict": "replace",
+            }
+        ],
+    )
+    assert replaced.mounts[0].on_conflict == "replace"
+    with pytest.raises(ValidationError, match="only supported for seed"):
+        Profile(
+            name="local",
+            agent="hermes",
+            mounts=[{"source": "settings", "target": "/opt/data/config", "on_conflict": "replace"}],
+        )
+
+
+def test_egress_unrestricted_mode_is_explicit_and_exclusive() -> None:
+    """Unrestricted egress is a mode, never a wildcard hidden in an allowlist."""
+    assert Profile(name="local", agent="codex", egress={"mode": "unrestricted"}).egress.hosts == []
+    with pytest.raises(ValidationError, match='mode = "unrestricted"'):
+        Profile(name="local", agent="codex", egress={"hosts": ["*"]})
+    with pytest.raises(ValidationError, match='mode = "unrestricted"'):
+        Profile(name="local", agent="codex", egress={"hosts": ["api.example.test", "*"]})
+    with pytest.raises(ValidationError, match="must be empty"):
+        Profile(name="local", agent="codex", egress={"mode": "unrestricted", "hosts": ["api.example.test"]})
+
+
+def test_decant_bind_address_loopback_property_covers_host_forms() -> None:
+    """Loopback detection accepts localhost and IP forms, warning otherwise."""
+    assert Profile(name="local", agent="codex", decant={"bind_address": "localhost"}).decant.bind_address_is_loopback
+    assert Profile(name="local", agent="codex", decant={"bind_address": "::1"}).decant.bind_address_is_loopback
+    assert not Profile(
+        name="local", agent="codex", decant={"bind_address": "example.test"}
+    ).decant.bind_address_is_loopback
+
+
+def test_conflict_policy_rejects_unknown_configuration_import_values() -> None:
+    """Configuration imports accept only keep and replace policies."""
+    with pytest.raises(ValidationError, match="on_conflict"):
+        Profile(name="local", agent="codex", configuration_import={"source": "x", "on_conflict": "prompt"})
+    with pytest.raises(ValidationError, match="mount on_conflict"):
+        Profile(name="local", agent="codex", mounts=[{"source": "x", "target": "/x", "on_conflict": "prompt"}])
 
 
 def test_configuration_import_validates_optional_fields_and_conflicts() -> None:

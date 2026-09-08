@@ -20,22 +20,6 @@ RUN apt-get update \
         sshuttle \
     && rm -rf /var/lib/apt/lists/*
 
-# Optional profile-managed organisational CAs; see claude-code/Dockerfile.
-COPY proxy-ca.d/ /tmp/agent-containers-proxy-ca/
-RUN set -eu; \
-    mkdir -p /usr/local/share/ca-certificates/custom; \
-    found=0; \
-    for cert in /tmp/agent-containers-proxy-ca/*; do \
-        [ -f "$cert" ] || continue; \
-        name="$(basename "$cert")"; \
-        [ "$name" = ".keep" ] && continue; \
-        case "$name" in *.crt) ;; *) name="${name%.*}.crt" ;; esac; \
-        cp "$cert" "/usr/local/share/ca-certificates/custom/$name"; \
-        found=1; \
-    done; \
-    if [ "$found" -eq 1 ]; then update-ca-certificates; fi; \
-    rm -rf /tmp/agent-containers-proxy-ca
-
 # User-configurable default software (gh, jq, ripgrep, ...) — see
 # packages-apt.txt. Kept as a separate RUN from the baseline block above so
 # the required-infra list stays untouched by editing that file.
@@ -98,6 +82,24 @@ RUN mkdir -p /opt/agent-tools/npm /opt/agent-tools/uv-tools /opt/agent-tools/bin
 RUN curl -fsSL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${TARGETARCH}" \
       -o /usr/local/bin/cloudflared \
     && chmod +x /usr/local/bin/cloudflared
+
+# Optional profile-managed organisational CAs are installed after all
+# networked build steps. No build-time proxy arguments are used, so rotating a
+# CA only invalidates this trailing trust-store layer.
+COPY proxy-ca.d/ /tmp/agent-containers-proxy-ca/
+RUN set -eu; \
+    mkdir -p /usr/local/share/ca-certificates/custom; \
+    found=0; \
+    for cert in /tmp/agent-containers-proxy-ca/*; do \
+        [ -f "$cert" ] || continue; \
+        name="$(basename "$cert")"; \
+        [ "$name" = ".keep" ] && continue; \
+        case "$name" in *.crt) ;; *) name="${name%.*}.crt" ;; esac; \
+        cp "$cert" "/usr/local/share/ca-certificates/custom/$name"; \
+        found=1; \
+    done; \
+    if [ "$found" -eq 1 ]; then update-ca-certificates; fi; \
+    rm -rf /tmp/agent-containers-proxy-ca
 
 COPY --from=shared egress-allowlist.sh /usr/local/lib/agent/egress-allowlist.sh
 
