@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from enum import StrEnum
 from pathlib import Path
 
@@ -21,6 +20,13 @@ class PlanAction(StrEnum):
     NOOP = "no-op"
 
 
+class PlanWarning(BaseModel):
+    """Stable machine-readable warning with human-facing text."""
+
+    code: str
+    message: str
+
+
 class Plan(BaseModel):
     """A deterministic, explicitly offline description of desired changes."""
 
@@ -30,7 +36,9 @@ class Plan(BaseModel):
     profile_digest: str = Field(min_length=64, max_length=64)
     actions: list[PlanAction]
     changed_sections: list[str] = Field(default_factory=list)
-    warnings: list[str] = Field(default_factory=list)
+    changed_image: list[str] = Field(default_factory=list)
+    changed_launch: list[str] = Field(default_factory=list)
+    warnings: list[PlanWarning] = Field(default_factory=list)
     live_state_checked: bool = False
 
     @property
@@ -52,7 +60,7 @@ class Plan(BaseModel):
             lines.extend(f"- {section}" for section in self.changed_sections)
         if self.warnings:
             lines.append("Warnings:")
-            lines.extend(f"- {warning}" for warning in self.warnings)
+            lines.extend(f"- {warning.message}" for warning in self.warnings)
         return lines
 
     def json_payload(self) -> dict[str, object]:
@@ -62,64 +70,51 @@ class Plan(BaseModel):
             "profile_name": self.profile_name,
             "actions": [
                 {"kind": action.value, "reason": reason}
-                for action, reason in _action_reasons(self.actions, self.changed_sections)
+                for action, reason in _action_reasons(self.actions, self.changed_image, self.changed_launch)
             ],
-            "warnings": [_warning_payload(warning) for warning in self.warnings],
+            "warnings": [warning.model_dump() for warning in self.warnings],
         }
 
 
-def _action_reasons(actions: list[PlanAction], changed_sections: list[str]) -> list[tuple[PlanAction, str]]:
+def _action_reasons(
+    actions: list[PlanAction], changed_image: list[str], changed_launch: list[str]
+) -> list[tuple[PlanAction, str]]:
     """Associate each existing plan action with a stable reason string."""
     if actions == [PlanAction.NOOP]:
         return [(PlanAction.NOOP, "profile matches selected deployment")]
-    image_reasons = [
-        section for section in changed_sections if section in {"agent", "packages", "langfuse", "proxy CA contents"}
-    ]
-    launch_reasons = [section for section in changed_sections if section not in image_reasons]
     reasons: list[tuple[PlanAction, str]] = []
     for action in actions:
         if action == PlanAction.CREATE_IMAGE:
             reason = "initial deployment"
         elif action == PlanAction.UPDATE_IMAGE:
-            reason = ", ".join(image_reasons) or "profile image changed"
+            reason = ", ".join(changed_image) or "profile image changed"
         elif action == PlanAction.UPDATE_LAUNCH:
-            reason = ", ".join(launch_reasons) or "profile launch changed"
+            reason = ", ".join(changed_launch) or "profile launch changed"
         else:
             reason = "profile changed"
         reasons.append((action, reason))
     return reasons
 
 
-def _warning_payload(warning: str) -> dict[str, str]:
-    """Convert human warning text into a stable machine-readable code."""
-    if warning == "Unrestricted egress is enabled.":
-        return {"code": "unrestricted_egress"}
-    if warning == "Decant is bound to a non-loopback address.":
-        return {"code": "decant_non_loopback_bind"}
-    if warning == "Live Docker state was not inspected.":
-        return {"code": "live_state_unchecked"}
-    if warning == "No selected deployment is recorded.":
-        return {"code": "no_selected_deployment"}
-    code = re.sub(r"[^a-z0-9]+", "_", warning.lower()).strip("_")
-    return {"code": code or "unknown_warning"}
-
-
 def build_plan(profile: Profile, state: DeploymentState | None = None, profile_path: Path | None = None) -> Plan:
     """Compare a profile with recorded state without contacting Docker."""
     snapshot = profile_snapshot(profile)
     digest = profile_digest(profile, profile_path)
-    warnings = ["Live Docker state was not inspected."]
+    warnings = [PlanWarning(code="live_state_unchecked", message="Live Docker state was not inspected.")]
     if profile.egress.mode == "unrestricted":
-        warnings.append("Unrestricted egress is enabled.")
+        warnings.append(PlanWarning(code="unrestricted_egress", message="Unrestricted egress is enabled."))
     if profile.decant.enabled and not profile.decant.bind_address_is_loopback:
-        warnings.append("Decant is bound to a non-loopback address.")
+        warnings.append(
+            PlanWarning(code="decant_non_loopback_bind", message="Decant is bound to a non-loopback address.")
+        )
     if state is None or state.selected_deployment is None:
         return Plan(
             profile_name=profile.name,
             profile_digest=digest,
             actions=[PlanAction.CREATE_IMAGE],
             changed_sections=["initial deployment"],
-            warnings=warnings + ["No selected deployment is recorded."],
+            warnings=warnings
+            + [PlanWarning(code="no_selected_deployment", message="No selected deployment is recorded.")],
         )
 
     selected = state.selected_deployment
@@ -165,6 +160,10 @@ def build_plan(profile: Profile, state: DeploymentState | None = None, profile_p
         if "_configuration_import_digest" in current_content and previous_import is None and profile.proxy is None:
             changed_launch.append("configuration import contents")
             changed.append("configuration import contents")
+        if not changed:
+            changed_image.append("profile inputs changed")
+            changed_launch.append("profile inputs changed")
+            changed.append("profile inputs changed")
     if not changed:
         actions = [PlanAction.NOOP]
     else:
@@ -178,5 +177,7 @@ def build_plan(profile: Profile, state: DeploymentState | None = None, profile_p
         profile_digest=digest,
         actions=actions,
         changed_sections=changed,
+        changed_image=changed_image,
+        changed_launch=changed_launch,
         warnings=warnings,
     )

@@ -9,6 +9,7 @@ from agent_containers.docker import DockerCommandError
 from agent_containers.profile import Profile
 from agent_containers.shortcuts import (
     ShortcutError,
+    _replace_block,
     decant_shortcut_function_name,
     default_shortcuts_path,
     render_decant_shortcut,
@@ -69,6 +70,12 @@ def test_update_shortcuts_replaces_only_matching_profile_block(tmp_path: Path) -
     text = path.read_text(encoding="utf-8")
     assert text.count("# BEGIN agent-containers profile work-codex") == 1
     assert text.count("# BEGIN agent-containers profile local-codex") == 1
+
+
+def test_replace_block_names_non_profile_blocks_in_errors() -> None:
+    """Malformed generated blocks identify their actual block kind."""
+    with pytest.raises(ShortcutError, match="for decant analytics"):
+        _replace_block("# BEGIN agent-containers decant analytics\n", "decant analytics", "")
 
 
 def test_render_shortcut_includes_opencode_provider_config(tmp_path: Path) -> None:

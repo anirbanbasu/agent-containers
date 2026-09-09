@@ -298,6 +298,18 @@ run_containment_tests() {
             sh -c 'curl -fsS --connect-timeout 3 http://blocked.test:8080/ >/dev/null'; then
             fail "$image reached a host outside its egress allowlist."
         fi
+
+        echo "[test-images] Testing wildcard egress handling for $image"
+        run_workload "$image" "$home" '*' \
+            sh -c 'curl -fsS --connect-timeout 3 http://blocked.test:8080/ | grep -q "Directory listing"'
+        run_workload "$image" "$home" ' * ' \
+            sh -c 'curl -fsS --connect-timeout 3 http://blocked.test:8080/ | grep -q "Directory listing"'
+        local mixed_output
+        if mixed_output=$(run_workload "$image" "$home" 'allowed.test,*' sh -c 'true' 2>&1); then
+            fail "$image accepted a wildcard combined with named egress hosts."
+        fi
+        grep -Fq "refusing to start" <<< "$mixed_output" \
+            || fail "$image did not report the mixed wildcard refusal."
     done
 }
 

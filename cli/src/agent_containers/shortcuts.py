@@ -55,8 +55,7 @@ def render_shortcut(profile: Profile, record: DeploymentRecord, profile_path: Pa
         )
     except DockerCommandError as exc:
         raise ShortcutError(str(exc)) from exc
-    tokens: list[str | object] = [token for token in argv]
-    rendered = " \\\n    ".join(_render_token(token) for token in tokens)
+    rendered = " \\\n    ".join(_render_token(token) for token in argv)
     name = shortcut_function_name(profile)
     notice = (
         f"  echo \"[agent-containers] egress filtering is DISABLED for profile '{profile.name}'\" >&2\n"
@@ -149,8 +148,7 @@ def _replace_block(existing: str, key: str, block: str) -> str:
         try:
             finish = existing.index(end, start) + len(end)
         except ValueError as exc:
-            profile_name = key.removeprefix("profile ")
-            raise ShortcutError(f"incomplete generated block for profile {profile_name} in profiles.sh") from exc
+            raise ShortcutError(f"incomplete generated block for {key} in profiles.sh") from exc
         replacement = block
         return existing[:start] + replacement + existing[finish:]
     if not block:

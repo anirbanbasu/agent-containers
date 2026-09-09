@@ -6,6 +6,15 @@ on:
       - "cli/**"
       - "justfile"
       - ".github/workflows/cli.yml"
+  push:
+    branches:
+      - master
+    paths:
+      - "cli/**"
+      - "justfile"
+      - ".github/workflows/cli.yml"
+  schedule:
+    - cron: "17 3 * * *"
 
 permissions:
   contents: read
@@ -32,3 +41,18 @@ jobs:
         run: |
           uv run --project cli --group test coverage run -m pytest cli/tests/unit cli/tests/packaging
           uv run --project cli --group test coverage report
+
+  integration:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+
+      - name: Test CLI integration
+        env:
+          AGENT_CONTAINERS_RUN_INTEGRATION: "1"
+        run: uv run --project cli --group test pytest cli/tests/integration -m integration -v

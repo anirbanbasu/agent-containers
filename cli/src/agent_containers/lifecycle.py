@@ -210,7 +210,22 @@ def _write_home_file(image: str, volume: str, home_path: str, target: str, conte
         source.write_text(content, encoding="utf-8")
         script = f"""set -eu
 target={shlex.quote(target)}
+home={shlex.quote(home_path)}
+owner=$(stat -c '%u:%g' "$home")
+dir=$(dirname "$target")
+missing=""
+probe="$dir"
+while [ "$probe" != "$home" ] && [ "$probe" != "/" ] && [ ! -d "$probe" ]; do
+  missing="$probe
+$missing"
+  probe=$(dirname "$probe")
+done
 mkdir -p "$(dirname "$target")"
+printf '%s\\n' "$missing" | while IFS= read -r created; do
+  [ -n "$created" ] || continue
+  chown "$owner" "$created"
+  chmod 700 "$created"
+done
 if [ -e "$target" ]; then
   cp -p "$target" "$target.agent-containers.bak"
   mode=$(stat -c '%a' "$target")

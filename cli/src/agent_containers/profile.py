@@ -164,8 +164,6 @@ class EgressConfig(BaseModel):
     @model_validator(mode="after")
     def gateway_requires_port(self) -> Self:
         """Require a complete gateway address when either part is supplied."""
-        if self.mode == "unrestricted" and self.hosts:
-            raise ValueError("egress hosts must be empty when mode is unrestricted")
         if (self.gateway_host is None) != (self.gateway_port is None):
             raise ValueError("gateway_host and gateway_port must be supplied together")
         options = (
@@ -180,6 +178,15 @@ class EgressConfig(BaseModel):
             raise ValueError("gateway options require gateway_host")
         if (self.gateway_key_file is None) != (self.gateway_known_hosts_file is None):
             raise ValueError("gateway_key_file and gateway_known_hosts_file must be supplied together")
+        return self
+
+    @model_validator(mode="after")
+    def unrestricted_egress_has_no_gateway_or_hosts(self) -> Self:
+        """Keep unrestricted egress exclusive of host and gateway policies."""
+        if self.mode == "unrestricted" and self.hosts:
+            raise ValueError("egress hosts must be empty when mode is unrestricted")
+        if self.mode == "unrestricted" and self.gateway_host is not None:
+            raise ValueError("gateway_host cannot be used when mode is unrestricted")
         return self
 
 

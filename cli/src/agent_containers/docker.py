@@ -47,11 +47,11 @@ _AGENT_COMMANDS = {
 }
 _CAPABILITIES = ("NET_ADMIN", "NET_RAW", "SETUID", "SETGID")
 _WORKSPACE_EXEC = {AgentName.OPENCODE, AgentName.HERMES}
-_SEED_USER_IDS = {
-    AgentName.CLAUDE_CODE: 1000,
-    AgentName.OPENCODE: 1000,
-    AgentName.CODEX: 1000,
-    AgentName.HERMES: 10000,
+_SEED_USERS = {
+    AgentName.CLAUDE_CODE: "claude",
+    AgentName.OPENCODE: "opencode",
+    AgentName.CODEX: "codex",
+    AgentName.HERMES: "hermes",
 }
 _SEED_COPY_SCRIPT = """set -eu
 hash_tree() {
@@ -65,7 +65,24 @@ hash_tree() {
     fi
 }
 
-mkdir -p "$(dirname "$SEED_TARGET")"
+home="$SEED_HOME"
+owner=$(stat -c '%u:%g' "$home")
+SEED_UID=$(id -u "$SEED_USER")
+SEED_GID=$(id -g "$SEED_USER")
+dir=$(dirname "$SEED_TARGET")
+missing=""
+probe="$dir"
+while [ "$probe" != "$home" ] && [ "$probe" != "/" ] && [ ! -d "$probe" ]; do
+  missing="$probe
+$missing"
+  probe=$(dirname "$probe")
+done
+mkdir -p "$dir"
+printf '%s\\n' "$missing" | while IFS= read -r created; do
+  [ -n "$created" ] || continue
+  chown "$owner" "$created"
+  chmod 700 "$created"
+done
 if [ -e "$SEED_TARGET" ]; then
     source_digest=$(hash_tree /tmp/agent-seed)
     target_digest=$(hash_tree "$SEED_TARGET")
@@ -76,14 +93,16 @@ if [ -e "$SEED_TARGET" ]; then
         echo "seed target already differs: $SEED_TARGET (set on_conflict = replace to replace it)" >&2
         exit 1
     fi
+    rm -rf "$SEED_TARGET.agent-containers.bak"
     cp -R "$SEED_TARGET" "$SEED_TARGET.agent-containers.bak"
+    chown -R "$SEED_UID:$SEED_GID" "$SEED_TARGET.agent-containers.bak"
     rm -rf "$SEED_TARGET"
 fi
 # Do not preserve host-side metadata from a bind-mounted source. The source's
 # ownership, mode, or timestamps may not be preservable under the helper's
 # deliberately minimal capability set.
 cp -R --no-preserve=mode,ownership,timestamps /tmp/agent-seed "$SEED_TARGET"
-chown -R "$SEED_UID:$SEED_UID" "$SEED_TARGET"
+chown -R "$SEED_UID:$SEED_GID" "$SEED_TARGET"
 """
 _HERMES_BASE_URL_ENV = {
     "anthropic": "ANTHROPIC_BASE_URL",
@@ -228,7 +247,7 @@ def build_seed_argv(
     if not source.exists():
         raise DockerCommandError(f"seed source does not exist: {source}")
     home = home_volume or profile.home_volume or default_home_volume(profile)
-    uid = _SEED_USER_IDS[profile.agent]
+    seed_user = _SEED_USERS[profile.agent]
     return (
         "docker",
         "run",
@@ -256,7 +275,9 @@ def build_seed_argv(
         "-e",
         f"SEED_TARGET={mount.target}",
         "-e",
-        f"SEED_UID={uid}",
+        f"SEED_USER={seed_user}",
+        "-e",
+        f"SEED_HOME={home_path}",
         "-e",
         f"SEED_ON_CONFLICT={mount.on_conflict}",
         "--entrypoint",

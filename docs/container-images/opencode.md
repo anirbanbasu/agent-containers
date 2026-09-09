@@ -9,8 +9,9 @@ terminal coding agent, in the repository's standard hardened workload
 environment: non-root execution, a read-only root filesystem, minimal Linux
 capabilities, and deny-by-default outbound networking.
 
-It uses `python:3.14-slim-trixie` plus Node LTS. OpenCode is installed from
-the official `opencode-ai` npm package. Python, `uv`, and `uvx` are included
+It uses `python:3.14-slim-trixie` plus Node LTS. OpenCode and its
+`@ai-sdk/openai-compatible` provider adapter are installed from npm into the
+image-owned `/opt/agent-tools/npm` prefix. Python, `uv`, and `uvx` are included
 so OpenCode can run Python-based MCP servers and project tooling without a
 custom derivative image.
 

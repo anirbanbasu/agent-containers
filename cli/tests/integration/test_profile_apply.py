@@ -129,10 +129,6 @@ def test_apply_reconciles_an_existing_seed_target_by_content(tmp_path: Path) -> 
         home_volume = selected_before.home_volume
         assert home_volume is not None
 
-        changed_profile = Profile.model_validate({**profile.model_dump(), "egress": {"hosts": ["127.0.0.2"]}})
-        changed_record = apply_profile(changed_profile, profile_path, state_path)
-        assert changed_record is not None
-
         modified = subprocess.run(
             [
                 "docker",
@@ -152,6 +148,7 @@ def test_apply_reconciles_an_existing_seed_target_by_content(tmp_path: Path) -> 
         )
         if modified.returncode != 0:
             pytest.skip("test helper image unavailable")
+        changed_profile = Profile.model_validate({**profile.model_dump(), "egress": {"hosts": ["127.0.0.2"]}})
         with pytest.raises(subprocess.CalledProcessError):
             apply_profile(changed_profile, profile_path, state_path)
 
@@ -161,7 +158,8 @@ def test_apply_reconciles_an_existing_seed_target_by_content(tmp_path: Path) -> 
                 "mounts": [{**changed_profile.mounts[0].model_dump(), "on_conflict": "replace"}],
             }
         )
-        apply_profile(replace_profile, profile_path, state_path)
+        changed_record = apply_profile(replace_profile, profile_path, state_path)
+        assert changed_record is not None
         assert load_state(state_path).selected_deployment is not None
     finally:
         home_volume = (
@@ -171,6 +169,166 @@ def test_apply_reconciles_an_existing_seed_target_by_content(tmp_path: Path) -> 
         )
         image = record.image if record is not None else default_image_tag(profile, profile_path)
         subprocess.run(["docker", "volume", "rm", "-f", home_volume], check=False, capture_output=True)
+        subprocess.run(["docker", "image", "rm", "-f", image], check=False, capture_output=True)
+
+
+def test_configuration_import_creates_agent_owned_nested_directory(tmp_path: Path) -> None:
+    """A configuration import makes newly created parent directories writable by the agent."""
+    if os.environ.get("AGENT_CONTAINERS_RUN_INTEGRATION") != "1":
+        pytest.skip("set AGENT_CONTAINERS_RUN_INTEGRATION=1 to run Docker integration tests")
+    if shutil.which("docker") is None:
+        pytest.skip("Docker is not installed")
+    subprocess.run(["docker", "info"], check=True, capture_output=True)
+
+    source = tmp_path / "settings.toml"
+    source.write_text('model = "integration-model"\n', encoding="utf-8")
+    profile_path = tmp_path / "integration-config-directory.toml"
+    state_path = tmp_path / "state.json"
+    profile = Profile(
+        name="integration-config-directory",
+        agent="codex",
+        egress={"hosts": ["127.0.0.1"]},
+        configuration_import={
+            "source": source.name,
+            "target": "/home/codex/.config/newdir/settings.toml",
+            "format": "toml",
+        },
+    )
+    record = None
+    try:
+        record = apply_profile(profile, profile_path, state_path)
+        launch = list(
+            build_run_argv(profile, tmp_path, profile_path, image=record.image, home_volume=record.home_volume)
+        )
+        launch.remove("-it")
+        launch.insert(2, "--network=none")
+        image_index = launch.index(record.image)
+        launch[image_index:] = [
+            record.image,
+            "sh",
+            "-ceu",
+            (
+                'test "$(stat -c \'%u:%g\' /home/codex/.config/newdir)" = "$(id -u):$(id -g)"\n'
+                "touch /home/codex/.config/newdir/created-by-agent\n"
+                "test -f /home/codex/.config/newdir/created-by-agent"
+            ),
+        ]
+        subprocess.run(launch, check=True, capture_output=True, text=True)
+    finally:
+        volume = (
+            record.home_volume
+            if record is not None and record.home_volume is not None
+            else default_home_volume(profile)
+        )
+        image = record.image if record is not None else default_image_tag(profile, profile_path)
+        subprocess.run(["docker", "volume", "rm", "-f", volume], check=False, capture_output=True)
+        subprocess.run(["docker", "image", "rm", "-f", image], check=False, capture_output=True)
+
+
+def test_replace_directory_seed_refreshes_owned_non_nested_backup(tmp_path: Path) -> None:
+    """Replacing a directory seed backs up exactly the prior tree for the agent."""
+    if os.environ.get("AGENT_CONTAINERS_RUN_INTEGRATION") != "1":
+        pytest.skip("set AGENT_CONTAINERS_RUN_INTEGRATION=1 to run Docker integration tests")
+    if shutil.which("docker") is None:
+        pytest.skip("Docker is not installed")
+    subprocess.run(["docker", "info"], check=True, capture_output=True)
+
+    seed_source = tmp_path / "settings"
+    seed_source.mkdir()
+    (seed_source / "config.txt").write_text("seed", encoding="utf-8")
+    profile_path = tmp_path / "integration-directory-seed.toml"
+    state_path = tmp_path / "state.json"
+    profile = Profile(
+        name="integration-directory-seed",
+        agent="codex",
+        egress={"hosts": ["127.0.0.1"]},
+        mounts=[
+            {
+                "type": "seed",
+                "source": "settings",
+                "target": "/home/codex/.codex/settings",
+                "on_conflict": "replace",
+            }
+        ],
+    )
+    record = None
+    try:
+        record = apply_profile(profile, profile_path, state_path)
+        assert record.home_volume is not None
+        seed_target = "/home/codex/.codex/settings"
+        subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--network=none",
+                "--mount",
+                f"type=volume,src={record.home_volume},dst=/home/codex",
+                "--entrypoint",
+                "/bin/sh",
+                record.image,
+                "-ceu",
+                f"echo first > {seed_target}/manual.txt",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        first_replace = Profile.model_validate({**profile.model_dump(), "egress": {"hosts": ["127.0.0.2"]}})
+        apply_profile(first_replace, profile_path, state_path)
+        subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--network=none",
+                "--mount",
+                f"type=volume,src={record.home_volume},dst=/home/codex",
+                "--entrypoint",
+                "/bin/sh",
+                record.image,
+                "-ceu",
+                f"echo second > {seed_target}/manual.txt",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        second_replace = Profile.model_validate({**first_replace.model_dump(), "egress": {"hosts": ["127.0.0.3"]}})
+        apply_profile(second_replace, profile_path, state_path)
+        inspected = subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--network=none",
+                "--mount",
+                f"type=volume,src={record.home_volume},dst=/home/codex,readonly",
+                "--entrypoint",
+                "/bin/sh",
+                record.image,
+                "-ceu",
+                (
+                    "uid=$(id -u codex)\n"
+                    "gid=$(id -g codex)\n"
+                    f'test "$(stat -c %u:%g {seed_target}.agent-containers.bak)" = "$uid:$gid"\n'
+                    f'test "$(cat {seed_target}.agent-containers.bak/manual.txt)" = second\n'
+                    f"test ! -e {seed_target}.agent-containers.bak/settings"
+                ),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        assert inspected.returncode == 0
+    finally:
+        volume = (
+            record.home_volume
+            if record is not None and record.home_volume is not None
+            else default_home_volume(profile)
+        )
+        image = record.image if record is not None else default_image_tag(profile, profile_path)
+        subprocess.run(["docker", "volume", "rm", "-f", volume], check=False, capture_output=True)
         subprocess.run(["docker", "image", "rm", "-f", image], check=False, capture_output=True)
 
 

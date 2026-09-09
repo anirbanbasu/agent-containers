@@ -34,7 +34,18 @@ def test_standalone_sdist_to_installed_wheel(tmp_path: Path) -> None:
     shutil.copytree(
         REPOSITORY,
         checkout,
-        ignore=shutil.ignore_patterns(".git", ".venv", "dist", "_assets"),
+        ignore=shutil.ignore_patterns(
+            ".git",
+            ".env",
+            ".venv",
+            ".venv*",
+            "dist",
+            "_assets",
+            "site",
+            "__pycache__",
+            ".pytest_cache",
+            "node_modules",
+        ),
     )
     run(sys.executable, "cli/scripts/bundle_image_assets.py", cwd=checkout)
     dist = tmp_path / "dist"

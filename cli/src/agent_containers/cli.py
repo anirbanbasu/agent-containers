@@ -176,9 +176,7 @@ def create(
     non_interactive = _is_non_interactive(ctx)
     try:
         direct_options = (
-            non_interactive
-            or config is not None
-            or any(value is not None for key, value in option_values.__dict__.items() if key != "configuration_import")
+            non_interactive or config is not None or option_values.has_values(exclude={"configuration_import"})
         )
         document = (
             profile_from_options(profile, option_values, config, non_interactive=non_interactive)
@@ -237,7 +235,6 @@ def apply(
 ) -> None:
     """Build, safely seed, and select a profile deployment without launching it."""
     try:
-        _ = _is_non_interactive(ctx)
         document = load_profile(profile)
         if sys.platform == "darwin":
             typer.echo(
@@ -281,7 +278,6 @@ def rollback(
 ) -> None:
     """Restore the immediately previous retained image and managed launch record."""
     try:
-        _ = _is_non_interactive(ctx)
         document = load_profile(profile)
         record = rollback_profile(document, state, default_shortcuts_path(), profile_path=profile)
     except (

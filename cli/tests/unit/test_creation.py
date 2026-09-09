@@ -9,6 +9,7 @@ from agent_containers.creation import (
     ProfileCreationError,
     ProfileOptionValues,
     _apply_options,
+    _missing_noninteractive_fields,
     _validate_partial_keys,
     profile_from_options,
     prompt_profile,
@@ -170,11 +171,17 @@ def test_profile_options_apply_all_flat_fields_and_config_import(tmp_path: Path)
         configuration_import=source,
     )
     assert options.has_values()
+    assert options.has_values(exclude={"configuration_import"})
     profile = profile_from_options(tmp_path / "work.toml", options, non_interactive=True)
     assert profile.name == "work"
     assert profile.packages.uv_libraries == ["httpx"]
     assert profile.egress.gateway_port == 22
     assert profile.configuration_import is not None
+
+
+def test_noninteractive_required_fields_follow_profile_model() -> None:
+    """The machine-readable missing-field contract tracks Profile requirements."""
+    assert set(_missing_noninteractive_fields({})) == {"name", "agent"}
 
 
 def test_profile_options_validate_partial_nested_keys_and_shapes(tmp_path: Path) -> None:

@@ -318,6 +318,8 @@ def test_configuration_volume_helpers_are_networkless_and_fail_safely(
     assert any("type=volume,src=volume,dst=/home/codex" in value and "readonly" not in value for value in calls[-1])
     assert any("type=bind" in value for value in calls[-1])
     assert "stat -c '%u:%g' /home/codex" in calls[-1][-1]
+    assert 'while [ "$probe" != "$home" ]' in calls[-1][-1]
+    assert 'chmod 700 "$created"' in calls[-1][-1]
     assert "--cap-add=CHOWN" in _volume_helper_argv("image", "volume", "/home/codex", "true")
 
     class Failed(Result):

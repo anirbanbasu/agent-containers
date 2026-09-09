@@ -85,6 +85,65 @@ def test_opencode_provider_config_is_ephemeral(tmp_path: Path) -> None:
         subprocess.run(["docker", "image", "rm", "-f", image], check=False, capture_output=True)
 
 
+def test_opencode_provider_package_loads_without_registry_access(tmp_path: Path) -> None:
+    """A configured OpenCode provider does not need npm access at first launch."""
+    if os.environ.get("AGENT_CONTAINERS_RUN_INTEGRATION") != "1":
+        pytest.skip("set AGENT_CONTAINERS_RUN_INTEGRATION=1 to run Docker integration tests")
+    if shutil.which("docker") is None:
+        pytest.skip("Docker is not installed")
+    subprocess.run(["docker", "info"], check=True, capture_output=True)
+
+    profile_path = tmp_path / "integration-opencode-provider-load.toml"
+    profile = Profile(
+        name="integration-opencode-provider-load",
+        agent="opencode",
+        provider={
+            "kind": "custom",
+            "endpoint": "https://model.example.test/v1",
+            "model": "local-model",
+        },
+    )
+    contexts = prepare_build_contexts(profile, tmp_path / "context", profile_path)
+    image = "agent-containers/integration-opencode-provider-load:provider"
+    launch = list(build_run_argv(profile, tmp_path, profile_path, image=image))
+    launch.remove("-it")
+    launch.insert(2, "--network=none")
+    image_index = launch.index(image)
+    launch[image_index:] = [image, "opencode", "run", "--model", "agent_containers/local-model", "probe"]
+    try:
+        subprocess.run(
+            ["docker", "build", "--build-context", f"shared={contexts.shared}", "--tag", image, str(contexts.image)],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        subprocess.run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--network=none",
+                "--entrypoint",
+                "/bin/sh",
+                image,
+                "-ceu",
+                "find /opt/agent-tools/npm -path '*/@ai-sdk/openai-compatible' -type d -print -quit | grep -q .",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        result = subprocess.run(launch, check=False, capture_output=True, text=True)
+        assert result.returncode != 0
+        stderr = result.stderr.lower()
+        assert "cannot find package" not in stderr
+        assert "module not found" not in stderr
+        assert "npm install" not in stderr
+        assert "registry.npmjs.org" not in stderr
+    finally:
+        subprocess.run(["docker", "image", "rm", "-f", image], check=False, capture_output=True)
+
+
 def test_opencode_langfuse_plugin_is_profile_opt_in(tmp_path: Path) -> None:
     """An opted-in Langfuse profile installs its plugin without credentials."""
     if os.environ.get("AGENT_CONTAINERS_RUN_INTEGRATION") != "1":

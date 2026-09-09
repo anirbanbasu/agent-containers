@@ -640,8 +640,12 @@ def test_seed_command_is_networkless_create_only_and_home_scoped(tmp_path: Path)
     assert "--cap-add=CHOWN" in argv
     assert "--cap-add=DAC_OVERRIDE" in argv
     assert "SEED_TARGET=/home/codex/.codex/settings.json" in argv
+    assert "SEED_HOME=/home/codex" in argv
+    assert "SEED_USER=codex" in argv
     assert "hash_tree" in argv[-1]
     assert "--no-preserve=mode,ownership,timestamps" in argv[-1]
+    assert 'rm -rf "$SEED_TARGET.agent-containers.bak"' in argv[-1]
+    assert 'chown -R "$SEED_UID:$SEED_GID" "$SEED_TARGET.agent-containers.bak"' in argv[-1]
     assert "SEED_ON_CONFLICT=keep" in argv
     with pytest.raises(DockerCommandError, match="not configured"):
         build_seed_argv(profile, "/home/codex/.codex/other.json", tmp_path / "work.toml", image="image")

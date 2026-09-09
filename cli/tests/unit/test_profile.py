@@ -209,6 +209,12 @@ def test_egress_unrestricted_mode_is_explicit_and_exclusive() -> None:
         Profile(name="local", agent="codex", egress={"hosts": ["api.example.test", "*"]})
     with pytest.raises(ValidationError, match="must be empty"):
         Profile(name="local", agent="codex", egress={"mode": "unrestricted", "hosts": ["api.example.test"]})
+    with pytest.raises(ValidationError, match="gateway_host"):
+        Profile(
+            name="local",
+            agent="codex",
+            egress={"mode": "unrestricted", "gateway_host": "gateway.example.test", "gateway_port": 22},
+        )
 
 
 def test_decant_bind_address_loopback_property_covers_host_forms() -> None:

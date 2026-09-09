@@ -5,6 +5,10 @@ test-cli:
     COVERAGE_RCFILE=cli/pyproject.toml uv run --project cli --group test coverage run -m pytest cli/tests/unit cli/tests/packaging
     COVERAGE_RCFILE=cli/pyproject.toml uv run --project cli --group test coverage report
 
+# Run the Docker-backed CLI integration suite. Requires a running Docker daemon.
+test-cli-integration:
+    AGENT_CONTAINERS_RUN_INTEGRATION=1 uv run --project cli --group test pytest cli/tests/integration -m integration -v
+
 # Check Python style and types without modifying source files.
 check-cli:
     uv run --project cli --group test ruff check cli

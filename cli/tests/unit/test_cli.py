@@ -6,12 +6,15 @@ import tomllib
 from datetime import UTC, datetime
 from importlib.metadata import version
 from pathlib import Path
+from typing import cast
 from unittest.mock import patch
 
+import click
 import pytest
+import typer
 from typer.testing import CliRunner
 
-from agent_containers.cli import _LOGO, app
+from agent_containers.cli import _LOGO, _is_non_interactive, app, main
 from agent_containers.creation import ProfileCreationError
 from agent_containers.lifecycle import DoctorReport, LifecycleError
 from agent_containers.profile import Profile
@@ -251,28 +254,21 @@ def test_apply_notes_macos_uid_gid_compatibility(tmp_path: Path, monkeypatch: py
     assert "macOS Docker Desktop" not in result.output
 
 
-def test_noninteractive_global_flag_reaches_apply_context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The global no-prompt setting is available to lifecycle subcommands."""
-    profile = tmp_path / "work.toml"
-    profile.write_text('name = "work"\nagent = "codex"\n', encoding="utf-8")
-    seen: list[bool] = []
-    monkeypatch.setattr(
-        "agent_containers.cli._is_non_interactive",
-        lambda ctx: seen.append(bool(ctx.obj["non_interactive"])) or True,
-    )
-    record = DeploymentRecord(
-        deployment_id="work-1",
-        image="agent-containers/codex:test",
-        profile_digest="a" * 64,
-        profile_snapshot={},
-        launch_digest="a" * 64,
-        created_at=datetime.now(UTC),
-        selected=True,
-    )
-    with patch("agent_containers.cli.apply_profile", return_value=record):
-        result = CliRunner().invoke(app, ["--non-interactive", "apply", str(profile)])
-    assert result.exit_code == 0, result.output
-    assert seen == [True]
+@pytest.mark.parametrize("command", ["apply", "rollback"])
+def test_noninteractive_global_flag_reaches_lifecycle_commands(command: str) -> None:
+    """The global no-prompt setting is available to both lifecycle commands."""
+    context = cast(typer.Context, click.Context(click.Command("agent-containers")))
+    context.invoked_subcommand = command
+    main(context, version_flag=False, non_interactive=True)
+    assert _is_non_interactive(context)
+
+
+def test_noninteractive_global_flag_defaults_off() -> None:
+    """The global no-prompt setting remains opt-in."""
+    context = cast(typer.Context, click.Context(click.Command("agent-containers")))
+    context.invoked_subcommand = "apply"
+    main(context, version_flag=False, non_interactive=False)
+    assert not _is_non_interactive(context)
 
 
 def test_apply_reports_lifecycle_failures(tmp_path: Path) -> None:

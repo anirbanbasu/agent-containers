@@ -62,9 +62,10 @@ class ProfileOptionValues:
     gateway_known_hosts_file: str | None = None
     configuration_import: Path | None = None
 
-    def has_values(self) -> bool:
+    def has_values(self, exclude: set[str] | None = None) -> bool:
         """Whether at least one flat option was supplied."""
-        return any(value is not None for value in self.__dict__.values())
+        excluded = exclude or set()
+        return any(key not in excluded and value is not None for key, value in self.__dict__.items())
 
 
 _PARTIAL_NESTED_MODELS: dict[str, set[str]] = {
@@ -232,7 +233,7 @@ def _apply_options(data: dict[str, Any], options: ProfileOptionValues) -> None:
 
 def _missing_noninteractive_fields(data: dict[str, Any]) -> list[str]:
     """Return stable dotted paths for required values absent from CLI input."""
-    missing = [field for field in ("name", "agent") if not data.get(field)]
+    missing = [name for name, field in Profile.model_fields.items() if field.is_required() and not data.get(name)]
     provider = data.get("provider")
     if isinstance(provider, dict) and provider and not provider.get("api_key_env"):
         missing.append("provider.api_key_env")

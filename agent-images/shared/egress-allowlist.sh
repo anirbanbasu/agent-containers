@@ -33,7 +33,7 @@ configure_egress_allowlist() {
     done
     if [ "$wildcard" -eq 1 ]; then
         if [ "${#allowlist[@]}" -eq 1 ]; then
-            echo "[egress-allowlist] AGENT_ALLOWED_EGRESS contains * — no egress restrictions applied (IPv4 and IPv6)." >&2
+            echo "[egress-allowlist] AGENT_ALLOWED_EGRESS is exactly '*' — no egress restrictions applied (IPv4 and IPv6)." >&2
             return 0
         fi
         echo "[egress-allowlist] refusing to start: '*' combined with named hosts is ambiguous. Use '*' alone to disable filtering, or name each host." >&2

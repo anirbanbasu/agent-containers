@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from agent_containers.planner import Plan, PlanAction, build_plan
+from agent_containers.planner import Plan, PlanAction, PlanWarning, build_plan
 from agent_containers.profile import Profile
 from agent_containers.state import (
     DeploymentRecord,
@@ -65,7 +65,7 @@ def test_plan_initial_deployment_is_explicitly_offline() -> None:
     plan = build_plan(make_profile())
     assert plan.actions == [PlanAction.CREATE_IMAGE]
     assert not plan.live_state_checked
-    assert "No selected deployment" in "\n".join(plan.warnings)
+    assert any("No selected deployment" in warning.message for warning in plan.warnings)
 
 
 def test_plan_renders_human_and_versioned_json_forms() -> None:
@@ -75,12 +75,14 @@ def test_plan_renders_human_and_versioned_json_forms() -> None:
         profile_digest="a" * 64,
         actions=[PlanAction.CREATE_IMAGE, PlanAction.UPDATE_IMAGE, PlanAction.UPDATE_LAUNCH],
         changed_sections=["packages", "provider"],
+        changed_image=["packages"],
+        changed_launch=["provider"],
         warnings=[
-            "Unrestricted egress is enabled.",
-            "Decant is bound to a non-loopback address.",
-            "Live Docker state was not inspected.",
-            "No selected deployment is recorded.",
-            "",
+            PlanWarning(code="unrestricted_egress", message="Unrestricted egress is enabled."),
+            PlanWarning(code="decant_non_loopback_bind", message="Decant is bound to a non-loopback address."),
+            PlanWarning(code="live_state_unchecked", message="Live Docker state was not inspected."),
+            PlanWarning(code="no_selected_deployment", message="No selected deployment is recorded."),
+            PlanWarning(code="unknown_warning", message=""),
         ],
         live_state_checked=True,
     )
@@ -152,6 +154,8 @@ def test_plan_classifies_image_and_launch_changes() -> None:
     plan = build_plan(current, make_state(previous))
     assert plan.actions == [PlanAction.UPDATE_IMAGE, PlanAction.UPDATE_LAUNCH]
     assert plan.changed_sections == ["packages", "provider"]
+    assert plan.changed_image == ["packages"]
+    assert plan.changed_launch == ["provider"]
     assert not plan.live_state_checked
 
 
@@ -182,7 +186,9 @@ def test_plan_detects_rotated_proxy_ca_contents(tmp_path: Path) -> None:
 def test_plan_warns_for_non_loopback_decant() -> None:
     """Planning exposes the LAN bind warning alongside the offline warning."""
     profile = make_profile(decant={"enabled": True, "source_profiles": ["source"], "bind_address": "0.0.0.0"})
-    assert "Decant is bound to a non-loopback address." in build_plan(profile).warnings
+    assert any(
+        warning.message == "Decant is bound to a non-loopback address." for warning in build_plan(profile).warnings
+    )
 
 
 def test_plan_legacy_state_falls_back_to_ca_content_detection(tmp_path: Path) -> None:
@@ -194,6 +200,38 @@ def test_plan_legacy_state_falls_back_to_ca_content_detection(tmp_path: Path) ->
     ca.write_text("ROTATED", encoding="utf-8")
     plan = build_plan(profile, state, tmp_path / "work.toml")
     assert plan.changed_sections == ["proxy CA contents"]
+
+
+@pytest.mark.parametrize(
+    "profile_kwargs",
+    [
+        {"proxy": {"ca_file": "corp-ca.pem"}},
+        {"configuration_import": {"source": "settings.json"}},
+        {
+            "proxy": {"ca_file": "corp-ca.pem"},
+            "configuration_import": {"source": "settings.json"},
+        },
+    ],
+)
+def test_plan_legacy_state_never_returns_noop_for_unattributed_digest_change(
+    tmp_path: Path, profile_kwargs: dict[str, object]
+) -> None:
+    """Legacy snapshots without content metadata still schedule an update."""
+    (tmp_path / "corp-ca.pem").write_text("CERT", encoding="utf-8")
+    (tmp_path / "settings.json").write_text("{}", encoding="utf-8")
+    profile_path = tmp_path / "work.toml"
+    profile = make_profile(**profile_kwargs)
+    state = make_state(profile, profile_path)
+    selected = state.selected_deployment
+    assert selected is not None
+    selected.profile_snapshot = {
+        key: value for key, value in selected.profile_snapshot.items() if not key.startswith("_")
+    }
+    selected.profile_digest = "0" * 64
+
+    plan = build_plan(profile, state, profile_path)
+
+    assert not plan.is_noop
 
 
 def test_plan_detects_changed_configuration_import_contents(tmp_path: Path) -> None:
