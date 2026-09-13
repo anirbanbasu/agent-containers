@@ -16,7 +16,7 @@ from typer.testing import CliRunner
 
 from agent_containers.cli import _LOGO, _is_non_interactive, app, main
 from agent_containers.creation import ProfileCreationError
-from agent_containers.lifecycle import DoctorReport, LifecycleError
+from agent_containers.lifecycle import DoctorReport, LifecycleError, MissingDeploymentResourceError
 from agent_containers.profile import Profile
 from agent_containers.state import DeploymentRecord
 
@@ -279,6 +279,153 @@ def test_apply_reports_lifecycle_failures(tmp_path: Path) -> None:
         result = CliRunner().invoke(app, ["apply", str(profile)])
     assert result.exit_code != 0
     assert "build failed" in result.output
+
+
+def test_apply_offers_to_recreate_a_missing_image(tmp_path: Path) -> None:
+    """A pruned image triggers a confirmation instead of a raw Docker failure."""
+    profile = tmp_path / "work.toml"
+    profile.write_text('name = "work"\nagent = "codex"\n', encoding="utf-8")
+    record = DeploymentRecord(
+        deployment_id="work-1",
+        image="agent-containers/codex:test",
+        profile_digest="a" * 64,
+        profile_snapshot={},
+        launch_digest="a" * 64,
+        created_at=datetime.now(UTC),
+        selected=True,
+    )
+    with patch(
+        "agent_containers.cli.apply_profile",
+        side_effect=[MissingDeploymentResourceError("agent-containers/codex:test", None), record],
+    ) as apply_mock:
+        result = CliRunner().invoke(app, ["apply", str(profile)], input="y\n")
+    assert result.exit_code == 0, result.output
+    assert "no longer exists" in result.output
+    assert apply_mock.call_count == 2
+    assert apply_mock.call_args.kwargs["recreate_image"] is True
+    assert apply_mock.call_args.kwargs["recreate_volume"] is False
+
+
+def test_apply_leaves_an_existing_volume_untouched_when_only_the_image_is_missing(tmp_path: Path) -> None:
+    """Only the missing resource is offered for recreation, never an intact one."""
+    profile = tmp_path / "work.toml"
+    profile.write_text('name = "work"\nagent = "codex"\n', encoding="utf-8")
+    record = DeploymentRecord(
+        deployment_id="work-1",
+        image="agent-containers/codex:test",
+        profile_digest="a" * 64,
+        profile_snapshot={},
+        launch_digest="a" * 64,
+        created_at=datetime.now(UTC),
+        selected=True,
+    )
+    with patch(
+        "agent_containers.cli.apply_profile",
+        side_effect=[MissingDeploymentResourceError("agent-containers/codex:test", None), record],
+    ) as apply_mock:
+        result = CliRunner().invoke(app, ["apply", str(profile)], input="y\n")
+    assert result.exit_code == 0, result.output
+    assert "home volume" not in result.output.lower()
+    assert apply_mock.call_args.kwargs["recreate_volume"] is False
+
+
+def test_apply_declines_missing_image_recreation(tmp_path: Path) -> None:
+    """Declining an image rebuild exits cleanly without a second apply attempt."""
+    profile = tmp_path / "work.toml"
+    profile.write_text('name = "work"\nagent = "codex"\n', encoding="utf-8")
+    with patch(
+        "agent_containers.cli.apply_profile",
+        side_effect=MissingDeploymentResourceError("agent-containers/codex:test", None),
+    ) as apply_mock:
+        result = CliRunner().invoke(app, ["apply", str(profile)], input="n\n")
+    assert result.exit_code != 0
+    assert "image was not recreated" in result.output
+    assert apply_mock.call_count == 1
+
+
+def test_apply_aborts_when_volume_recreation_is_declined(tmp_path: Path) -> None:
+    """Declining a volume recreation exits cleanly without a second apply attempt."""
+    profile = tmp_path / "work.toml"
+    profile.write_text('name = "work"\nagent = "codex"\n', encoding="utf-8")
+    with patch(
+        "agent_containers.cli.apply_profile",
+        side_effect=MissingDeploymentResourceError(None, "codex-home-test"),
+    ) as apply_mock:
+        result = CliRunner().invoke(app, ["apply", str(profile)], input="n\n")
+    assert result.exit_code != 0
+    assert "home volume was not recreated" in result.output
+    assert apply_mock.call_count == 1
+
+
+def test_apply_confirms_missing_volume_recreation(tmp_path: Path) -> None:
+    """Confirming a missing volume forwards recreate_volume on the retry."""
+    profile = tmp_path / "work.toml"
+    profile.write_text('name = "work"\nagent = "codex"\n', encoding="utf-8")
+    record = DeploymentRecord(
+        deployment_id="work-1",
+        image="agent-containers/codex:test",
+        profile_digest="a" * 64,
+        profile_snapshot={},
+        launch_digest="a" * 64,
+        created_at=datetime.now(UTC),
+        selected=True,
+    )
+    with patch(
+        "agent_containers.cli.apply_profile",
+        side_effect=[MissingDeploymentResourceError(None, "codex-home-test"), record],
+    ) as apply_mock:
+        result = CliRunner().invoke(app, ["apply", str(profile)], input="y\n")
+    assert result.exit_code == 0, result.output
+    assert apply_mock.call_count == 2
+    assert apply_mock.call_args.kwargs["recreate_image"] is False
+    assert apply_mock.call_args.kwargs["recreate_volume"] is True
+
+
+def test_apply_non_interactive_fails_fast_on_missing_image(tmp_path: Path) -> None:
+    """Non-interactive mode never prompts about a missing image; it fails with guidance."""
+    profile = tmp_path / "work.toml"
+    profile.write_text('name = "work"\nagent = "codex"\n', encoding="utf-8")
+    with patch(
+        "agent_containers.cli.apply_profile",
+        side_effect=MissingDeploymentResourceError("agent-containers/codex:test", None),
+    ) as apply_mock:
+        result = CliRunner().invoke(app, ["--non-interactive", "apply", str(profile)])
+    assert result.exit_code != 0
+    assert "--force-rebuild" in result.output
+    assert apply_mock.call_count == 1
+
+
+def test_apply_non_interactive_fails_fast_on_missing_volume(tmp_path: Path) -> None:
+    """Non-interactive mode never prompts about a missing volume; it fails with guidance."""
+    profile = tmp_path / "work.toml"
+    profile.write_text('name = "work"\nagent = "codex"\n', encoding="utf-8")
+    with patch(
+        "agent_containers.cli.apply_profile",
+        side_effect=MissingDeploymentResourceError(None, "codex-home-test"),
+    ) as apply_mock:
+        result = CliRunner().invoke(app, ["--non-interactive", "apply", str(profile)])
+    assert result.exit_code != 0
+    assert "Rerun without --non-interactive" in result.output
+    assert apply_mock.call_count == 1
+
+
+def test_apply_force_rebuild_flag_is_forwarded(tmp_path: Path) -> None:
+    """--force-rebuild requests a rebuild without waiting for a missing-resource error."""
+    profile = tmp_path / "work.toml"
+    profile.write_text('name = "work"\nagent = "codex"\n', encoding="utf-8")
+    record = DeploymentRecord(
+        deployment_id="work-1",
+        image="agent-containers/codex:test",
+        profile_digest="a" * 64,
+        profile_snapshot={},
+        launch_digest="a" * 64,
+        created_at=datetime.now(UTC),
+        selected=True,
+    )
+    with patch("agent_containers.cli.apply_profile", return_value=record) as apply_mock:
+        result = CliRunner().invoke(app, ["apply", str(profile), "--force-rebuild"])
+    assert result.exit_code == 0, result.output
+    assert apply_mock.call_args.kwargs["recreate_image"] is True
 
 
 def test_rollback_delegates_and_shows_data_warning(tmp_path: Path) -> None:

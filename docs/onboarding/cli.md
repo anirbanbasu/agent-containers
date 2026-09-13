@@ -163,6 +163,19 @@ image tag and home volume are user-scoped, so two host users can both use a
 profile named `work` without sharing image or home-volume resources. An
 explicit `home_volume` can intentionally reuse an existing named volume.
 
+If a previous apply's selected image or home volume has since been deleted
+(for example by `docker image prune` or `docker volume rm`), `apply` reports
+which resource is missing and asks whether to recreate it: rebuilding a
+missing image is always safe (image tags are content-addressed, so the
+rebuilt content is identical), while recreating a missing home volume starts
+from an empty volume and loses any prior home-directory contents, so it is
+its own separate, explicitly-worded prompt. Declining either prompt aborts
+without changing state. An existing volume is never touched or re-prompted
+just because the image needed rebuilding. Pass `--non-interactive` to fail
+fast with guidance instead of prompting, or `--force-rebuild` to rebuild the
+image unconditionally, bypassing the offline plan's own no-op/no-rebuild
+decision.
+
 `apply` does not start an interactive agent. The generated shortcut is the
 launch surface:
 
@@ -198,7 +211,10 @@ agent-containers rollback ~/.config/agent-containers/profiles/work.toml
 
 Rollback does not restore mutable home-volume contents or stop existing agent
 sessions. A failed image build or seed leaves the previous selected deployment
-and state file untouched.
+and state file untouched. If the target image no longer exists, rollback
+fails with a clear error rather than offering to rebuild it, since rebuilding
+a historical snapshot on demand would undermine what rollback is for; apply a
+corrected profile instead.
 
 ## Network, certificates, and credentials
 

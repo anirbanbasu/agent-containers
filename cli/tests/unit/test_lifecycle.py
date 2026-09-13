@@ -10,6 +10,7 @@ from agent_containers.build_context import BuildContexts
 from agent_containers.configuration import ConfigurationError
 from agent_containers.lifecycle import (
     LifecycleError,
+    MissingDeploymentResourceError,
     _apply_configuration_import,
     _apply_seeds,
     _inspect_tool_shadows,
@@ -86,16 +87,105 @@ def test_apply_failure_does_not_select_or_create_state(tmp_path: Path) -> None:
 
 
 def test_apply_noop_inspects_existing_image_without_rewriting_state(tmp_path: Path) -> None:
-    """A matching profile verifies its selected image and retains its record."""
+    """A matching profile verifies its selected image/volume and retains its record."""
     profile = make_profile()
     state_path = tmp_path / "state.json"
     state = DeploymentState(profile_name="work")
     state.deployments = [_new_record(profile, "agent-containers/codex:test")]
     save_state(state_path, state)
-    with patch("agent_containers.lifecycle.subprocess.run") as run:
+    home_volume = state.deployments[0].home_volume
+    with patch("agent_containers.lifecycle._probe", return_value=True) as probe:
         actual = apply_profile(profile, tmp_path / "work.toml", state_path)
     assert actual == state.deployments[0]
-    assert run.call_args.args[0] == ("docker", "image", "inspect", "agent-containers/codex:test")
+    probed = [call.args for call in probe.call_args_list]
+    assert ("docker", "image", "inspect", "agent-containers/codex:test") in probed
+    assert ("docker", "volume", "inspect", home_volume) in probed
+
+
+def test_apply_raises_when_selected_image_is_missing(tmp_path: Path) -> None:
+    """A deleted image is reported distinctly instead of a raw Docker failure."""
+    profile = make_profile()
+    state_path = tmp_path / "state.json"
+    state = DeploymentState(profile_name="work")
+    state.deployments = [_new_record(profile, "agent-containers/codex:test")]
+    save_state(state_path, state)
+    with (
+        patch("agent_containers.lifecycle._probe", side_effect=[False, True]),
+        pytest.raises(MissingDeploymentResourceError) as excinfo,
+    ):
+        apply_profile(profile, tmp_path / "work.toml", state_path)
+    assert excinfo.value.missing_image == "agent-containers/codex:test"
+    assert excinfo.value.missing_volume is None
+    assert load_state(state_path).selected_deployment == state.deployments[0]
+
+
+def test_apply_raises_when_selected_volume_is_missing(tmp_path: Path) -> None:
+    """A deleted home volume is reported distinctly instead of proceeding silently."""
+    profile = make_profile()
+    state_path = tmp_path / "state.json"
+    state = DeploymentState(profile_name="work")
+    state.deployments = [_new_record(profile, "agent-containers/codex:test")]
+    save_state(state_path, state)
+    home_volume = state.deployments[0].home_volume
+    with (
+        patch("agent_containers.lifecycle._probe", side_effect=[True, False]),
+        pytest.raises(MissingDeploymentResourceError) as excinfo,
+    ):
+        apply_profile(profile, tmp_path / "work.toml", state_path)
+    assert excinfo.value.missing_image is None
+    assert excinfo.value.missing_volume == home_volume
+
+
+def test_apply_recreates_missing_image_when_forced(tmp_path: Path) -> None:
+    """A confirmed rebuild bypasses the planner's no-op classification and refreshes state/shortcuts."""
+    profile = make_profile()
+    state_path = tmp_path / "state.json"
+    shortcuts_path = tmp_path / "profiles.sh"
+    state = DeploymentState(profile_name="work")
+    state.deployments = [_new_record(profile, "agent-containers/codex:test")]
+    save_state(state_path, state)
+    contexts = BuildContexts(tmp_path / "image", tmp_path / "shared")
+    contexts.image.mkdir()
+    contexts.shared.mkdir()
+    with (
+        patch("agent_containers.lifecycle.prepare_build_contexts", return_value=contexts),
+        patch("agent_containers.lifecycle.os.getuid", return_value=501),
+        patch("agent_containers.lifecycle.os.getgid", return_value=20),
+        patch("agent_containers.lifecycle.subprocess.run") as run,
+        patch("agent_containers.lifecycle._probe", return_value=True),
+    ):
+        actual = apply_profile(profile, tmp_path / "work.toml", state_path, shortcuts_path, recreate_image=True)
+    assert run.call_args_list[0].args[0][:2] == ("docker", "build")
+    updated_state = load_state(state_path)
+    assert len(updated_state.deployments) == 2
+    assert updated_state.selected_deployment == actual
+    shortcut_text = shortcuts_path.read_text(encoding="utf-8")
+    assert "agent_containers_work" in shortcut_text
+    assert actual.image in shortcut_text
+    assert actual.image != state.deployments[0].image
+    assert state.deployments[0].image not in shortcut_text
+
+
+def test_apply_reseeds_after_a_confirmed_volume_recreation(tmp_path: Path) -> None:
+    """A freshly recreated empty volume is repopulated even on a no-op plan."""
+    source = tmp_path / "settings.json"
+    source.write_text("{}", encoding="utf-8")
+    profile = make_profile(
+        home_volume="existing-codex-home",
+        mounts=[{"type": "seed", "source": "settings.json", "target": "/home/codex/.codex/settings.json"}],
+    )
+    state_path = tmp_path / "state.json"
+    state = DeploymentState(profile_name="work")
+    state.deployments = [_new_record(profile, "agent-containers/codex:test", tmp_path / "work.toml")]
+    save_state(state_path, state)
+    with (
+        patch("agent_containers.lifecycle.subprocess.run") as run,
+        patch("agent_containers.lifecycle._probe", return_value=True),
+    ):
+        apply_profile(profile, tmp_path / "work.toml", state_path, recreate_volume=True)
+    seed_calls = [call.args[0] for call in run.call_args_list if call.args[0][:2] == ("docker", "run")]
+    assert seed_calls
+    assert any("type=volume,src=existing-codex-home,dst=/home/codex" in call for call in seed_calls[0])
 
 
 def test_apply_updates_shortcuts_for_new_and_noop_deployments(tmp_path: Path) -> None:
@@ -113,7 +203,10 @@ def test_apply_updates_shortcuts_for_new_and_noop_deployments(tmp_path: Path) ->
     ):
         apply_profile(profile, tmp_path / "work.toml", state_path, shortcuts_path)
     assert "agent_containers_work" in shortcuts_path.read_text(encoding="utf-8")
-    with patch("agent_containers.lifecycle.subprocess.run"):
+    with (
+        patch("agent_containers.lifecycle.subprocess.run"),
+        patch("agent_containers.lifecycle._probe", return_value=True),
+    ):
         apply_profile(profile, tmp_path / "work.toml", state_path, shortcuts_path)
     assert shortcuts_path.exists()
 
@@ -135,7 +228,10 @@ def test_apply_renders_direct_decant_shortcut_for_current_source(tmp_path: Path)
     text = shortcuts_path.read_text(encoding="utf-8")
     assert "agent_containers_decant_work()" in text
     assert "target=/sources/codex,readonly,volume-subpath=.codex" in text
-    with patch("agent_containers.lifecycle.subprocess.run"):
+    with (
+        patch("agent_containers.lifecycle.subprocess.run"),
+        patch("agent_containers.lifecycle._probe", return_value=True),
+    ):
         apply_profile(profile, tmp_path / "work.toml", state_path, shortcuts_path)
 
 
@@ -294,7 +390,10 @@ def test_apply_reconciles_configuration_import_on_a_noop(tmp_path: Path, monkeyp
     monkeypatch.setattr(
         "agent_containers.lifecycle._apply_configuration_import", lambda *_args: reconciled.append("yes")
     )
-    with patch("agent_containers.lifecycle.subprocess.run"):
+    with (
+        patch("agent_containers.lifecycle.subprocess.run"),
+        patch("agent_containers.lifecycle._probe", return_value=True),
+    ):
         apply_profile(profile, tmp_path / "work.toml", state_path)
     assert reconciled == ["yes"]
 
@@ -390,10 +489,10 @@ def test_rollback_inspects_previous_image_and_warns_about_home_data(tmp_path: Pa
     current = _new_record(make_profile(egress={"mode": "deny"}), "agent-containers/codex:current")
     state = DeploymentState(profile_name="work", deployments=[previous.model_copy(update={"selected": False}), current])
     save_state(state_path, state)
-    with patch("agent_containers.lifecycle.subprocess.run") as run:
+    with patch("agent_containers.lifecycle._probe", return_value=True) as probe:
         restored = rollback_profile(profile, state_path, profile_path=tmp_path / "work.toml")
     assert restored.deployment_id == previous.deployment_id
-    assert run.call_args.args[0] == ("docker", "image", "inspect", previous.image)
+    assert probe.call_args.args == ("docker", "image", "inspect", previous.image)
     preview = "\n".join(rollback_preview(restored))
     assert "api.example.test" in preview
     assert "home-volume" in preview
@@ -409,7 +508,7 @@ def test_rollback_updates_profile_shortcut(tmp_path: Path) -> None:
     current = _new_record(make_profile(egress={"mode": "deny"}), "agent-containers/codex:current")
     state = DeploymentState(profile_name="work", deployments=[previous.model_copy(update={"selected": False}), current])
     save_state(state_path, state)
-    with patch("agent_containers.lifecycle.subprocess.run"):
+    with patch("agent_containers.lifecycle._probe", return_value=True):
         rollback_profile(profile, state_path, shortcuts_path, profile_path=tmp_path / "work.toml")
     assert "agent-containers/codex:previous" in shortcuts_path.read_text(encoding="utf-8")
 
@@ -422,7 +521,7 @@ def test_rollback_refreshes_direct_decant_shortcut(tmp_path: Path) -> None:
     previous = _new_record(profile, "agent-containers/codex:previous").model_copy(update={"selected": False})
     current = _new_record(profile, "agent-containers/codex:current")
     save_state(state_path, DeploymentState(profile_name="work", deployments=[previous, current]))
-    with patch("agent_containers.lifecycle.subprocess.run"):
+    with patch("agent_containers.lifecycle._probe", return_value=True):
         rollback_profile(profile, state_path, shortcuts_path, profile_path=tmp_path / "work.toml")
     text = shortcuts_path.read_text(encoding="utf-8")
     assert "agent_containers_decant_work()" in text
@@ -450,7 +549,10 @@ def test_rollback_preflights_shortcut_before_state_change(tmp_path: Path) -> Non
         state_path,
         DeploymentState(profile_name="work", deployments=[previous.model_copy(update={"selected": False}), current]),
     )
-    with patch("agent_containers.lifecycle.subprocess.run"), pytest.raises(ShortcutError, match="gateway key"):
+    with (
+        patch("agent_containers.lifecycle._probe", return_value=True),
+        pytest.raises(ShortcutError, match="gateway key"),
+    ):
         rollback_profile(profile, state_path, shortcuts_path, profile_path=tmp_path / "work.toml")
     assert load_state(state_path).selected_deployment == current
 
@@ -462,6 +564,24 @@ def test_rollback_refuses_missing_prior_deployment(tmp_path: Path) -> None:
     save_state(state_path, DeploymentState(profile_name="work", deployments=[_new_record(profile, "image")]))
     with pytest.raises(LifecycleError, match="no prior"):
         rollback_profile(profile, state_path, profile_path=tmp_path / "work.toml")
+
+
+def test_rollback_reports_a_clear_error_when_the_target_image_is_gone(tmp_path: Path) -> None:
+    """A pruned historical image fails with guidance instead of a raw Docker error."""
+    profile = make_profile()
+    state_path = tmp_path / "state.json"
+    previous = _new_record(profile, "agent-containers/codex:previous")
+    current = _new_record(make_profile(egress={"mode": "deny"}), "agent-containers/codex:current")
+    save_state(
+        state_path,
+        DeploymentState(profile_name="work", deployments=[previous.model_copy(update={"selected": False}), current]),
+    )
+    with (
+        patch("agent_containers.lifecycle._probe", return_value=False),
+        pytest.raises(LifecycleError, match="no longer exists"),
+    ):
+        rollback_profile(profile, state_path, profile_path=tmp_path / "work.toml")
+    assert load_state(state_path).selected_deployment == current
 
 
 def test_rollback_rejects_unselected_or_mismatched_state(tmp_path: Path) -> None:

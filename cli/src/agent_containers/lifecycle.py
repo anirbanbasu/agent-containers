@@ -71,6 +71,20 @@ class LifecycleError(ValueError):
     """Raised when a state file is not safe to apply for a profile."""
 
 
+class MissingDeploymentResourceError(LifecycleError):
+    """Raised when apply finds a previously recorded image or home volume gone."""
+
+    def __init__(self, missing_image: str | None, missing_volume: str | None) -> None:
+        self.missing_image = missing_image
+        self.missing_volume = missing_volume
+        parts = []
+        if missing_image is not None:
+            parts.append(f"image {missing_image!r}")
+        if missing_volume is not None:
+            parts.append(f"home volume {missing_volume!r}")
+        super().__init__(f"previously recorded {' and '.join(parts)} no longer exist")
+
+
 @dataclass(frozen=True)
 class DoctorReport:
     """Read-only host and selected-deployment diagnostics."""
@@ -92,6 +106,9 @@ def apply_profile(
     profile_path: Path,
     state_path: Path | None = None,
     shortcuts_path: Path | None = None,
+    *,
+    recreate_image: bool = False,
+    recreate_volume: bool = False,
 ) -> DeploymentRecord:
     """Build or verify a deployment, seed it safely, then atomically select it."""
     target_state_path = state_path or default_state_path(profile)
@@ -101,15 +118,24 @@ def apply_profile(
     plan = build_plan(profile, state, profile_path)
     selected = state.selected_deployment
     image = selected.image if selected is not None else default_image_tag(profile)
-    if PlanAction.CREATE_IMAGE in plan.actions or PlanAction.UPDATE_IMAGE in plan.actions:
+    build_needed = PlanAction.CREATE_IMAGE in plan.actions or PlanAction.UPDATE_IMAGE in plan.actions
+    missing_image: str | None = None
+    missing_volume: str | None = None
+    if selected is not None:
+        if not build_needed and not recreate_image and not _probe("docker", "image", "inspect", image):
+            missing_image = image
+        home_volume = selected.home_volume or legacy_home_volume(profile)
+        if not recreate_volume and not _probe("docker", "volume", "inspect", home_volume):
+            missing_volume = home_volume
+    if missing_image is not None or missing_volume is not None:
+        raise MissingDeploymentResourceError(missing_image, missing_volume)
+    if build_needed or recreate_image:
         image = _build_image(profile, profile_path)
-    else:
-        _docker("docker", "image", "inspect", image)
     if profile.configuration_import is not None:
         # Reconcile even a no-op deployment: the persistent volume may have
         # been edited or restored since the last apply.
         _apply_configuration_import(profile, profile_path, image)
-    if not plan.is_noop:
+    if not plan.is_noop or recreate_image:
         record = _new_record(profile, image, profile_path)
         if shortcuts_path is not None:
             # Validate the complete launch before seeds or state can make this
@@ -129,6 +155,9 @@ def apply_profile(
             update_shortcuts(shortcuts_path, profile, record, profile_path, decant_sources)
         return record
     assert selected is not None
+    if recreate_volume:
+        # The home volume was just recreated empty; repopulate its seed mounts.
+        _apply_seeds(profile, profile_path, image)
     if shortcuts_path is not None:
         decant_sources = _resolve_decant_sources(profile, selected, target_state_path)
         if profile.decant.enabled:
@@ -311,7 +340,10 @@ def rollback_profile(
     if selected_index == 0:
         raise LifecycleError("no prior deployment is retained for rollback")
     target = state.deployments[selected_index - 1]
-    _docker("docker", "image", "inspect", target.image)
+    if not _probe("docker", "image", "inspect", target.image):
+        raise LifecycleError(
+            f"cannot roll back: image {target.image!r} no longer exists; apply a profile to rebuild it instead"
+        )
     restored_profile = profile_from_snapshot(target.profile_snapshot)
     if shortcuts_path is not None:
         # A historical profile may reference an input that no longer exists;

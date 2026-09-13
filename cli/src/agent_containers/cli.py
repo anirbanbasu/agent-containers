@@ -25,6 +25,7 @@ from agent_containers.docker import DockerCommandError
 from agent_containers.lifecycle import (
     DoctorReport,
     LifecycleError,
+    MissingDeploymentResourceError,
     apply_profile,
     doctor_profile,
     rollback_preview,
@@ -33,7 +34,7 @@ from agent_containers.lifecycle import (
 from agent_containers.planner import build_plan
 from agent_containers.profile import load_profile
 from agent_containers.shortcuts import ShortcutError, default_shortcuts_path
-from agent_containers.state import load_state
+from agent_containers.state import default_state_path, load_state
 
 _LOGO = """░█▀█░█▀▀░█▀▀░█▀█░▀█▀░░░█▀▀░█▀█░█▀█░▀█▀░█▀█░▀█▀░█▀█░█▀▀░█▀▄░█▀▀
 ░█▀█░█░█░█▀▀░█░█░░█░░░░█░░░█░█░█░█░░█░░█▀█░░█░░█░█░█▀▀░█▀▄░▀▀█
@@ -232,20 +233,75 @@ def apply(
         Path | None,
         typer.Option("--state", dir_okay=False, help="Override the XDG deployment-state JSON path."),
     ] = None,
+    force_rebuild: Annotated[
+        bool,
+        typer.Option(
+            "--force-rebuild", help="Rebuild the image even if no image-affecting profile change was detected."
+        ),
+    ] = False,
 ) -> None:
     """Build, safely seed, and select a profile deployment without launching it."""
+    non_interactive = _is_non_interactive(ctx)
     try:
         document = load_profile(profile)
+        target_state_path = state or default_state_path(document)
+        recorded = load_state(target_state_path) if target_state_path.exists() else None
+        for line in build_plan(document, recorded, profile).summary_lines():
+            typer.echo(line)
         if sys.platform == "darwin":
             typer.echo(
                 "Note: macOS Docker Desktop builds retain the host UID and use image GID 1000 to avoid collisions."
             )
-        record = apply_profile(
-            document,
-            profile,
-            state,
-            default_shortcuts_path(),
-        )
+        try:
+            record = apply_profile(
+                document,
+                profile,
+                state,
+                default_shortcuts_path(),
+                recreate_image=force_rebuild,
+            )
+        except MissingDeploymentResourceError as exc:
+            recreate_image = force_rebuild
+            recreate_volume = False
+            if exc.missing_image is not None:
+                if non_interactive:
+                    typer.echo(
+                        f"Image {exc.missing_image!r} no longer exists. Rerun without --non-interactive to be "
+                        "asked, or pass --force-rebuild.",
+                        err=True,
+                    )
+                    raise typer.Exit(1) from exc
+                if not typer.confirm(
+                    f"The previously built image {exc.missing_image!r} no longer exists. Rebuild it now?",
+                    default=True,
+                ):
+                    typer.echo("Aborted: image was not recreated.", err=True)
+                    raise typer.Exit(1) from exc
+                recreate_image = True
+            if exc.missing_volume is not None:
+                if non_interactive:
+                    typer.echo(
+                        f"Home volume {exc.missing_volume!r} no longer exists. Rerun without --non-interactive "
+                        "to be asked whether to recreate it.",
+                        err=True,
+                    )
+                    raise typer.Exit(1) from exc
+                if not typer.confirm(
+                    f"The home volume {exc.missing_volume!r} no longer exists. A NEW EMPTY volume will be "
+                    "created and any previous home-directory contents are gone. Continue?",
+                    default=False,
+                ):
+                    typer.echo("Aborted: home volume was not recreated.", err=True)
+                    raise typer.Exit(1) from exc
+                recreate_volume = True
+            record = apply_profile(
+                document,
+                profile,
+                state,
+                default_shortcuts_path(),
+                recreate_image=recreate_image,
+                recreate_volume=recreate_volume,
+            )
     except (
         DockerCommandError,
         LifecycleError,
