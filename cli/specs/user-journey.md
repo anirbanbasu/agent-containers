@@ -437,6 +437,16 @@ the credentials required by the selected agent; it never supplies the encryption
 key to the container. Missing keys or failed decryption do not trigger plaintext
 storage as a fallback.
 
+Whether a value came from a reference or from encrypted storage, the CLI
+delivers it to the container only through a channel that does not expose it
+outside the container: never as a container-runtime command-line argument,
+image build argument, or image layer, and never visible in container
+inspection output or CLI logs. The default delivery mechanism is a
+memory-backed file mount the container can read at startup; environment-variable
+delivery is used only when the selected agent has no file-based way to read a
+credential. Review identifies which delivery mechanism applies without
+exposing values.
+
 These guarantees govern the onboarding CLI. Agents may persist credentials or
 login tokens in their agent home directories. Encryption at rest does not conceal
 credentials from the agent that needs to use them. The approved policy and

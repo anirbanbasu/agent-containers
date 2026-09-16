@@ -73,8 +73,17 @@ does not establish a key-storage mechanism.
 
 The CLI unlocks encrypted credentials for launch and delivers only the values
 required by the selected agent. It must never pass the encryption key into the
-agent container. Runtime delivery mechanisms and external credential source
-precedence remain to be specified.
+agent container.
+
+Resolved credential values, whether reference-resolved or encrypted-storage-resolved,
+must reach the container only through a channel that does not expose them outside
+it: never as a container-runtime command-line argument, an image build argument,
+or an image layer, and never visible in container inspection output or CLI logs.
+The default delivery mechanism is a memory-backed file mount the container can
+read at startup; environment-variable delivery is used only when the selected
+agent has no file-based way to read a credential. This requirement applies
+uniformly regardless of credential source. External credential source precedence
+remains to be specified.
 
 The prohibition on plaintext persistence applies to the onboarding CLI. An agent
 may persist credentials or login tokens in its own agent home directory. The CLI
