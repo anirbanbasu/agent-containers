@@ -36,7 +36,7 @@ the initial scope.
 Some comparable tools can show a desktop notification for a blocked outbound
 connection from a running session and let a human approve or deny it in real
 time, rather than only defining policy before launch. This is a different
-interaction model from everything else in `user-journey.md`, which treats
+interaction model from everything else in `user-journeys.md`, which treats
 network access as reviewed and configured before a session starts, not
 negotiated during one. It would also require a persistent, trusted
 host-side process to receive and act on prompts, which is new infrastructure.

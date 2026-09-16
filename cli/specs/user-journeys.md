@@ -6,11 +6,12 @@ functional groups:
 
 | Functional group | Main user interactions |
 |---|---|
+| Getting started | Check environment readiness independent of any profile, and discover the CLI's supported agents and their prerequisites before creating a profile. |
 | Profile management | Create, list, inspect, edit, clone, and remove named profiles; export and import configuration packages for sharing and migration. |
-| Environment configuration | Choose an agent, provider and authentication method, tools, workspace behavior, agent home directory persistence and sharing scope, network access, and optional integrations. Review the resulting configuration and its implications. |
+| Environment configuration | Choose an agent, provider, authentication method, endpoint, and model; native agent configuration; tools; workspace behavior; agent home directory persistence and sharing scope; additional bind mounts; runtime environment variables; network access; and optional integrations. Review the resulting configuration and its implications. |
 | Deployment management | Validate configuration, preview changes and their effects, prepare a deployment, check for updates, apply updates, inspect deployment history, and select an earlier deployment. |
 | Agent use | Launch an interactive agent session in a chosen project, directly or through a shortcut; supply temporary options; inspect and explicitly stop active sessions. |
-| Diagnosis and recovery | Understand effective settings, check prerequisites and authentication readiness, explain network access, explicitly probe connectivity, and recover from failed or interrupted operations. |
+| Diagnosis and recovery | Understand effective settings, check prerequisites and authentication readiness for a named profile, explain network access, explicitly probe connectivity, and recover from failed or interrupted operations. |
 | Resource retirement | Remove managed profile directories and clean up unused managed resources, with deletion of Docker resources and persistent agent data treated as separate, explicit actions. |
 
 A **profile** describes desired configuration. A **deployment** records an applied
@@ -27,6 +28,42 @@ automation. Detailed command names and syntax are specified separately in
 The initial scope supports the real Docker executable. Support for alternative
 container-runtime executables, compatibility wrappers, and aliases is deferred.
 Profile creation and editing remain independent of Docker availability.
+
+## Checking environment readiness
+
+Users can check environment readiness before creating any profile. This check
+is independent of any profile: it inspects Docker availability and version,
+and other host prerequisites the CLI depends on, without requiring a named
+profile as input.
+
+Results distinguish failures, warnings, and checks not performed, following
+the same reporting shape as profile diagnostics. Each finding states what was
+checked, its result, and a suggested next action. The check does not create,
+modify, or delete any profile or Docker resource.
+
+If prerequisites are missing, the CLI explains what is missing and why it
+matters, without attempting to install or configure host software itself.
+Passing this check does not guarantee that every agent or provider works;
+agent-specific and provider-specific requirements are checked separately
+during profile creation, application, and diagnostics.
+
+## Discovering supported agents
+
+Users can list the agents supported by the installed CLI, independent of any
+profile. The list identifies each agent and a short description of what
+distinguishes it.
+
+Selecting an agent from the list shows its supported providers and
+authentication methods, the model roles it defines, prerequisites specific to
+that agent, and the optional native-configuration items, software categories,
+and integrations it supports. This is the same information surfaced when
+choosing an agent during profile creation; discovery lets users review it
+beforehand without starting a profile.
+
+The supported-agent list reflects the CLI's installed version; agents added or
+removed by a CLI update are reflected after updating the CLI itself.
+Discovering agents does not require Docker and does not create, modify, or
+delete any profile.
 
 ## Managed profiles
 
@@ -76,6 +113,76 @@ described separately for each supported agent.
 Existing authentication in a reused agent home directory may make another login
 unnecessary. Missing CLI-supplied credentials must not block launch when users
 have deliberately chosen agent-managed authentication.
+
+## Configuring a provider endpoint and model
+
+Users who choose CLI-configured provider setup select between the agent's
+default vendor endpoint and a custom endpoint override. The default endpoint
+needs only the credential already configured for it. A custom endpoint
+requires a URL the user supplies — whether it points at an alternative hosted
+provider, a local inference engine the user already runs, or any other
+compatible endpoint — and its credential follows the same reference-only or
+encrypted-storage policy as any other credential. The CLI never installs,
+runs, or manages the target behind a custom endpoint.
+
+Once an endpoint is chosen, users supply the model identifier it should use.
+Available model slots depend on what the selected agent supports: some agents
+accept a single model identifier, while others define multiple named roles,
+such as a primary model alongside one or more lighter or background models.
+The CLI shows which roles the selected agent supports before asking for
+values, the same per-agent detail already surfaced during agent discovery.
+Each slot is entered as free text; the CLI does not validate an identifier
+against a live model catalog, and an accepted value does not guarantee the
+endpoint actually serves that model.
+
+The CLI translates the configured endpoint and model selections into whatever
+mechanism the selected agent requires to use them, without exposing that
+mechanism as a user choice.
+
+## Configuring native agent configuration
+
+For each native-configuration item — the core settings file, each MCP server
+definition, each plugin, each skill, and each custom command — users choose to
+import it from an existing host location, author it through CLI-guided
+questions with agent-specific defaults, or leave it at the agent's own
+built-in default. Both an import and CLI-guided authoring may be used within
+the same profile for different items, but not combined for the same item, so
+profile-owned content for a given item always has one clear origin.
+
+Imported or authored native configuration becomes a profile-owned managed
+asset, copied into the managed profile directory rather than referenced in
+place. Later changes to the original host files do not alter the managed
+copies; re-importing requires another explicit action. Review lists the
+imported or authored items by kind and source, distinguishing profile-managed
+native configuration from other profile-owned assets such as CA certificates.
+
+Applying seeds each managed native-configuration item into the agent home
+directory only where it does not already exist there. It never silently
+overwrites an item the agent home directory already has, whether that item
+was placed by a previous apply or written by the agent itself during use; the
+agent home directory's copy becomes authoritative for that item once present.
+This mirrors how image-installed optional software defers to versions already
+installed in the persistent agent home directory.
+
+Diagnostics identify where the agent home directory's native configuration
+differs from the profile-managed version, without resolving the difference
+automatically. Users who want to overwrite an item in the agent home directory
+with its profile-managed version take an explicit, reviewed reseed action
+scoped to that item; reseeding one item does not affect unrelated
+native-configuration items or other agent home directory content.
+
+Fresh and ephemeral agent home directories have no prior native configuration,
+so applying seeds the full managed set on first use, as at initial deployment.
+
+Imported or authored native configuration is stored as the agent's own literal
+content, separate from the CLI's credential reference and encrypted-storage
+system. CLI-guided authoring keeps credential values out of that content by
+using the same reference mechanism as other CLI-configured credentials.
+Imported content is opaque to the CLI and may contain embedded credentials,
+such as inline MCP server tokens; its presence in a profile directory does
+not make it safe to export or otherwise treat as free of secrets. This
+distinction carries into export eligibility, covered under Sharing and
+migration.
 
 ## Selecting image-installed software
 
@@ -222,6 +329,36 @@ failures reaching destinations through it.
 Configuring a profile to use a gateway does not provision or administer the
 gateway itself.
 
+## Configuring optional integrations
+
+Users can enable optional integrations from a list scoped to the selected
+agent; the set of available integrations depends on which the agent supports,
+the same per-agent scoping shown during agent discovery. Every optional
+integration is disabled by default. Enabling one is an explicit choice, never
+inferred from other configuration.
+
+Enabling an integration adds its required destinations to the network-access
+review and its required environment variables or credentials to environment
+and credential configuration, following the same reference-only or
+encrypted-storage policy as other credentials. Review attributes each added
+destination, variable, and credential to the integration that requires it,
+distinct from values the user configured directly.
+
+Some integrations require no more than destinations and environment values.
+Others also affect deployment resource naming, such as image, container, or
+data-volume names, or mount an agent's own configuration or collection
+directories directly, rather than through the ordinary bind-mount or
+native-configuration flows. For these, review discloses the resulting naming
+scheme and which directories become mounted. Applying reports a conflict,
+rather than silently choosing precedence, when an integration's required mount
+collides with an explicitly configured bind mount, configuration mount, or
+native-configuration import.
+
+Integrations marked experimental require an explicit acknowledgment naming
+them as experimental when first enabled, distinct from the ordinary enable
+choice. Their description states what makes them experimental, such as
+limited agent support or an unstable configuration shape.
+
 ## Editing a profile
 
 Users select an existing profile by name and edit the whole profile or a chosen
@@ -232,11 +369,21 @@ Cancellation preserves the previously saved profile and its managed assets.
 Saving updates the desired configuration without applying a deployment or
 altering running sessions, and explains how to preview and apply the changes.
 
+Editing a credential field follows this same review-before-save flow. Users
+may change a reference's source, switch a credential between reference-only
+and encrypted storage, or replace an encrypted credential's stored value with
+a new one under the profile's current key, without unlocking or exposing the
+value being replaced. Removing a credential clears its reference or stored
+value; review identifies deployments or sessions that depend on it.
+
 ## Listing and inspecting profiles
 
 Users list profiles with their names, agents, selected deployments, and unapplied
 changes. Empty lists provide next steps; invalid profiles do not prevent others
-from appearing.
+from appearing. The same guidance appears whenever no profiles exist, regardless
+of whether the CLI has been used before; the CLI does not track first-time use
+as separate state. Guidance for an empty list points to discovering supported
+agents and creating a first profile.
 
 Inspection explains configuration sources, managed assets, and external
 dependencies, distinguishing desired configuration from the selected deployment.
@@ -264,10 +411,10 @@ decryption key and successfully unlock it, then freshly encrypt it for the clone
 The CLI does not merely copy ciphertext.
 
 One destination encryption key applies to all retained encrypted credentials in
-the cloned profile. Users supply a destination key, which may be the same as the
-source key, or select the configured user-default key. Key scope is per-user or
-per-profile, not per-credential. A source key may unlock multiple selected
-credentials during the operation without repeated entry.
+the cloned profile. Users supply a destination key, which may be the same value
+as the source key or a newly configured key for the clone. Key scope is
+strictly per-profile, not per-user or per-credential. A source key may unlock
+multiple selected credentials during the operation without repeated entry.
 
 Skipped credentials are identified as requiring configuration where necessary.
 Failure to unlock or encrypt a credential does not silently omit it or save
@@ -286,12 +433,14 @@ Docker images and named volumes. Resources referenced by any container, another
 profile, or a retained deployment that will remain are protected from deletion.
 If Docker cannot be inspected, Docker-resource deletion is unavailable.
 
-The CLI never deletes external bind-mount sources or offers to delete the
-user-level encryption key. It removes the deleted profile key reference and
-offers deletion of any exclusively owned, CLI-managed profile-level key material.
-Shared or externally managed keys remain untouched. Whether the CLI manages key
-material at all, rather than only referencing user-provided keys, remains a
-decision for the detailed key-management specification.
+The CLI never deletes external bind-mount sources. It removes the deleted
+profile's key reference and offers deletion of the profile's CLI-managed key
+material when the CLI manages that material; because key scope is strictly
+per-profile, that material is exclusively owned by the removed profile.
+Externally managed key material remains untouched. Whether the CLI manages
+key material at all, rather than only referencing user-provided keys, remains
+a decision for the detailed key-management specification. It also prunes the
+profile's shortcut from the generated shortcuts file.
 
 Before confirmation, the CLI lists exact deletion targets, retained resources,
 and any persistent-data loss. Active sessions belonging to the profile block
@@ -311,6 +460,29 @@ deployment cannot be retired.
 Cleanup requires explicit confirmation and Docker inspection. It never deletes
 external bind-mount sources, workspaces, or encryption keys. If deletion partly
 fails, the result identifies what was removed, what remains, and why.
+
+## Validating a profile
+
+Users validate a named managed profile to check its structural correctness
+without contacting Docker or changing any file. Validation parses
+`profile.toml`, rejects unknown fields, and checks field types, required
+combinations, and mutually exclusive settings, such as native imports and
+configuration mounts.
+
+Validation checks the shape of credential fields without resolving them: it
+confirms a reference or an encrypted-storage entry is internally consistent,
+but does not contact the referenced source, unlock encrypted storage, or
+require the encryption key. It does not check Docker availability, network
+reachability, or provider authentication; those checks belong to preview,
+apply, and diagnostics.
+
+Preview and apply always validate as part of their own flow; standalone
+validation lets users, or automation such as CI, check a profile's
+correctness independently of either, without depending on Docker being
+available. It never modifies the profile or its managed assets.
+
+Results distinguish errors that block deployment from warnings that do not. A
+profile with only warnings is still valid.
 
 ## Previewing a deployment
 
@@ -406,6 +578,33 @@ according to the configured persistence policy. Exiting does not remove the
 profile or its deployment. Routine launch requires no additional confirmation
 prompt; missing prerequisites produce actionable errors.
 
+## Generating and using shell shortcuts
+
+Applying or rolling back a profile's deployment generates or refreshes a
+per-profile shell shortcut, alongside the profile's own entry in a single
+generated shortcuts file. Users source that file once from their shell
+startup so shortcuts become available in new shells; sourcing it again after
+a refresh picks up the change.
+
+A shortcut resolves the profile's current state at invocation time rather
+than freezing it at generation time: it evaluates the directory it is invoked
+from as the workspace and launches the profile's currently selected
+deployment, the same as launching directly through the CLI. Regeneration on
+apply or rollback keeps the shortcut in step with changes that affect which
+profile it maps to or how it is named.
+
+Shortcuts forward arguments to the agent the same way direct launch does.
+They do not accept arbitrary container-runtime options; an intentional
+one-off override beyond what a shortcut and direct launch already support is
+out of scope for this journey.
+
+Removing a profile also prunes its shortcut from the generated shortcuts
+file, so no stale shortcut for a deleted profile remains available in a
+freshly sourced shell. Invoking a shortcut for a profile that was removed
+without re-sourcing the file, such as in an already-open shell, reports an
+actionable error rather than acting on a Docker resource that may no longer
+exist.
+
 ## Inspecting and force-terminating sessions
 
 Users list active CLI-managed sessions and select one to inspect its agent,
@@ -430,10 +629,11 @@ Users choose between runtime credential references and optional encrypted
 credential storage. Without encrypted storage, the CLI persists references only
 and obtains required values from the configured external source at launch.
 
-Users opting into encrypted storage configure a user-level default encryption
-key, with optional per-profile key overrides. Unlocking material stays outside
-profile directories and exports. At launch, the CLI unlocks and supplies only
-the credentials required by the selected agent; it never supplies the encryption
+Users opting into encrypted storage configure an encryption key for that
+profile. Key scope is strictly per-profile: there is no shared, CLI-managed
+key spanning multiple profiles. Unlocking material stays outside profile
+directories and exports. At launch, the CLI unlocks and supplies only the
+credentials required by the selected agent; it never supplies the encryption
 key to the container. Missing keys or failed decryption do not trigger plaintext
 storage as a fallback.
 
@@ -452,6 +652,35 @@ login tokens in their agent home directories. Encryption at rest does not concea
 credentials from the agent that needs to use them. The approved policy and
 remaining design decisions are recorded in [security.md](security.md).
 
+## Rotating a profile's encryption key and recovering from key loss
+
+Users can rotate the encryption key protecting a profile's stored credentials.
+Rotation unlocks the profile's stored credentials with the current key and
+re-encrypts them under a new key value; it affects only that profile.
+
+Before rotation, the CLI reports every affected credential and requires
+confirmation. Cancellation leaves existing encrypted storage unchanged. If a
+credential cannot be unlocked during rotation, the CLI reports the failure and
+leaves the profile's encrypted storage under its original key rather than
+partially rotating it or discarding the unreadable value.
+
+If the key protecting a profile's encrypted credentials becomes permanently
+unavailable, the CLI cannot recover the values it protects. Users may
+explicitly discard the affected encrypted credentials and reconfigure them,
+choosing reference-only or freshly encrypted storage through the same flow
+used when first providing credentials. Discarding requires confirmation that
+identifies exactly which credentials are lost. The CLI never substitutes a
+different key or treats an unavailable key as an empty credential.
+
+Key material may be sourced from a portable CLI-managed key or, where
+available, the host's OS-managed key store. OS-managed storage ties unlocking
+to the host user's session and is unavailable in environments without one,
+including many noninteractive and CI environments; the portable mechanism
+remains available there. The profile records which source is configured. The
+CLI never copies OS-managed key material into profile directories or exports.
+Provisioning and rotation mechanics for each source remain to be specified in
+[security.md](security.md).
+
 ## Diagnosing a profile
 
 Users diagnose a named profile to understand problems with Docker availability,
@@ -469,27 +698,82 @@ Results distinguish failures, warnings, and checks not performed. Diagnosis does
 not automatically repair configuration or resources; it explains the appropriate
 recovery action.
 
+## Recovering from failed or interrupted operations
+
+Every mutating operation — creating, editing, cloning, importing, or removing
+a profile; applying a deployment or rolling back; cleaning up unused
+resources; and rotating an encryption key — records an in-progress marker
+before changing any state, scoped to the profile it targets, or to the
+resource set being changed for cleanup. The marker is cleared when the
+operation finishes, whether it succeeds or fails cleanly. A stale marker left
+by a process that was killed or a host that crashed before the operation
+could finish or clean up is distinct from an ordinary in-app failure, which
+is already reported directly to the user at the time it happens.
+
+Any command invoked against a profile with a stale marker reports the
+interrupted operation explicitly, rather than proceeding as though the
+profile were in a normal state or failing with an unrelated error. Diagnosing
+a profile surfaces the same finding. The report identifies which operation
+was interrupted and, where determinable, what it had completed before
+stopping.
+
+The standard recovery action is to re-run the same command that was
+interrupted. Operations are designed to be safe to retry from an in-progress
+state: re-running either completes the interrupted work or reports what
+remains inconsistent, building on how each operation already handles a clean
+failure without corrupting state — clean cancellation for creating, editing,
+cloning, importing, and removing a profile; original-key retention for key
+rotation; and identified partial results for cleanup.
+
+While a marker shows an operation in progress, a second mutating operation
+that would target the same profile, or an overlapping resource set for
+cleanup, is rejected with an actionable error instead of running
+concurrently. This applies whether the first operation is still genuinely
+running or was left stale by an interruption; a rejected concurrent attempt
+does not itself clear a stale marker.
+
+Docker resources left behind by an interrupted apply, such as a partially
+built image, surface through the same unused-resource cleanup used for
+retired deployments. They are not removed automatically.
+
 ## Sharing and migration
 
-Configuration-package export and import belong to the initial scope.
+Configuration-package export and import belong to the initial scope. The
+concrete package format remains to be specified in
+[interface.md](interface.md); this journey describes it only as a
+configuration package.
 
 Users export a managed profile to share its configuration or transfer it to
-another installation. The package contains `profile.toml` and eligible
-profile-owned assets. It identifies external bind-mount dependencies without
-copying their contents. Workspace contents, Docker volume contents, deployment
-history, credentials (including encrypted credentials), and encryption keys are
-excluded.
+another installation. The package contains `profile.toml`, CLI-authored
+native-configuration items, and other eligible profile-owned assets such as CA
+certificates. It identifies external bind-mount dependencies without copying
+their contents. Workspace contents, Docker volume contents, deployment
+history, credentials (including encrypted credentials), and encryption keys
+are excluded.
+
+Imported native-configuration items are excluded from export by default,
+because their content is opaque to the CLI and may embed credentials or other
+secrets. Users may explicitly opt each imported item into an export; doing so
+requires an acknowledgment that its content was not verified secret-free. This
+follows the same per-item origin the CLI already tracks for native-configuration
+items: CLI-authored items are export-eligible because the CLI controls their
+structure and keeps credentials out through the reference mechanism; imported
+items are not, unless the user takes on that responsibility explicitly.
 
 Users import a package to create an independently managed profile. Import
-validates the package, resolves profile-name collisions, and identifies
-dependencies requiring local configuration before deployment. Subsequent changes
-to, or loss of, the package source do not affect the imported profile. External
-runtime dependencies may still be required; importing configuration does not
-make the environment self-contained.
+validates the package and identifies dependencies requiring local
+configuration before deployment. Import derives a default profile name from
+the package; a name that collides with an existing local profile prompts for
+a different name interactively, and noninteractive import fails with an
+actionable error on collision unless an explicit destination name was
+supplied up front. Subsequent changes to, or loss of, the package source do
+not affect the imported profile. External runtime dependencies may still be
+required; importing configuration does not make the environment
+self-contained.
 
-Package format, asset eligibility, enforcement of credential exclusion, and
-collision-resolution behavior remain to be specified. Native agent settings may contain credentials;
-their presence in a profile directory does not make them safe to export.
+Enforcement of credential exclusion — verifying that no credential value
+survives into an exported package or an opted-in imported item — remains to
+be specified.
 
 ## Deferred backup and restore
 

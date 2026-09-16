@@ -7,7 +7,7 @@ approved statement of required behavior.
 
 ## Document sequence
 
-1. `user-journey.md`: user goals, starting conditions, decisions, outcomes,
+1. `user-journeys.md`: user goals, starting conditions, decisions, outcomes,
    alternative paths, and recovery journeys.
 2. `interface.md`: commands, arguments, options, prompts, output, exit behavior,
    and shell interaction, derived from the agreed journeys.

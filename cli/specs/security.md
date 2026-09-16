@@ -23,20 +23,44 @@ must never cause plaintext storage as a fallback.
 
 ## Encryption key scope
 
-Encrypted storage supports a user-level default key and optional per-profile key
-overrides. Configuration stores key references, not unlocking material. Unlocking
-material must remain outside managed profile directories and exports.
+Encrypted storage uses one encryption key per profile, configured when a user
+first opts into encrypted storage for that profile. Configuration stores a key
+reference, not unlocking material. Unlocking material must remain outside
+managed profile directories and exports.
 
-Key scope is per-user or per-profile, not per-credential. One effective
-encryption key applies to the stored credentials of a profile.
+Key scope is strictly per-profile, not per-user or per-credential. One
+effective encryption key applies to all stored credentials of a profile. The
+CLI does not track or manage any shared, cross-profile key. Users who want to
+reuse the same underlying key value across multiple profiles may do so as
+their own choice; the CLI does not treat that reuse as a shared entity subject
+to fan-out rotation or shared-ownership deletion rules.
 
-A shared key simplifies operation but compromise or loss affects every credential
-protected by it. Per-profile keys permit independent access and rotation, but
-provide separation only to the extent that the keys are protected independently.
+Key material may be sourced from a portable CLI-managed key or, where
+available, the host's OS-managed key store, selectable per profile rather than
+fixed CLI-wide. OS-managed storage is unavailable in environments without an
+unlockable host session, including many noninteractive and CI environments;
+the portable mechanism must remain available for those cases. The CLI never
+copies OS-managed key material into profile directories or exports. The
+specific portable mechanism, and OS-key-store integration details per
+platform, remain to be specified during detailed security design.
 
-An established encryption or secret-store mechanism must be selected during
-detailed security design. The mechanism, key provisioning and unlocking flows,
-rotation, and handling of key loss remain to be specified.
+## Key rotation and recovery
+
+Users can rotate a profile's encryption key, unlocking with the current key
+and re-encrypting that profile's stored credentials under a new key value.
+Rotation affects only the profile it is performed on.
+
+The CLI must report every affected credential before rotation and require
+confirmation. A credential that cannot be unlocked during rotation must cause
+the profile's encrypted storage to remain under its original key; rotation
+must not partially apply or discard the unreadable value.
+
+A permanently unavailable key must not be treated as an empty credential, and
+the CLI must not substitute a different key. Recovery is limited to explicitly
+discarding the encrypted credentials it protects and reconfiguring them
+through the ordinary credential-configuration flow, choosing reference-only or
+freshly encrypted storage. Discarding requires confirmation that identifies
+exactly which credentials are lost.
 
 ## Credentials during cloning
 
@@ -46,9 +70,10 @@ Retaining a reference copies its definition without copying an external secret.
 
 To retain an encrypted credential, the user must supply the source decryption key
 and successfully unlock it. The CLI then freshly encrypts it for the destination
-profile rather than copying ciphertext. The destination uses one user-supplied
-key, which may be the source key, or the configured user-default key. A source key
-may be reused within the cloning operation without repeated entry.
+profile rather than copying ciphertext. The destination profile uses one
+user-supplied key, which may be the same value as the source key or a newly
+configured key for the clone. A source key may be reused within the cloning
+operation without repeated entry.
 
 Decryption or encryption failures must not cause silent omission or plaintext
 persistence. Users may retry, explicitly skip the credential, or cancel. Required
@@ -59,15 +84,15 @@ choices must fail with actionable instructions.
 
 ## Keys during profile removal
 
-Profile removal must never offer to delete or delete the user-level encryption
-key. It removes the deleted profile key reference. Deletion of profile-level key
-material may be offered only when the CLI manages that material and establishes
-that it is exclusively owned by the removed profile. Shared keys and externally
-managed key material must remain untouched.
+Profile removal may offer deletion of the profile's encryption key material
+when the CLI manages that material. Because key scope is strictly per-profile,
+that material is exclusively owned by the removed profile. Externally managed
+key material, such as an OS-managed key store entry the CLI only references,
+must remain untouched by profile removal.
 
-Whether the CLI ever manages key material, rather than only referencing
-user-provided keys, remains to be specified. This conditional deletion policy
-does not establish a key-storage mechanism.
+Whether the CLI ever manages key material itself, rather than only
+referencing user-provided keys, remains to be specified. This conditional
+deletion policy does not establish a key-storage mechanism.
 
 ## Runtime delivery and limits
 
@@ -158,4 +183,14 @@ produce actionable errors. Missing sources must not be silently created.
 Configuration export/import excludes credential values, including encrypted
 credentials, and encryption keys. Native configuration assets must not be assumed
 safe to export merely because they are stored in a managed profile directory.
-How credential exclusion is enforced for those assets remains to be specified.
+
+CLI-authored native-configuration items are eligible for export by default,
+since the CLI controls their structure and keeps credential values out through
+the reference mechanism. Imported native-configuration items are excluded from
+export by default because their content is opaque to the CLI; including one
+requires an explicit per-item opt-in and an acknowledgment that its content was
+not verified secret-free.
+
+How credential exclusion is enforced — verifying that no credential value
+actually survives into an exported package or an opted-in imported item —
+remains to be specified.
