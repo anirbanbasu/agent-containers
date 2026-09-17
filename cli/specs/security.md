@@ -3,6 +3,60 @@
 This document records approved requirements as they are agreed. It is not yet a
 complete security specification or a claim about the current implementation.
 
+## Threat model
+
+[Containment philosophy](../../docs/containment-philosophy.md) and
+[security assessments](../../docs/security-assessment.md) define the adversary
+model for the *running container*: what a compromised, in-container agent can
+reach, and the boundaries that limit it. This document assumes that model and
+does not restate it. The onboarding CLI is a separate actor in a different
+position: it runs on the host, outside any container boundary, with authority
+over profile directories, credential references and encrypted storage, key
+material, the software and native-configuration selections baked into an
+image, and configuration-package export and import. This section scopes the
+CLI's own threat model and states how its decisions relate to limitations
+already named for the container.
+
+In scope: the confidentiality of credential values and encryption keys across
+CLI storage, display, export, and delivery; the integrity of what the CLI
+seeds into an image or an agent home directory; and whether CLI-mediated
+transfers, such as cloning or configuration-package export, can leak
+credential values or unvetted content across a trust boundary the user did not
+intend to cross.
+
+Out of scope: kernel, Docker daemon, and host operating-system security; the
+in-container containment mechanics themselves (non-root execution, read-only
+root filesystem, capability dropping, egress filtering), which remain owned by
+containment-philosophy.md; and vetting the contents of upstream base images,
+packages, or registries for vulnerabilities or malice.
+
+Several requirements below exist specifically to close, or to knowingly leave
+open, a limitation already named in containment-philosophy.md's "Known
+limitations":
+
+- **"None of this vets the image itself."** The CLI's software-selection and
+  native-configuration-import flows are the actual mechanism by which
+  build-time trust is established. This document does not yet specify any
+  vetting of imported native-configuration content or user-supplied package
+  lists before they are seeded into a profile or an image; imported content is
+  treated as opaque, and the CLI relies on the user, not on scanning, to judge
+  its trustworthiness.
+- **"Any credential handed to the agent is a bridge, not a breach."** The
+  runtime delivery mechanism below (a memory-backed file mount in preference
+  to environment variables) narrows how a credential value can leak from the
+  delivery channel itself; it does not, and cannot, restrict what an agent
+  legitimately does with a credential once delivered.
+- **"The home-directory volume is shared, persistent, and trusted by
+  default."** The CLI's agent-home persistence choices and its
+  never-overwrite native-configuration seeding behavior determine what
+  persists into that trusted, shared volume across sessions and, for
+  per-project or shared modes, across projects.
+
+Where a requirement below states that something "remains to be specified,"
+its eventual design must be evaluated against this threat model: what host-side
+actor or transfer it protects against, and which named limitation, if any, it
+narrows.
+
 ## Credential output and entry
 
 The onboarding CLI must not display credential values in its output, including
