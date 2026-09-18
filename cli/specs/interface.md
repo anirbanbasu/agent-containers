@@ -267,10 +267,11 @@ protected from deletion. Retirement of a retained deployment is an explicit
 choice required before its otherwise-unused image becomes eligible. The
 currently selected deployment cannot be retired.
 
-Cleanup never deletes external bind-mount sources, workspaces, or encryption
-keys. Partial failures identify deleted and remaining resources and explain
-the failures. Exact resource-selection, deployment-retirement, and confirmation
-syntax remain to be specified.
+Cleanup never deletes external bind-mount sources or workspaces, and does not
+touch profile-scoped state such as a cached passphrase; that lifecycle belongs
+to profile removal. Partial failures identify deleted and remaining resources
+and explain the failures. Exact resource-selection, deployment-retirement, and
+confirmation syntax remain to be specified.
 
 ## Network, proxy, and certificate configuration
 
@@ -342,8 +343,8 @@ interactive and noninteractive use.
 Messages must identify the failed operation, explain the cause when known, and
 provide a corrective or recovery action where possible. When the cause is
 unknown, the CLI must say so rather than invent an explanation. Messages must
-not expose credential values, encryption keys, or sensitive input through
-exception text or subprocess output.
+not expose credential values, passphrases, encryption keys, or sensitive input
+through exception text or subprocess output.
 
 If an error occurs after changes have begun, the CLI must report known completed
 actions, remaining work, and any uncertain state without claiming success or
@@ -357,6 +358,7 @@ be specified.
 - How approval relates to a refreshed deployment preview and any changed inputs.
 - Syntax for per-credential cloning choices, including passphrase supply for
   source decryption and destination re-encryption.
+- Syntax for passphrase-reference supply and passphrase-cache opt-in/disable.
 - Syntax for optional resource deletion and its confirmation.
 - Noninteractive handling of unavailable Docker during preview.
 - Complete noninteractive inputs for creation, editing, import, and export,
