@@ -94,14 +94,42 @@ rebuild. The file is parsed as data, not executed. Its values must not appear in
 output, managed profile assets, images, or exports. Export identifies the file
 as an external dependency. Missing files and invalid entries are handled errors.
 
-Conflicting dedicated settings or environment sources produce errors rather
-than silent precedence. A `.env` definition of `NO_PROXY` is allowed when the
-profile does not explicitly configure bypass destinations. If both define it,
-report a conflict. Containment controls require their dedicated settings.
+Whichever single configured source defines a given variable name is used. Two
+or more configured sources defining the same name — including `HTTP_PROXY`,
+`HTTPS_PROXY`, and `NO_PROXY` — must always be reported as a conflict,
+regardless of which kinds of source they are.
 
 Noninteractive inputs must express the same source selections without prompts.
 Exact syntax, supported `.env` grammar, file-path resolution, duplicate handling,
 and the full list of CLI-controlled variables remain to be specified.
+
+## Passphrase and key-cache interface
+
+The CLI always derives the encryption key ephemerally from the passphrase via
+a KDF, and never stores or exports the passphrase or the derived key itself;
+see [security.md](security.md#encryption-key-scope). The interface must
+support:
+
+- Interactive passphrase entry with no terminal echo, prompted whenever an
+  operation needs to derive the key (creating or unlocking encrypted
+  credential storage, rotation, export of a profile with encrypted
+  credentials).
+- Noninteractive passphrase supply via an explicit reference (e.g. a host
+  environment variable), never as a literal command-line argument or stored
+  in a profile file. A passphrase reference is distinct from a credential
+  reference — it unlocks credential references, it is not one.
+- An explicit, per-profile, off-by-default opt-in to caching the passphrase
+  in the host's OS-managed credential store, offered separately from opting
+  into encrypted credential storage itself. Caching is unavailable without an
+  unlockable host session and must be reported as unavailable, not silently
+  skipped, in noninteractive or CI contexts.
+- Explicit per-profile disabling of caching, which clears any existing cache
+  entry for that profile.
+
+Review and diagnostics indicate whether a profile has an active passphrase
+cache without displaying the passphrase. Noninteractive inputs must express
+passphrase-reference and cache-opt-in choices unambiguously. Exact syntax
+remains to be specified.
 
 ## Noninteractive operation
 
@@ -117,8 +145,8 @@ The following contracts derive from the approved journeys:
 |---|---|
 | Apply | Provide explicit confirmation options in place of interactive confirmation. Check Docker and required inputs and refresh the preview before changes. Without the required confirmation, do not perform the proposed changes. Applying does not launch an agent or stop existing sessions. |
 | Rollback | Support selection of a retained deployment and explicit confirmation before changing the selected deployment. Check Docker and required resources and preview the effects on future launches. Missing resources leave the current selection unchanged. |
-| Clone | Require explicit retain-or-skip selections for credential references and encrypted credentials, and the necessary source and destination key sources. Unresolved choices fail with actionable instructions. Destination key scope is strictly per-profile, not per-credential. |
-| Remove | Express profile-removal confirmation and optional image, volume, and eligible profile-level key deletion choices explicitly. Resource and key protection rules still apply; noninteractive operation does not bypass them. |
+| Clone | Require explicit retain-or-skip selections for credential references and encrypted credentials, and the necessary source and destination passphrases to decrypt and re-encrypt retained encrypted credentials. Unresolved choices fail with actionable instructions. Destination key scope is strictly per-profile, not per-credential. |
+| Remove | Express profile-removal confirmation and optional image and volume deletion choices explicitly. Removal automatically clears any cached passphrase for the profile; if the credential store cannot be inspected, report cache deletion as unavailable rather than skipping it silently. Resource protection rules still apply; noninteractive operation does not bypass them. |
 | Preview | Inspect Docker automatically. If Docker is unavailable, do not claim deployment readiness. The noninteractive response to the offer of a limited metadata-only preview remains to be decided. |
 | List and inspect | Remain available without Docker and identify unavailable or unchecked information. Credential references and storage status may appear; values must not. |
 
@@ -254,21 +282,35 @@ bootstrap access, and the containment effects of broader access choices. It
 distinguishes configured access from connectivity actually checked.
 
 Users can configure HTTP(S) proxy addresses, bypass destinations, and credential
-references or optional encrypted proxy credentials. Custom CA certificates may
-be supplied individually or from a directory, with or without a proxy. Accepted
-certificates are copied into managed profile storage after validation; private-key
-material is rejected.
+references or optional encrypted proxy credentials. SOCKS proxy support is
+deferred to a future version. Custom CA certificates may be supplied individually
+or from a directory, with or without a proxy. Accepted certificates are any
+parseable X.509 certificate, including a single self-signed leaf certificate for
+a specific endpoint, not only certificates marked as certificate authorities;
+private-key material is rejected. Expired certificates or weak signature
+algorithms are flagged as warnings and do not block acceptance on their own.
+
+Applying incorporates accepted certificates into the container's system trust
+store at image build time; changing certificates requires a rebuild.
+Environment-variable trust hints (e.g. `NODE_EXTRA_CA_CERTS`) are a supplementary
+layer only, never the sole mechanism for trust.
 
 Review displays proxy configuration, bypass destinations, and added certificates
 without credential values. It explains that proxy bypass does not bypass egress
-restrictions and that added CAs extend trust. Changes to original certificate
-files do not update managed copies; replacing managed certificates requires apply.
-Explicit connectivity checks distinguish proxy connection, authentication, and
-certificate-trust failures where possible.
+restrictions, and distinguishes trust extended to an issuer from trust extended
+to a single certificate. Changes to original certificate files do not update
+managed copies; replacing managed certificates requires apply.
+
+Connectivity checks for the configured proxy and certificates are a separate,
+explicitly selected action under the diagnostics interface, not an implicit
+part of review. They require the relevant network to be reachable at check time
+and are unavailable otherwise; unavailability is reported, not treated as a
+connection failure. Where run, they distinguish proxy connection, authentication,
+and certificate-trust failures where possible.
 
 Noninteractive inputs must support the same explicit network choices, proxy
-settings, credential sources, and certificate assets. Exact syntax, certificate
-validation rules, and certificate replacement behavior remain to be specified.
+settings, credential sources, and certificate assets. Exact syntax remains to
+be specified.
 
 ## Gateway configuration interface
 
@@ -313,7 +355,8 @@ be specified.
 
 - Exact spelling and placement of the noninteractive and confirmation options.
 - How approval relates to a refreshed deployment preview and any changed inputs.
-- Syntax for per-credential cloning choices and secure key-source selection.
+- Syntax for per-credential cloning choices, including passphrase supply for
+  source decryption and destination re-encryption.
 - Syntax for optional resource deletion and its confirmation.
 - Noninteractive handling of unavailable Docker during preview.
 - Complete noninteractive inputs for creation, editing, import, and export,
