@@ -78,25 +78,43 @@ must never cause plaintext storage as a fallback.
 ## Encryption key scope
 
 Encrypted storage uses one encryption key per profile, configured when a user
-first opts into encrypted storage for that profile. Configuration stores a key
-reference, not unlocking material. Unlocking material must remain outside
-managed profile directories and exports.
+first opts into encrypted storage for that profile.
 
 Key scope is strictly per-profile, not per-user or per-credential. One
-effective encryption key applies to all stored credentials of a profile. The
-CLI does not track or manage any shared, cross-profile key. Users who want to
-reuse the same underlying key value across multiple profiles may do so as
+effective passphrase applies to all stored credentials of a profile. The CLI
+does not track or manage any shared, cross-profile key. Users who want to
+reuse the same underlying passphrase across multiple profiles may do so as
 their own choice; the CLI does not treat that reuse as a shared entity subject
 to fan-out rotation or shared-ownership deletion rules.
 
-Key material may be sourced from a portable CLI-managed key or, where
-available, the host's OS-managed key store, selectable per profile rather than
-fixed CLI-wide. OS-managed storage is unavailable in environments without an
-unlockable host session, including many noninteractive and CI environments;
-the portable mechanism must remain available for those cases. The CLI never
-copies OS-managed key material into profile directories or exports. The
-specific portable mechanism, and OS-key-store integration details per
-platform, remain to be specified during detailed security design.
+The key is symmetric and is derived ephemerally from a user-supplied
+passphrase through a key-derivation function. The CLI must not generate,
+store, or export the passphrase or the derived key itself, and must not offer
+to generate a passphrase on the user's behalf. Configuration stores only the
+non-secret parameters needed to reproduce the derivation, such as a salt and
+the function's cost parameters; these are not unlocking material on their own,
+and their presence in the profile directory does not permit decryption
+without the passphrase. The passphrase is supplied by the user at the point
+it is needed — entered interactively without echoing, or, for noninteractive
+and CI use, obtained from an external source through the same reference
+mechanism used for other credentials. Users may explicitly opt in, per
+profile, to caching the passphrase in the host's OS-managed credential store
+so it need not be retyped at every unlock. This caching is disabled by
+default, requires a choice separate from opting into encrypted storage
+itself, and is available only where an unlockable host session exists; it is
+unavailable in many noninteractive and CI environments, where passphrase
+entry through a reference remains the required path and must keep working
+without it. The CLI never copies a cached passphrase into profile directories
+or exports, and treats a cache entry as exclusively owned by the profile that
+created it. Outside such an explicit cache entry, the CLI does not otherwise
+persist the passphrase or the derived key in its own managed storage —
+profile directories, exports, or any other file it directly controls.
+
+Authenticator- or passkey-based key derivation is deferred to a future
+version and is not part of this version's key-management design; it must not
+be assumed available. The specific key-derivation function and its
+parameters, and the OS-credential-store integration per platform, remain to
+be specified during detailed security design.
 
 ## Key rotation and recovery
 
@@ -115,6 +133,14 @@ discarding the encrypted credentials it protects and reconfiguring them
 through the ordinary credential-configuration flow, choosing reference-only or
 freshly encrypted storage. Discarding requires confirmation that identifies
 exactly which credentials are lost.
+
+If the profile has a cached passphrase in the OS-managed credential store,
+successful rotation replaces it with the new passphrase; a rotation that
+fails or is cancelled must leave any existing cache entry unchanged, the same
+as it leaves encrypted storage under its original key. Discarding a
+profile's encrypted credentials after permanent key loss also clears any
+cached passphrase for that profile, since it can no longer unlock anything
+meaningful.
 
 ## Credentials during cloning
 
@@ -138,15 +164,20 @@ choices must fail with actionable instructions.
 
 ## Keys during profile removal
 
-Profile removal may offer deletion of the profile's encryption key material
-when the CLI manages that material. Because key scope is strictly per-profile,
-that material is exclusively owned by the removed profile. Externally managed
-key material, such as an OS-managed key store entry the CLI only references,
-must remain untouched by profile removal.
+The CLI never stores a profile's passphrase or its derived encryption key in
+its own managed storage, so profile removal has no such material to delete
+there; the non-secret derivation parameters are removed as ordinary profile
+configuration, along with the rest of the profile directory, without a
+separate confirmation.
 
-Whether the CLI ever manages key material itself, rather than only
-referencing user-provided keys, remains to be specified. This conditional
-deletion policy does not establish a key-storage mechanism.
+If the profile has a cached passphrase in the host's OS-managed credential
+store, removal deletes that cache entry, since key scope is strictly
+per-profile and the entry is exclusively owned by the removed profile. If the
+credential store cannot be inspected, such as when no unlockable host session
+exists, cache deletion is unavailable and the CLI must report that rather
+than silently skip it or claim it as done. A passphrase a user chooses to
+remember or record themselves, outside any CLI-managed cache, is entirely
+their own responsibility and outside the CLI's control.
 
 ## Runtime delivery and limits
 
@@ -185,9 +216,14 @@ execute it as a shell script. Values must not be displayed, copied into managed
 profile assets, or included in exports. Export identifies the external dependency.
 
 Conflicts between environment sources or dedicated settings must be reported
-without exposing values. Containment controls must remain restricted to their
-dedicated configuration fields. `.env` may provide `NO_PROXY` only when bypass
-destinations are not explicitly configured in the profile; otherwise report a
+without exposing values: whichever single configured source defines a given
+variable name is used, and two or more configured sources defining the same
+name must always be reported as a conflict, regardless of which kinds of
+source they are. Containment controls must remain restricted to their
+dedicated configuration fields. This applies uniformly to the proxy-related
+variables — `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` — the same as any
+other name: `.env` may provide one of them only when the corresponding
+dedicated proxy setting is not explicitly configured; otherwise report a
 conflict. This does not permit bypassing egress restrictions.
 
 ## Network and certificate trust
@@ -199,13 +235,31 @@ destinations from gateway bootstrap access and explain broader access choices.
 
 Proxy credentials follow the same reference-only or opt-in encrypted-storage
 policy as other credentials. Reviews must not expose their values. Proxy bypass
-must not be presented as bypassing the egress policy.
+must not be presented as bypassing the egress policy. SOCKS proxy support is
+deferred to a future version and is out of scope for this document.
 
 Custom CA inputs must be validated and rejected if they contain private-key
-material. Accepted certificates become managed profile assets. Review must explain
-the extension of trust to added certificate issuers. Custom CA trust must be
-configurable independently of proxy use. Detailed validation and deployment trust
-integration remain to be specified.
+material. Validation otherwise accepts any parseable X.509 certificate, not
+only those with a CA basic constraint, since rejecting a self-signed leaf
+certificate would block trusting a single endpoint that no certificate
+authority backs. An expired certificate or a weak signature algorithm must be
+flagged as a warning, never silently accepted or rejected on that basis
+alone.
+
+Accepted certificates become managed profile assets and are incorporated into
+the container's system trust store at image build time; adding or replacing
+one requires a rebuild. Environment-variable-based trust hints for specific
+tools may supplement the system trust store but must never be the sole
+mechanism, since any single variable's tool coverage is partial. Replacing a
+managed certificate follows the same one-time-copy convention as
+native-configuration imports: the managed copy is authoritative once
+accepted, changes to the original file do not propagate, and updating
+requires another explicit apply.
+
+Review must explain the extension of trust to added certificate issuers, and
+must distinguish that from trust extended to a single certificate when the
+accepted input is not a certificate authority. Custom CA trust must be
+configurable independently of proxy use.
 
 ## Gateway enforcement
 
@@ -245,6 +299,19 @@ export by default because their content is opaque to the CLI; including one
 requires an explicit per-item opt-in and an acknowledgment that its content was
 not verified secret-free.
 
-How credential exclusion is enforced — verifying that no credential value
-actually survives into an exported package or an opted-in imported item —
-remains to be specified.
+Credential exclusion is enforced structurally, not by content inspection.
+Export builds a package from a fixed, non-configurable allowlist of
+CLI-defined fields and asset kinds, classified as exportable or
+credential-bearing in the CLI's own schema; no profile can add, remove, or
+reinterpret an entry in that classification, and export must never fall back
+to excluding by pattern or by name at runtime. Export requires the profile
+to validate successfully first, the same as preview and apply; because
+validation already rejects unknown fields, a profile can never contain a
+field the CLI's export classification does not already recognize.
+
+This structural guarantee does not extend to opted-in imported
+native-configuration content, which remains opaque to the CLI. The CLI must
+not attempt to scan such content for embedded credentials before export — a
+scan that misses something would let the required acknowledgment be read as
+a verification it is not. Enforcement for that content is the explicit
+per-item acknowledgment alone.

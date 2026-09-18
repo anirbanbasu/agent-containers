@@ -262,10 +262,15 @@ included in exports. Export identifies the external dependency. Missing files
 or invalid entries produce actionable errors before launch.
 
 Conflicts with dedicated settings or other configured environment sources are
-reported without exposing values. A `.env` file may supply `NO_PROXY` when proxy
-bypass destinations are not explicitly configured in the profile; if both
-sources define it, the CLI reports a conflict. Containment controls remain
-restricted to their dedicated settings.
+reported without exposing values: whichever single configured source defines
+a given variable name is used, and two or more configured sources defining
+the same name is always a reported conflict, regardless of which kinds of
+source they are. This applies uniformly to the proxy-related variables —
+`HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` — the same as any other name: a
+`.env` file or a literal value may supply one of them only when the
+corresponding dedicated proxy setting is not explicitly configured; if both
+define it, the CLI reports a conflict. Containment controls remain restricted
+to their dedicated settings.
 
 Externally maintained `.env` files may contain plaintext credentials. The CLI
 does not copy or persist those credential values itself.
@@ -291,24 +296,35 @@ connectivity actually checked.
 Before the final network review, users indicate whether their environment
 requires an HTTP(S) proxy. If so, they configure proxy addresses and bypass
 destinations. Proxy credentials follow the agreed credential-reference or
-encrypted-storage policy.
+encrypted-storage policy. SOCKS proxy support, including a `SOCKS_PROXY`
+variable, is a deferred, low-priority consideration and is not part of this
+version's proxy configuration.
 
 Users can add custom CA certificates, individually or from a directory, when
 required to trust the proxy or another configured endpoint. The CLI validates
-the supplied certificate assets, rejects private-key material, and copies
-accepted certificates into the managed profile directory. Custom CA trust is
-also configurable without a proxy.
+the supplied certificate assets, rejects private-key material, and accepts
+any valid certificate — not only those from a certificate authority, so a
+single self-signed endpoint certificate can be trusted directly. An expired
+certificate or a weak signature algorithm is flagged as a warning rather than
+silently accepted or rejected on that basis alone. Accepted certificates are
+copied into the managed profile directory. Custom CA trust is also
+configurable without a proxy.
 
 The review shows proxy configuration, bypass destinations, and added trust
 certificates without exposing credentials. It explains that proxy bypass does
-not bypass the egress policy, and adding a CA certificate extends which
-certificate issuers the environment trusts.
+not bypass the egress policy, and distinguishes trust extended to a
+certificate's issuer from trust extended to that certificate alone when the
+accepted input is not a certificate authority.
 
-Applying incorporates the configuration and certificates into the deployment.
-Later changes to the original certificate files do not alter the managed copies;
-replacing managed certificates requires another apply. Connectivity checks
-distinguish proxy connection, authentication, and certificate-trust failures
-where possible.
+Applying incorporates the certificates into the container's system trust
+store by rebuilding the image; adding or replacing a certificate always
+requires a rebuild. Environment-variable-based trust hints for specific tools
+may supplement the system trust store but are never the sole mechanism.
+Later changes to the original certificate files do not alter the managed
+copies, the same one-time-copy convention used for native-configuration
+imports; replacing managed certificates requires another explicit apply.
+Connectivity checks distinguish proxy connection, authentication, and
+certificate-trust failures where possible.
 
 ### Gateway configuration
 
@@ -433,14 +449,16 @@ Docker images and named volumes. Resources referenced by any container, another
 profile, or a retained deployment that will remain are protected from deletion.
 If Docker cannot be inspected, Docker-resource deletion is unavailable.
 
-The CLI never deletes external bind-mount sources. It removes the deleted
-profile's key reference and offers deletion of the profile's CLI-managed key
-material when the CLI manages that material; because key scope is strictly
-per-profile, that material is exclusively owned by the removed profile.
-Externally managed key material remains untouched. Whether the CLI manages
-key material at all, rather than only referencing user-provided keys, remains
-a decision for the detailed key-management specification. It also prunes the
-profile's shortcut from the generated shortcuts file.
+The CLI never deletes external bind-mount sources. Because the CLI never
+stores a profile's passphrase or its derived encryption key in its own
+managed storage, removal has no such key material of its own to delete; the
+profile's non-secret derivation parameters are removed with the rest of the
+profile directory. If the profile has a cached passphrase in the host's
+OS-managed credential store, removal deletes that cache entry, since key
+scope is strictly per-profile and the entry is exclusively owned by the
+removed profile; if the credential store cannot be inspected, cache deletion
+is unavailable and is reported as such rather than silently skipped. It also
+prunes the profile's shortcut from the generated shortcuts file.
 
 Before confirmation, the CLI lists exact deletion targets, retained resources,
 and any persistent-data loss. Active sessions belonging to the profile block
@@ -476,10 +494,11 @@ require the encryption key. It does not check Docker availability, network
 reachability, or provider authentication; those checks belong to preview,
 apply, and diagnostics.
 
-Preview and apply always validate as part of their own flow; standalone
-validation lets users, or automation such as CI, check a profile's
-correctness independently of either, without depending on Docker being
-available. It never modifies the profile or its managed assets.
+Preview, apply, and export always validate as part of their own flow;
+standalone validation lets users, or automation such as CI, check a
+profile's correctness independently of any of them, without depending on
+Docker being available. It never modifies the profile or its managed
+assets.
 
 Results distinguish errors that block deployment from warnings that do not. A
 profile with only warnings is still valid.
@@ -672,14 +691,20 @@ used when first providing credentials. Discarding requires confirmation that
 identifies exactly which credentials are lost. The CLI never substitutes a
 different key or treats an unavailable key as an empty credential.
 
-Key material may be sourced from a portable CLI-managed key or, where
-available, the host's OS-managed key store. OS-managed storage ties unlocking
-to the host user's session and is unavailable in environments without one,
-including many noninteractive and CI environments; the portable mechanism
-remains available there. The profile records which source is configured. The
-CLI never copies OS-managed key material into profile directories or exports.
-Provisioning and rotation mechanics for each source remain to be specified in
-[security.md](security.md).
+The encryption key is symmetric and is derived ephemerally from a
+user-supplied passphrase; the CLI does not generate the passphrase and does
+not persist the passphrase or the derived key in its own managed storage.
+Users may explicitly opt in, per profile, to caching the passphrase in the
+host's OS-managed credential store so it need not be retyped at every unlock.
+This caching ties unlocking to the host user's session and is unavailable in
+environments without one, including many noninteractive and CI environments;
+passphrase entry through a reference remains available there. Rotation
+updates a cached passphrase to the new value on success and leaves it
+unchanged if rotation fails or is cancelled. The CLI never copies a cached
+passphrase into profile directories or exports. Authenticator- or
+passkey-based key derivation is deferred to a future version. Detailed
+key-derivation and OS-credential-store integration mechanics remain to be
+specified in [security.md](security.md).
 
 ## Diagnosing a profile
 
@@ -771,9 +796,15 @@ not affect the imported profile. External runtime dependencies may still be
 required; importing configuration does not make the environment
 self-contained.
 
-Enforcement of credential exclusion — verifying that no credential value
-survives into an exported package or an opted-in imported item — remains to
-be specified.
+Credential exclusion from an export is enforced structurally: the package is
+built from a fixed set of CLI-defined fields and asset kinds classified as
+exportable in the CLI's own schema, never from a list a profile could add to
+or edit. Export first validates the profile the same way preview and apply
+do, so a profile with an unrecognized field is rejected rather than partially
+exported. This structural guarantee does not extend to opted-in imported
+native-configuration content, which the CLI does not scan for embedded
+credentials; the required acknowledgment is the only safeguard for that
+content, not a verification claim.
 
 ## Deferred backup and restore
 
