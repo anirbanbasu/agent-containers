@@ -127,7 +127,7 @@ def test_opencode_provider_package_loads_without_registry_access(tmp_path: Path)
                 "/bin/sh",
                 image,
                 "-ceu",
-                "find /opt/agent-tools/npm -path '*/@ai-sdk/openai-compatible' -type d -print -quit | grep -q .",
+                "find /usr/lib/node_modules -path '*/@ai-sdk/openai-compatible' -type d -print -quit | grep -q .",
             ],
             check=True,
             capture_output=True,

@@ -236,6 +236,57 @@ read-only or as a single read-write file. See [custom configuration
 files](custom-configuration.md) and the candidate [local-model
 recipes](local-models.md) for the agent-specific constraints.
 
+## Using the agent's own command-line options
+
+Every shortcut forwards its arguments to the coding agent, so any
+command-line method the agent provides works inside the container, for
+example `contained_codex login --device-auth` or `contained_claude --version`.
+The container does not restrict which subcommands you can run, although some
+need extra egress hosts or writable paths. Run the agent with `--help`, or
+`<subcommand> --help`, to see what it offers:
+
+```sh
+contained_opencode --help
+contained_kilo upgrade --help
+```
+
+Prefer an agent's documented command-line method over editing files in the
+home volume or rebuilding the image whenever one exists. Upgrading is a common
+example. Most agents ship their own upgrade command, and following it keeps
+the agent's own bookkeeping consistent. Check the agent's options first,
+because the default behaviour inside a container can differ from the one on a
+host.
+
+OpenCode and Kilo Code are npm packages that the images install globally on the
+read-only root filesystem. Their `upgrade` command cannot work out how that
+copy was installed: Kilo Code reports that the binary "may be managed by a
+package manager" and asks for confirmation that defaults to "No", and OpenCode
+reports "Could not detect the installation method". Select the npm method
+explicitly so the upgrade installs into the writable home volume:
+
+```sh
+contained_opencode upgrade --method npm
+contained_kilo upgrade --method npm
+```
+
+OpenCode can also cross a major version when you pass `--major`:
+
+```sh
+contained_opencode upgrade --method npm --major
+```
+
+Note the following when you upgrade this way:
+
+- The npm registry host must be reachable under the function's egress policy,
+  for example by adding `registry.npmjs.org` to the agent's
+  `CONTAINED_<IMAGE>_EGRESS` value or allowlist file for that run.
+- The upgraded package is installed under `~/.npm-global` in the persistent
+  home volume, which comes first on `PATH`. It therefore takes precedence over
+  the version baked into the image, and rebuilding the image does not change
+  the version you run until you remove `~/.npm-global` from that volume.
+- Claude Code upgrades without extra options (`contained_claude update`),
+  and the same home-volume precedence applies.
+
 ## CLI-managed profile shortcuts
 
 The onboarding CLI leaves this generic file available and maintains a separate

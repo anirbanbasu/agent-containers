@@ -24,8 +24,7 @@ RUN bash -c '. /usr/local/lib/agent/install-additional-packages.sh \
         && install_uv_packages /tmp/packages-uv.txt' \
     && rm -f /tmp/packages-uv.txt
 
-RUN mkdir -p /opt/agent-tools/npm \
-    && npm_config_prefix=/opt/agent-tools/npm npm install -g opencode-ai @ai-sdk/openai-compatible
+RUN npm install -g @opencode/cli @ai-sdk/openai-compatible
 
 # The opencode account is created here, at a fixed placeholder UID/GID
 # (1000:1000), purely so the root-only installers below (npm, uv tool) have

@@ -10,8 +10,10 @@ environment: non-root execution, a read-only root filesystem, minimal Linux
 capabilities, and deny-by-default outbound networking.
 
 It uses `python:3.14-slim-trixie` plus Node LTS. OpenCode and its
-`@ai-sdk/openai-compatible` provider adapter are installed from npm into the
-image-owned `/opt/agent-tools/npm` prefix. Python, `uv`, and `uvx` are included
+`@ai-sdk/openai-compatible` provider adapter are installed globally from npm
+(`@opencode/cli`, the package the OpenCode download page documents) onto the
+read-only root filesystem. Profile-managed npm packages remain under
+`/opt/agent-tools/npm`. Python, `uv`, and `uvx` are included
 so OpenCode can run Python-based MCP servers and project tooling without a
 custom derivative image.
 
