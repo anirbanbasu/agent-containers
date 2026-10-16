@@ -94,10 +94,10 @@ docker build -t volume-bridge:$(whoami) agent-images/volume-bridge
 The bridge uses the platform WebDAV client:
 
 - **macOS:** Finder, with no FUSE software required. Choose **Go → Connect to
-  Server**, enter `http://127.0.0.1:16080/`, then log in with the bridge username
-  and password. Eject the server in Finder when finished.
+  Server**, enter `http://127.0.0.1:<port>/` (your `VOLUME_BRIDGE_PORT`), then
+  log in with the bridge username and password. Eject the server in Finder when finished.
 - **Windows:** Start the built-in **WebClient** service, then use File Explorer's
-  **Add a network location** with `http://127.0.0.1:16080/`. Windows refuses
+  **Add a network location** with `http://127.0.0.1:<port>/`. Windows refuses
   HTTP Basic authentication by default. Its client must have
   `HKLM\SYSTEM\CurrentControlSet\Services\WebClient\Parameters\BasicAuthLevel`
   set to `2`, then the WebClient service restarted. This is an administrator
@@ -119,9 +119,25 @@ On a host shared by several accounts, each user runs their own bridge, so the
 image tag, container name, network, state volume, and temporary password file
 below are all suffixed with `$(whoami)`. Otherwise one user's bridge would
 reuse another's state volume (and its password verifier) or fail on a name
-clash. Host port `16080` is still host-wide: a second user running a bridge at
-the same time must publish a different port, for example
-`-p 127.0.0.1:16081:16080`, and use that port in every URL below.
+clash.
+
+The published host port is also host-wide, so two bridges (for example, two
+users' bridges) cannot both use `16080`; the second `docker run` fails with
+"port is already allocated". Choose a free loopback port for your bridge and
+keep it in `VOLUME_BRIDGE_PORT`. The container-internal port stays `16080`;
+only the host side changes. Export the variable in each shell where you run
+the commands below (or in your shell startup file), because the mount commands
+use it too:
+
+```sh
+export VOLUME_BRIDGE_PORT=16080   # change if another process or user holds it
+# Linux:  ss -ltn "sport = :$VOLUME_BRIDGE_PORT"
+# macOS:  lsof -nP -iTCP:"$VOLUME_BRIDGE_PORT" -sTCP:LISTEN
+```
+
+No output from the check means the port is free. Pick a different number
+otherwise; any unused port above `1024` works, and the bridge still publishes
+it on `127.0.0.1` only.
 
 Create a dedicated network and a state volume. The state volume is initialized
 with the image's non-root ownership when it is first mounted; do not
@@ -156,15 +172,16 @@ printf '%s' "$webdav_password" > "/tmp/volume-bridge-password-$(whoami)"
 unset webdav_password
 ```
 
-The following example exports the Claude Code and Codex home volumes. They are
-available below the WebDAV root as `/claude` and `/codex`. The source volume
+The following example exports the Claude Code, Codex, and OpenCode home
+volumes. They are available below the WebDAV root as `/claude`, `/codex`, and
+`/opencode`. The source volume
 names assume the per-user images described in [Using your per-user
 images](../customisation/shell-shortcuts.md#using-your-per-user-images), where
 `CONTAINED_<IMAGE>_TAG=$(whoami)` makes the shell shortcuts mount
-`claude-home-$(whoami)` and `codex-home-$(whoami)`. If you did not set those
-variables, the shortcuts use the shared `claude-home` and `codex-home` volumes
-instead; substitute those names here and in the Decant commands below. The
-export names under `/exports` stay `claude` and `codex` either way, so
+`claude-home-$(whoami)`, `codex-home-$(whoami)`, and
+`opencode-home-$(whoami)`. If you did not set those variables, the shortcuts
+use the shared `claude-home`, `codex-home`, and `opencode-home` volumes instead; substitute those names here and in the Decant commands below. The
+export names under `/exports` stay `claude`, `codex`, and `opencode` either way, so
 WebDAV URLs and host mount paths do not change. The bridge UID/GID
 defaults to `1000:1000`; build with `--build-arg UID=… --build-arg GID=…` when
 the source volume's owner uses different numeric IDs. Workload images such as
@@ -180,7 +197,7 @@ always fail loudly; see
 ```sh
 docker run -d --name "volume-bridge-$(whoami)" \
   --network "volume-bridge-net-$(whoami)" \
-  -p 127.0.0.1:16080:16080 \
+  -p "127.0.0.1:${VOLUME_BRIDGE_PORT}:16080" \
   --security-opt=no-new-privileges \
   --read-only \
   --tmpfs /tmp:rw,noexec,nosuid,nodev \
@@ -190,6 +207,7 @@ docker run -d --name "volume-bridge-$(whoami)" \
   --mount type=volume,src=volume-bridge-state-$(whoami),dst=/state \
   --mount type=volume,src=claude-home-$(whoami),dst=/exports/claude,readonly \
   --mount type=volume,src=codex-home-$(whoami),dst=/exports/codex,readonly \
+  --mount type=volume,src=opencode-home-$(whoami),dst=/exports/opencode,readonly \
   --mount type=bind,src=/tmp/volume-bridge-password-$(whoami),dst=/run/secrets/volume-bridge-password,readonly \
   -e VOLUME_BRIDGE_USERNAME=bridge \
   -e VOLUME_BRIDGE_PASSWORD_FILE=/run/secrets/volume-bridge-password \
@@ -221,9 +239,12 @@ requirements, readers, lifecycle, or isolation needs.
 Authenticate to the base URL, then browse the desired export:
 
 ```text
-http://127.0.0.1:16080/claude/
-http://127.0.0.1:16080/codex/
+http://127.0.0.1:<port>/claude/
+http://127.0.0.1:<port>/codex/
+http://127.0.0.1:<port>/opencode/
 ```
+
+where `<port>` is your `VOLUME_BRIDGE_PORT`.
 
 The username defaults to `bridge`; the example explicitly sets it to that
 value. A read-only client mount is advisable, but the server's `--read-only`
@@ -251,8 +272,8 @@ mean that symlinked paths in an agent home are absent from the view.
 
 Mount the individual WebDAV collections at the paths used by the Decant example
 below. Each command prompts for the `bridge` credentials; do not put the
-password on a command line. Mounting `/claude` and `/codex` separately ensures
-the consumer sees only those collections, rather than the bridge's full export
+password on a command line. Mounting `/claude`, `/codex`, and `/opencode`
+separately ensures the consumer sees only those collections, rather than the bridge's full export
 root.
 
 === "macOS"
@@ -261,11 +282,14 @@ root.
     mount point, unlike the Finder workflow above:
 
     ```sh
-    mkdir -p "$HOME/agent-sessions/claude" "$HOME/agent-sessions/codex"
-    mount_webdav -i -o rdonly http://127.0.0.1:16080/claude/ \
+    mkdir -p "$HOME/agent-sessions/claude" "$HOME/agent-sessions/codex" \
+      "$HOME/agent-sessions/opencode"
+    mount_webdav -i -o rdonly "http://127.0.0.1:${VOLUME_BRIDGE_PORT}/claude/" \
       "$HOME/agent-sessions/claude"
-    mount_webdav -i -o rdonly http://127.0.0.1:16080/codex/ \
+    mount_webdav -i -o rdonly "http://127.0.0.1:${VOLUME_BRIDGE_PORT}/codex/" \
       "$HOME/agent-sessions/codex"
+    mount_webdav -i -o rdonly "http://127.0.0.1:${VOLUME_BRIDGE_PORT}/opencode/" \
+      "$HOME/agent-sessions/opencode"
     ```
 
     Unmount when finished:
@@ -273,6 +297,7 @@ root.
     ```sh
     umount "$HOME/agent-sessions/claude"
     umount "$HOME/agent-sessions/codex"
+    umount "$HOME/agent-sessions/opencode"
     ```
 
 === "Linux"
@@ -282,11 +307,14 @@ root.
     accessible to the invoking user.
 
     ```sh
-    mkdir -p "$HOME/agent-sessions/claude" "$HOME/agent-sessions/codex"
+    mkdir -p "$HOME/agent-sessions/claude" "$HOME/agent-sessions/codex" \
+      "$HOME/agent-sessions/opencode"
     sudo mount -t davfs -o ro,uid="$(id -u)",gid="$(id -g)" \
-      http://127.0.0.1:16080/claude/ "$HOME/agent-sessions/claude"
+      "http://127.0.0.1:${VOLUME_BRIDGE_PORT}/claude/" "$HOME/agent-sessions/claude"
     sudo mount -t davfs -o ro,uid="$(id -u)",gid="$(id -g)" \
-      http://127.0.0.1:16080/codex/ "$HOME/agent-sessions/codex"
+      "http://127.0.0.1:${VOLUME_BRIDGE_PORT}/codex/" "$HOME/agent-sessions/codex"
+    sudo mount -t davfs -o ro,uid="$(id -u)",gid="$(id -g)" \
+      "http://127.0.0.1:${VOLUME_BRIDGE_PORT}/opencode/" "$HOME/agent-sessions/opencode"
     ```
 
     Unmount when finished:
@@ -294,6 +322,7 @@ root.
     ```sh
     sudo umount "$HOME/agent-sessions/claude"
     sudo umount "$HOME/agent-sessions/codex"
+    sudo umount "$HOME/agent-sessions/opencode"
     ```
 
 === "Windows"
@@ -303,11 +332,14 @@ root.
     directory junctions for tools that need paths under the user profile:
 
     ```powershell
-    net use V: http://127.0.0.1:16080/claude/
-    net use W: http://127.0.0.1:16080/codex/
+    $env:VOLUME_BRIDGE_PORT = "16080"   # the port you chose above
+    net use V: "http://127.0.0.1:$env:VOLUME_BRIDGE_PORT/claude/"
+    net use W: "http://127.0.0.1:$env:VOLUME_BRIDGE_PORT/codex/"
+    net use X: "http://127.0.0.1:$env:VOLUME_BRIDGE_PORT/opencode/"
     New-Item -ItemType Directory -Force "$HOME\agent-sessions" | Out-Null
     cmd /c mklink /J "$HOME\agent-sessions\claude" V:\
     cmd /c mklink /J "$HOME\agent-sessions\codex" W:\
+    cmd /c mklink /J "$HOME\agent-sessions\opencode" X:\
     ```
 
     Remove the junctions and drive mappings when finished:
@@ -315,26 +347,30 @@ root.
     ```powershell
     cmd /c rmdir "$HOME\agent-sessions\claude"
     cmd /c rmdir "$HOME\agent-sessions\codex"
+    cmd /c rmdir "$HOME\agent-sessions\opencode"
     net use V: /delete
     net use W: /delete
+    net use X: /delete
     ```
 
 ## A real use-case: Decant
 
 [Decant](https://github.com/dosu-ai/decant) is a local-first analytics tool for
-Claude Code and Codex session logs: it indexes transcripts into a local SQLite
+Claude Code, Codex, and OpenCode session logs (it also reads Gemini CLI logs,
+which this repository has no image for): it indexes transcripts into a local SQLite
 archive and serves a web UI with full-text search, token/cost analytics, and
 file-hotspot tracking, all without sending data off the host. It can run
 natively (via `npx`, an npm global install, or Homebrew) or as a Docker
-container; the Docker form mounts the relevant `.claude`/`.codex` directories
-from ordinary host paths.
+container; the Docker form mounts the relevant `.claude`, `.codex`, and
+`.local/share/opencode` directories from ordinary host paths.
 
 Which setup applies depends on who runs Decant:
 
 - **The Decant operator already has Docker daemon access** — the common case
-  for a local, single-user tool: mount your per-user `claude-home-$(whoami)`/`codex-home-$(whoami)`
-  volumes directly, narrowed to the session-bearing subdirectory with
-  `--mount ...,volume-subpath=.claude` (Docker Engine 25+). No `volume-bridge`
+  for a local, single-user tool: mount your per-user `claude-home-$(whoami)`, `codex-home-$(whoami)`, and
+  `opencode-home-$(whoami)` volumes directly, narrowed to the
+  session-bearing subdirectory with `--mount ...,volume-subpath=.claude`
+  (Docker Engine 25+). No `volume-bridge`
   needed.
 - **The Decant operator must not receive Docker or root access** — a
   teammate, a non-Docker-aware host tool, or any consumer kept out of the
@@ -349,8 +385,8 @@ Decant's own Dockerfile does not hard-code its `999:999` user: it just runs
 `debian:bookworm-slim` layer (Debian's default system-UID range in
 `/etc/login.defs` is `100`–`999`, and `decant` is the first system account
 the image creates). That UID/GID generally won't match
-`claude-home-$(whoami)`/`codex-home-$(whoami)` (commonly the invoking host user's own UID/GID, e.g.
-`1000:1000`). Fix that at the source with a small downstream image that
+`claude-home-$(whoami)`, `codex-home-$(whoami)`, and `opencode-home-$(whoami)`
+(commonly the invoking host user's own UID/GID, e.g. `1000:1000`). Fix that at the source with a small downstream image that
 renumbers Decant's `decant` account, at container start, to whatever UID/GID
 actually owns the mounted volumes, rather than loosening permissions on the
 volumes themselves. Its `/var/lib/decant` SQLite state is re-owned to the
@@ -369,13 +405,15 @@ re-run.
 Save the following as `Dockerfile` and `entrypoint.sh` in an empty directory:
 
 This Decant launch does not carry the workload hardening flags: its entrypoint
-must start as root to renumber the `decant` account, it runs no model, and both
-source mounts are read-only.
+must start as root to renumber the `decant` account, it runs no model, and every
+source mount is read-only.
 
 ```dockerfile
-FROM ghcr.io/dosu-ai/decant:latest@sha256:7f3653ca8d6be7d06c8b1933d2547869588a63bfa95e966e8a0145cc25234bec
+FROM ghcr.io/dosu-ai/decant:latest@sha256:04819377cd3cd96f2c8a555013920294fa819c06a91813b43f982c0f3715e417
 
 USER root
+ENV DECANT_OPENCODE_DIR=/sources/opencode
+ENV OPENCODE_CONFIG_DIR=/sources/opencode-config
 COPY entrypoint.sh /usr/local/bin/decant-entrypoint.sh
 RUN chmod +x /usr/local/bin/decant-entrypoint.sh
 
@@ -396,8 +434,11 @@ elif [ -d /sources/claude ]; then
 elif [ -d /sources/codex ]; then
   uid=$(stat -c '%u' /sources/codex)
   gid=$(stat -c '%g' /sources/codex)
+elif [ -d /sources/opencode ]; then
+  uid=$(stat -c '%u' /sources/opencode)
+  gid=$(stat -c '%g' /sources/opencode)
 else
-  echo "entrypoint: no /sources/claude or /sources/codex mounted, and no DECANT_UID/DECANT_GID set" >&2
+  echo "entrypoint: no /sources/claude, /sources/codex, or /sources/opencode mounted, and no DECANT_UID/DECANT_GID set" >&2
   exit 1
 fi
 
@@ -420,29 +461,66 @@ upstream `debian:bookworm-slim` base, so nothing extra to install — to `exec`
 into the real `decant` binary as that account. That's a true process
 replacement, not a forked wrapper, so PID 1 still receives and handles
 signals normally. No `--build-arg` is needed: the UID/GID are read from
-whichever volumes are mounted at `/sources/claude` or `/sources/codex` when
+whichever volumes are mounted at `/sources/claude`, `/sources/codex`, or
+`/sources/opencode` when
 the container starts, so the same built image works for any operator without
 a rebuild. Set `DECANT_UID`/`DECANT_GID` explicitly to skip auto-detection.
 
 ```sh
+export DECANT_PORT=3000   # change if another process or user holds it
 docker build -t decant-matched:$(whoami) .
 ```
 
 ```sh
 docker run -d --name "decant-$(whoami)" \
-  -p 127.0.0.1:3000:3000 \
+  -p "127.0.0.1:${DECANT_PORT}:3000" \
   -v decant-data-$(whoami):/var/lib/decant \
   --mount type=volume,source=claude-home-$(whoami),target=/sources/claude,readonly,volume-subpath=.claude \
   --mount type=volume,source=codex-home-$(whoami),target=/sources/codex,readonly,volume-subpath=.codex \
+  --mount type=volume,source=opencode-home-$(whoami),target=/sources/opencode,readonly,volume-subpath=.local/share/opencode \
+  --mount type=volume,source=opencode-home-$(whoami),target=/sources/opencode-config,readonly,volume-subpath=.config/opencode \
   decant-matched:$(whoami)
 ```
 
 The image tag, container name, and `decant-data-$(whoami)` state volume are
 per-user for the same reason as the home volumes: on a host shared by several
 accounts, a single `decant-data` volume would mix users' indexed transcripts,
-and a shared image tag would overwrite another user's build. Host port `3000`
-is still host-wide, so a second user running Decant at the same time must
-publish a different one, for example `-p 127.0.0.1:3001:3000`.
+and a shared image tag would overwrite another user's build. That
+leaves the published host port. It is host-wide, and `3000` is also a common
+default for other local development servers, so a second Decant (for example
+another user's) or an unrelated service can already hold it. Choose a free
+loopback port and keep it in `DECANT_PORT`; the container-internal port stays
+`3000`, and the web UI is then at `http://127.0.0.1:${DECANT_PORT}/`. Check it
+the same way as the bridge port above.
+
+OpenCode needs extra setup that the Claude Code and Codex mounts do not. First, the
+Decant image presets `DECANT_CLAUDE_DIR`, `DECANT_CODEX_DIR`, and
+`DECANT_GEMINI_DIR`, but not an OpenCode directory, so the `Dockerfile` above
+sets `DECANT_OPENCODE_DIR=/sources/opencode` (the `--opencode-dir` flag is the
+equivalent). Second, OpenCode keeps its session databases (`opencode.db` and
+`opencode-<channel>.db`) in `~/.local/share/opencode`, so the volume is
+narrowed with `volume-subpath=.local/share/opencode`, not a dot-directory
+like `.claude`. Decant opens those databases read-only and never writes to
+them. It supports OpenCode 1.2 and later, including the 2.x storage layout.
+Decant also reads OpenCode's `opencode.json`/`opencode.jsonc` to
+recognise MCP tool calls by server name. That config is in
+`~/.config/opencode` in the same volume, so it is a second read-only mount at
+`/sources/opencode-config` with `volume-subpath=.config/opencode`, and the
+`Dockerfile` sets `OPENCODE_CONFIG_DIR=/sources/opencode-config` so Decant
+finds it. Decant reads only the server names, but the file itself can hold
+provider API keys and MCP server headers or environment values, so treat this
+mount like the rest of the exported home. Project-level `opencode.json` files
+(and `.opencode/` directories) live in the workspaces, which Decant does not
+mount, so only the global config contributes to attribution. If you also run
+Decant natively, use the same `OPENCODE_CONFIG`/`DECANT_OPENCODE_CONFIG`
+values for `sync`, `watch`, and `serve`; otherwise each switch re-derives
+those sessions.
+
+The SQLite read-only open against a `readonly` volume mount has not been tested here.
+
+Support for OpenCode requires a Decant release newer than the one this page
+previously pinned (the earlier digest's `serve --help` has no
+`--opencode-dir`). The digest used above is Decant 0.11.0.
 
 This is also the option that has tested best: Decant's sync and in-UI update
 both work reliably against the named volumes directly, which was not
@@ -450,7 +528,7 @@ consistently true of the WebDAV-mounted host paths below.
 
 !!! note "If `claude-home` and `codex-home` have different owners"
 
-    The entrypoint above assumes both volumes share one UID/GID pair — the
+    The entrypoint above assumes all the mounted volumes share one UID/GID pair — the
     common case for a single operator's own agent homes. `decant` is one
     account, so it can only be renumbered to match one owner; if the two
     volumes are genuinely owned by different UID/GID pairs, renumbering to
@@ -479,41 +557,35 @@ consistently true of the WebDAV-mounted host paths below.
 
 Mount the relevant session-bearing exports on the host first. Decant expects
 the whole `.claude` directory (it resolves `projects` beneath it itself, so do
-not point it at `.claude/projects`) and the whole `.codex` directory. Bind the
+not point it at `.claude/projects`), the whole `.codex` directory, and the
+OpenCode data and config directories, `.local/share/opencode` and
+`.config/opencode`. Bind the
 *host WebDAV paths* mounted above into Decant, not the original named volumes:
 
 ```sh
+export DECANT_PORT=3000   # change if another process or user holds it
 docker run --rm \
-  -p 127.0.0.1:3000:3000 \
+  -p "127.0.0.1:${DECANT_PORT}:3000" \
   -v decant-data-$(whoami):/var/lib/decant \
   -v "$HOME/agent-sessions/claude/.claude:/sources/claude:ro" \
   -v "$HOME/agent-sessions/codex/.codex:/sources/codex:ro" \
-  ghcr.io/dosu-ai/decant:latest@sha256:7f3653ca8d6be7d06c8b1933d2547869588a63bfa95e966e8a0145cc25234bec
+  -v "$HOME/agent-sessions/opencode/.local/share/opencode:/sources/opencode:ro" \
+  -v "$HOME/agent-sessions/opencode/.config/opencode:/sources/opencode-config:ro" \
+  -e DECANT_OPENCODE_DIR=/sources/opencode \
+  -e OPENCODE_CONFIG_DIR=/sources/opencode-config \
+  ghcr.io/dosu-ai/decant:latest@sha256:04819377cd3cd96f2c8a555013920294fa819c06a91813b43f982c0f3715e417
 ```
 
-The preceding commands create the `$HOME/agent-sessions/claude` and
-`$HOME/agent-sessions/codex` mount paths. A containerized consumer needs
+The preceding commands create the `$HOME/agent-sessions/claude`,
+`$HOME/agent-sessions/codex`, and `$HOME/agent-sessions/opencode` mount paths. A containerized consumer needs
 access to those paths through Docker Desktop's sharing mechanism.
 
-!!! note "Earlier testing notes"
-
-    Mounting `claude-home`/`codex-home` directly, narrowed with
-    `--mount ...,volume-subpath=.claude`, first failed Decant's sync outright.
-    That turned out to be a UID mismatch between Decant's fixed `999:999` user
-    and the volumes' `1000:1000` ownership, not a limitation of
-    `volume-subpath` mounts themselves — the downstream image above resolves
-    it by renumbering Decant's account instead, which is why the direct-mount
-    option is now recommended when the operator already has Docker access.
-    An earlier revision of this doc used a one-time `chmod -R o+rX` on the
-    source volumes instead; that worked for existing files but silently
-    stopped covering directories created after the `chmod` ran (e.g. a new
-    `~/.claude/sessions` entry on a later Claude Code startup), so it was
-    replaced with the account-renumbering approach above.
+!!! note "Running Decant natively is not recommended here"
 
     Running Decant natively (`npx @dosu/decant@latest serve --claude-dir ...
-    --codex-dir ...`) against the WebDAV-mounted host paths avoids Docker
-    entirely, but on Linux took an impractically long time to sync and load
-    the web UI.
+    --codex-dir ... --opencode-dir ...`) against the WebDAV-mounted host paths
+    avoids Docker entirely, but on Linux took an impractically long time to
+    sync and load the web UI.
 
 ## Password rotation and troubleshooting
 
@@ -545,7 +617,7 @@ access to those paths through Docker Desktop's sharing mechanism.
     find /data -not -user <bridge-uid> -o -not -group <bridge-gid>
   ```
   Any output identifies files the bridge user can't read. A raw `curl -u
-  bridge -X PROPFIND -H "Depth: 1" http://127.0.0.1:16080/<export>/` bypasses
+  bridge -X PROPFIND -H "Depth: 1" http://127.0.0.1:${VOLUME_BRIDGE_PORT}/<export>/` bypasses
   the client entirely and helps confirm whether the response looks truncated
   before rebuilding the image with matching `UID`/`GID` build args.
 - If Windows does not show a credentials prompt, check that WebClient is running
