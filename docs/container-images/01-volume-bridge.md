@@ -149,7 +149,15 @@ unset webdav_password
 ```
 
 The following example exports the Claude Code and Codex home volumes. They are
-available below the WebDAV root as `/claude` and `/codex`. The bridge UID/GID
+available below the WebDAV root as `/claude` and `/codex`. The source volume
+names assume the per-user images described in [Using your per-user
+images](../customisation/shell-shortcuts.md#using-your-per-user-images), where
+`CONTAINED_<IMAGE>_TAG=$(whoami)` makes the shell shortcuts mount
+`claude-home-$(whoami)` and `codex-home-$(whoami)`. If you did not set those
+variables, the shortcuts use the shared `claude-home` and `codex-home` volumes
+instead; substitute those names here and in the Decant commands below. The
+export names under `/exports` stay `claude` and `codex` either way, so
+WebDAV URLs and host mount paths do not change. The bridge UID/GID
 defaults to `1000:1000`; build with `--build-arg UID=… --build-arg GID=…` when
 the source volume's owner uses different numeric IDs. Workload images such as
 `claude-code` are normally themselves built with
@@ -172,8 +180,8 @@ docker run -d --name volume-bridge \
   --cap-drop=ALL \
   --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
   --mount type=volume,src=volume-bridge-state,dst=/state \
-  --mount type=volume,src=claude-home,dst=/exports/claude,readonly \
-  --mount type=volume,src=codex-home,dst=/exports/codex,readonly \
+  --mount type=volume,src=claude-home-$(whoami),dst=/exports/claude,readonly \
+  --mount type=volume,src=codex-home-$(whoami),dst=/exports/codex,readonly \
   --mount type=bind,src=/tmp/volume-bridge-password,dst=/run/secrets/volume-bridge-password,readonly \
   -e VOLUME_BRIDGE_USERNAME=bridge \
   -e VOLUME_BRIDGE_PASSWORD_FILE=/run/secrets/volume-bridge-password \
@@ -316,8 +324,8 @@ from ordinary host paths.
 Which setup applies depends on who runs Decant:
 
 - **The Decant operator already has Docker daemon access** — the common case
-  for a local, single-user tool: mount `claude-home`/`codex-home` directly,
-  narrowed to the session-bearing subdirectory with
+  for a local, single-user tool: mount your per-user `claude-home-$(whoami)`/`codex-home-$(whoami)`
+  volumes directly, narrowed to the session-bearing subdirectory with
   `--mount ...,volume-subpath=.claude` (Docker Engine 25+). No `volume-bridge`
   needed.
 - **The Decant operator must not receive Docker or root access** — a
@@ -332,8 +340,8 @@ Decant's own Dockerfile does not hard-code its `999:999` user: it just runs
 `useradd --system`, and `999` is where that lands on top of a fresh
 `debian:bookworm-slim` layer (Debian's default system-UID range in
 `/etc/login.defs` is `100`–`999`, and `decant` is the first system account
-the image creates). That UID/GID generally won't match `claude-home`/
-`codex-home` (commonly the invoking host user's own UID/GID, e.g.
+the image creates). That UID/GID generally won't match
+`claude-home-$(whoami)`/`codex-home-$(whoami)` (commonly the invoking host user's own UID/GID, e.g.
 `1000:1000`). Fix that at the source with a small downstream image that
 renumbers Decant's `decant` account, at container start, to whatever UID/GID
 actually owns the mounted volumes, rather than loosening permissions on the
@@ -416,8 +424,8 @@ docker build -t decant-matched:local .
 docker run -d \
   -p 127.0.0.1:3000:3000 \
   -v decant-data:/var/lib/decant \
-  --mount type=volume,source=claude-home,target=/sources/claude,readonly,volume-subpath=.claude \
-  --mount type=volume,source=codex-home,target=/sources/codex,readonly,volume-subpath=.codex \
+  --mount type=volume,source=claude-home-$(whoami),target=/sources/claude,readonly,volume-subpath=.claude \
+  --mount type=volume,source=codex-home-$(whoami),target=/sources/codex,readonly,volume-subpath=.codex \
   decant-matched:local
 ```
 
@@ -438,7 +446,7 @@ consistently true of the WebDAV-mounted host paths below.
     `codex-home` is the mismatched one):
 
     ```sh
-    docker run --rm -v codex-home:/vol debian:bookworm-slim \
+    docker run --rm -v codex-home-$(whoami):/vol debian:bookworm-slim \
       sh -c 'apt-get update -qq && apt-get install -qq -y acl >/dev/null &&
              setfacl -R -d -m u:<claude-home-uid>:rX -m u:<claude-home-uid>:rX /vol'
     ```
