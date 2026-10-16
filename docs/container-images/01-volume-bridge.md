@@ -88,7 +88,7 @@ inconsistent status code, not a gap in the read-only enforcement itself.
 Build the image:
 
 ```sh
-docker build -t volume-bridge:local agent-images/volume-bridge
+docker build -t volume-bridge:$(whoami) agent-images/volume-bridge
 ```
 
 The bridge uses the platform WebDAV client:
@@ -115,13 +115,21 @@ consumer such as Decant.
 
 ## Start one bridge
 
+On a host shared by several accounts, each user runs their own bridge, so the
+image tag, container name, network, state volume, and temporary password file
+below are all suffixed with `$(whoami)`. Otherwise one user's bridge would
+reuse another's state volume (and its password verifier) or fail on a name
+clash. Host port `16080` is still host-wide: a second user running a bridge at
+the same time must publish a different port, for example
+`-p 127.0.0.1:16081:16080`, and use that port in every URL below.
+
 Create a dedicated network and a state volume. The state volume is initialized
 with the image's non-root ownership when it is first mounted; do not
 pre-populate it using a root-owned helper container.
 
 ```sh
-docker network create volume-bridge-net
-docker volume create volume-bridge-state
+docker network create volume-bridge-net-$(whoami)
+docker volume create volume-bridge-state-$(whoami)
 ```
 
 Choose a strong, unique password. The password is used only to create (or
@@ -144,7 +152,7 @@ umask 077
 printf 'WebDAV password: ' >&2
 IFS= read -r -s webdav_password
 printf '\n' >&2
-printf '%s' "$webdav_password" > /tmp/volume-bridge-password
+printf '%s' "$webdav_password" > "/tmp/volume-bridge-password-$(whoami)"
 unset webdav_password
 ```
 
@@ -170,8 +178,8 @@ always fail loudly; see
 [Password rotation and troubleshooting](#password-rotation-and-troubleshooting).
 
 ```sh
-docker run -d --name volume-bridge \
-  --network volume-bridge-net \
+docker run -d --name "volume-bridge-$(whoami)" \
+  --network "volume-bridge-net-$(whoami)" \
   -p 127.0.0.1:16080:16080 \
   --security-opt=no-new-privileges \
   --read-only \
@@ -179,14 +187,14 @@ docker run -d --name volume-bridge \
   --tmpfs /run:rw,noexec,nosuid,nodev \
   --cap-drop=ALL \
   --cap-add=NET_ADMIN --cap-add=NET_RAW --cap-add=SETUID --cap-add=SETGID \
-  --mount type=volume,src=volume-bridge-state,dst=/state \
+  --mount type=volume,src=volume-bridge-state-$(whoami),dst=/state \
   --mount type=volume,src=claude-home-$(whoami),dst=/exports/claude,readonly \
   --mount type=volume,src=codex-home-$(whoami),dst=/exports/codex,readonly \
-  --mount type=bind,src=/tmp/volume-bridge-password,dst=/run/secrets/volume-bridge-password,readonly \
+  --mount type=bind,src=/tmp/volume-bridge-password-$(whoami),dst=/run/secrets/volume-bridge-password,readonly \
   -e VOLUME_BRIDGE_USERNAME=bridge \
   -e VOLUME_BRIDGE_PASSWORD_FILE=/run/secrets/volume-bridge-password \
-  volume-bridge:local
-rm -f /tmp/volume-bridge-password
+  volume-bridge:$(whoami)
+rm -f "/tmp/volume-bridge-password-$(whoami)"
 ```
 
 | Capability | Why it's needed |
@@ -417,17 +425,24 @@ the container starts, so the same built image works for any operator without
 a rebuild. Set `DECANT_UID`/`DECANT_GID` explicitly to skip auto-detection.
 
 ```sh
-docker build -t decant-matched:local .
+docker build -t decant-matched:$(whoami) .
 ```
 
 ```sh
-docker run -d \
+docker run -d --name "decant-$(whoami)" \
   -p 127.0.0.1:3000:3000 \
-  -v decant-data:/var/lib/decant \
+  -v decant-data-$(whoami):/var/lib/decant \
   --mount type=volume,source=claude-home-$(whoami),target=/sources/claude,readonly,volume-subpath=.claude \
   --mount type=volume,source=codex-home-$(whoami),target=/sources/codex,readonly,volume-subpath=.codex \
-  decant-matched:local
+  decant-matched:$(whoami)
 ```
+
+The image tag, container name, and `decant-data-$(whoami)` state volume are
+per-user for the same reason as the home volumes: on a host shared by several
+accounts, a single `decant-data` volume would mix users' indexed transcripts,
+and a shared image tag would overwrite another user's build. Host port `3000`
+is still host-wide, so a second user running Decant at the same time must
+publish a different one, for example `-p 127.0.0.1:3001:3000`.
 
 This is also the option that has tested best: Decant's sync and in-UI update
 both work reliably against the named volumes directly, which was not
@@ -470,7 +485,7 @@ not point it at `.claude/projects`) and the whole `.codex` directory. Bind the
 ```sh
 docker run --rm \
   -p 127.0.0.1:3000:3000 \
-  -v decant-data:/var/lib/decant \
+  -v decant-data-$(whoami):/var/lib/decant \
   -v "$HOME/agent-sessions/claude/.claude:/sources/claude:ro" \
   -v "$HOME/agent-sessions/codex/.codex:/sources/codex:ro" \
   ghcr.io/dosu-ai/decant:latest@sha256:7f3653ca8d6be7d06c8b1933d2547869588a63bfa95e966e8a0145cc25234bec
@@ -508,7 +523,7 @@ access to those paths through Docker Desktop's sharing mechanism.
   supports one reader account; use separate bridges for distinct readers or
   manage a multi-user `htpasswd` file through a trusted Docker-administration
   process.
-- Keep `volume-bridge-state`. Deleting it removes the password verifier and
+- Keep `volume-bridge-state-$(whoami)`. Deleting it removes the password verifier and
   makes `VOLUME_BRIDGE_PASSWORD`/`VOLUME_BRIDGE_PASSWORD_FILE` mandatory on the
   next start.
 - If startup says `/state` is not writable, use a newly created state volume or
