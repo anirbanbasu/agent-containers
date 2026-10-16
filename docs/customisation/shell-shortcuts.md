@@ -330,24 +330,57 @@ CLI command required after the image name.
 contained_codex login --device-auth
 ```
 
+## Using your per-user images
+
 Each function defaults to the `:latest` tag (e.g. `adal:latest`), matching a
 plain `docker build -t adal agent-images/adal` with no `--build-arg
 UID`/`GID` override — the common single-user-per-host case needs no further
-configuration. On a host shared by multiple accounts where each user built
-their own UID-matched tag (see [Matching your host user's
-UID/GID](../container-images/claude-code.md#matching-your-host-users-uidgid)),
-set the matching `CONTAINED_<IMAGE>_TAG` variable (e.g.
-`CONTAINED_ADAL_TAG=alice`) in that user's own shell profile before sourcing
-`shortcuts.sh`. For the seven workload images built from the shared
-UID/GID template (every function above except `contained_hermes`), setting
-that variable changes two things together: the function runs the matching
-`adal:alice` instead of whatever happens to be tagged `adal:latest`, *and*
-it mounts a per-user home volume (`adal-home-alice` instead of the shared
-`adal-home`) — each affected function suffixes its home volume's name with
-the same tag, so two UID-tagged images on the same host never collide over
-one account's persistent state. `hermes` has no build-time UID/GID and
-always keeps the single shared `hermes-data` volume regardless of
-`CONTAINED_HERMES_TAG`.
+configuration.
+
+On a host shared by multiple accounts, each user builds their own image tagged
+with their username, as shown on the image pages (see [Matching your host
+user's
+UID/GID](../container-images/claude-code.md#matching-your-host-users-uidgid)):
+
+```sh
+docker build --build-context shared=agent-images/shared \
+  --build-arg UID=$(id -u) --build-arg GID=$(id -g) \
+  -t claude-code:$(whoami) agent-images/claude-code
+```
+
+Then tell the shortcuts to use that tag. Set the tag variables in your own
+shell startup file, **before** the `source` line. This loop sets all of them
+from one place; list only the images you built:
+
+```sh
+for agent in ADAL AIDER CLAUDE CODEX KILO OPENCODE QWEN; do
+  export "CONTAINED_${agent}_TAG=$(whoami)"
+done
+source "$HOME/.config/agent-containers/shortcuts.sh"
+```
+
+For the seven workload images built from the shared UID/GID template (every
+function above except `contained_hermes`), setting `CONTAINED_<IMAGE>_TAG`
+changes two things together: the function runs the matching `adal:alice`
+instead of whatever happens to be tagged `adal:latest`, *and* it mounts a
+per-user home volume (`adal-home-alice` instead of the shared `adal-home`).
+Each affected function suffixes its home volume's name with the same tag, so
+two per-user images on the same host never collide over one account's
+persistent state. `contained_claude` therefore only touches your own image and
+volume, and remains safe to call from your own account.
+
+!!! warning "Set the tag for every image you built per user"
+
+    If you build `claude-code:<you>` but do not set `CONTAINED_CLAUDE_TAG`,
+    `contained_claude` silently falls back to `claude-code:latest` and the
+    shared `claude-home` volume. That is either another account's image and
+    state or a "No such image" error. The value must equal the tag you built,
+    so a custom tag needs a matching custom variable instead of `$(whoami)`.
+    `$(whoami)` is evaluated each time the shell starts.
+
+`hermes` has no build-time UID/GID and always keeps the single shared
+`hermes-data` volume regardless of `CONTAINED_HERMES_TAG`, so leave it out of
+the loop.
 
 The functions deliberately do not set unrestricted egress. Override a
 specific image's `CONTAINED_<IMAGE>_EGRESS` variable only with the hosts its
